@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f3ede3;
+  --foreground: #1d1712;
+  --shell: rgba(244, 236, 225, 0.92);
+  --shell-border: rgba(74, 55, 35, 0.12);
+  --panel: rgba(255, 250, 243, 0.9);
+  --panel-border: rgba(74, 55, 35, 0.1);
+  --panel-strong: #f8f1e7;
+  --muted: #6f6255;
+  --accent: #c96b2c;
+  --accent-strong: #8f4314;
+  --accent-soft: rgba(201, 107, 44, 0.12);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-shell: var(--shell);
+  --color-shell-border: var(--shell-border);
+  --color-panel: var(--panel);
+  --color-panel-border: var(--panel-border);
+  --color-panel-strong: var(--panel-strong);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #1a1410;
+    --foreground: #f9eedf;
+    --shell: rgba(30, 23, 18, 0.94);
+    --shell-border: rgba(255, 222, 190, 0.08);
+    --panel: rgba(38, 29, 23, 0.9);
+    --panel-border: rgba(255, 222, 190, 0.08);
+    --panel-strong: #2a201a;
+    --muted: #b8aa9b;
+    --accent: #f29c63;
+    --accent-strong: #ffd2aa;
+    --accent-soft: rgba(242, 156, 99, 0.16);
+  }
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, white);
+}
