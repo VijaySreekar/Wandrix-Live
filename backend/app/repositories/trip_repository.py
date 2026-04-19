@@ -29,6 +29,19 @@ def create_trip(
     return trip
 
 
+def update_trip_title(
+    db: Session,
+    trip: TripModel,
+    *,
+    title: str,
+) -> TripModel:
+    trip.title = title
+    db.add(trip)
+    db.commit()
+    db.refresh(trip)
+    return trip
+
+
 def get_trip_for_user(db: Session, trip_id: str, user_id: str) -> TripModel | None:
     statement = select(TripModel).where(
         TripModel.id == trip_id,

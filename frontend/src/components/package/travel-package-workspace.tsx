@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { TravelPlannerAssistant } from "@/components/assistant/travel-planner-assistant";
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
@@ -9,7 +9,21 @@ import { useChatSidebarCollapsedState } from "@/components/chat/use-chat-sidebar
 import { TripBoardPreview } from "@/components/package/trip-board-preview";
 import { createBrowserSession } from "@/lib/api/browser-sessions";
 import { createTrip, getTrip, getTripDraft, listTrips } from "@/lib/api/trips";
+import {
+  toBrowserAuthSnapshot,
+  type BrowserAuthSnapshot,
+} from "@/lib/supabase/auth-snapshot";
+import {
+  buildEphemeralWorkspace,
+  buildStarterTripDraft,
+} from "@/lib/trip-draft-starter";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  getRecentTripsCacheKey,
+  readRecentTripsCache,
+  writeRecentTripsCache,
+} from "@/lib/recent-trips-cache";
+import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type { BrowserSessionCreateResponse } from "@/types/browser-session";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { TripListItemResponse } from "@/types/trip";
@@ -24,21 +38,52 @@ const WORKSPACE_BOOTSTRAP_TIMEOUT_MS = 12000;
 
 
 export function TravelPackageWorkspace() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const newChatNonce = searchParams.get("new");
   const selectedTripId = searchParams.get("trip");
   const [workspace, setWorkspace] = useState<PlannerWorkspaceState | null>(null);
   const [recentTrips, setRecentTrips] = useState<TripListItemResponse[]>([]);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isCreatingTrip, setIsCreatingTrip] = useState(false);
+  const [pendingBoardAction, setPendingBoardAction] =
+    useState<PlannerBoardActionIntent | null>(null);
+  const [recentTripsCacheKey, setRecentTripsCacheKey] = useState<string | null>(null);
+  const [authSnapshot, setAuthSnapshot] = useState<BrowserAuthSnapshot | null>(null);
+  const [pendingTripId, setPendingTripId] = useState<string | null>(null);
+  const [freshTripIds, setFreshTripIds] = useState<string[]>([]);
+  const activeTripId = pendingTripId ?? selectedTripId ?? workspace?.trip.trip_id ?? null;
+  const workspaceTripIdRef = useRef<string | null>(null);
   const { isSidebarCollapsed, setIsSidebarCollapsed } =
     useChatSidebarCollapsedState();
+
+  useEffect(() => {
+    workspaceTripIdRef.current = workspace?.trip.trip_id ?? null;
+  }, [workspace?.trip.trip_id]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function bootstrapWorkspace() {
-      setWorkspace(null);
+      if (!selectedTripId && pendingTripId && workspaceTripIdRef.current === pendingTripId) {
+        setWorkspaceError(null);
+        setIsBootstrapping(false);
+        return;
+      }
+
+      if (!selectedTripId && workspace?.isEphemeral) {
+        setWorkspaceError(null);
+        setIsBootstrapping(false);
+        return;
+      }
+
+      if (selectedTripId && workspaceTripIdRef.current === selectedTripId) {
+        setWorkspaceError(null);
+        setIsBootstrapping(false);
+        return;
+      }
+
       setIsBootstrapping(true);
       setWorkspaceError(null);
 
@@ -53,28 +98,38 @@ export function TravelPackageWorkspace() {
           throw new Error("Could not read the Supabase session for this workspace.");
         }
 
-        if (!session?.access_token) {
+        const nextAuthSnapshot = toBrowserAuthSnapshot(session);
+        setAuthSnapshot(nextAuthSnapshot);
+
+        if (!nextAuthSnapshot) {
           throw new Error("Sign in to start a persisted trip workspace.");
         }
 
+        const cacheKey = getRecentTripsCacheKey(nextAuthSnapshot.userId);
+        setRecentTripsCacheKey(cacheKey);
+
+        const cachedTrips = readRecentTripsCache(cacheKey);
+        if (!cancelled && cachedTrips.length > 0) {
+          setRecentTrips(cachedTrips);
+        }
+
         const rememberedTripId =
-          newChatNonce || selectedTripId ? null : readLastActiveTripId();
-        const forceNewTrip = Boolean(newChatNonce);
-        const initialTripList = forceNewTrip
-          ? { items: [] }
-          : await loadInitialTripList(session.access_token);
+          selectedTripId ? null : readLastActiveTripId();
+        const seedTrips =
+          cachedTrips.length > 0
+            ? cachedTrips
+            : (await loadInitialTripList(nextAuthSnapshot.accessToken)).items;
 
         if (!cancelled) {
-          setRecentTrips(initialTripList.items);
+          setRecentTrips(seedTrips);
         }
 
         const bootResult = await withAbortableTimeout(
           (signal) =>
-            createWorkspace(session.access_token, {
+            createWorkspace(nextAuthSnapshot.accessToken, {
               selectedTripId,
               rememberedTripId,
-              forceNewTrip,
-              recentTrips: initialTripList.items,
+              recentTrips: seedTrips,
               signal,
             }),
           WORKSPACE_BOOTSTRAP_TIMEOUT_MS,
@@ -85,13 +140,17 @@ export function TravelPackageWorkspace() {
           setWorkspace(bootResult.workspace);
           setRecentTrips(
             mergeRecentTripsWithWorkspace(
-              initialTripList.items,
+              seedTrips,
               bootResult.workspace,
             ),
           );
         }
 
-        void refreshRecentTrips(session.access_token, () => cancelled, setRecentTrips);
+        void refreshRecentTrips(
+          nextAuthSnapshot.accessToken,
+          () => cancelled,
+          setRecentTrips,
+        );
       } catch (caughtError) {
         if (!cancelled) {
           setWorkspaceError(
@@ -112,16 +171,24 @@ export function TravelPackageWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [newChatNonce, selectedTripId]);
+  }, [pendingTripId, selectedTripId, workspace?.isEphemeral]);
 
   useEffect(() => {
-    if (!workspace?.trip.trip_id) {
+    if (!recentTripsCacheKey) {
+      return;
+    }
+
+    writeRecentTripsCache(recentTripsCacheKey, recentTrips);
+  }, [recentTrips, recentTripsCacheKey]);
+
+  useEffect(() => {
+    if (!workspace?.trip.trip_id || workspace.isEphemeral) {
       window.localStorage.removeItem(LAST_ACTIVE_TRIP_STORAGE_KEY);
       return;
     }
 
     window.localStorage.setItem(LAST_ACTIVE_TRIP_STORAGE_KEY, workspace.trip.trip_id);
-  }, [workspace?.trip.trip_id]);
+  }, [workspace?.isEphemeral, workspace?.trip.trip_id]);
 
   function handleDraftUpdated(nextDraft: PlannerWorkspaceState["tripDraft"]) {
     setWorkspace((current) => {
@@ -129,20 +196,120 @@ export function TravelPackageWorkspace() {
         return current;
       }
 
-      return {
+      const nextWorkspace = {
         ...current,
+        trip: {
+          ...current.trip,
+          title: nextDraft.title,
+        },
         tripDraft: nextDraft,
       };
-    });
 
-    setRecentTrips((currentTrips) =>
-      workspace
-        ? mergeRecentTripsWithWorkspace(currentTrips, {
-            ...workspace,
-            tripDraft: nextDraft,
-          })
-        : currentTrips,
+      setRecentTrips((currentTrips) =>
+        nextWorkspace.isEphemeral
+          ? currentTrips
+          : mergeRecentTripsWithWorkspace(currentTrips, nextWorkspace),
+      );
+
+      return nextWorkspace;
+    });
+  }
+
+  async function ensurePersistedTrip() {
+    if (!workspace) {
+      return null;
+    }
+
+    if (!workspace.isEphemeral) {
+      return workspace;
+    }
+
+    const nextAuthSnapshot = await resolveWorkspaceAuthSnapshot(
+      authSnapshot,
+      setAuthSnapshot,
     );
+
+    if (!nextAuthSnapshot) {
+      throw new Error("Sign in to start a persisted trip workspace.");
+    }
+
+    let browserSession = workspace.browserSession;
+    if (
+      !browserSession.browser_session_id ||
+      browserSession.browser_session_id.startsWith("draft_browser_session_")
+    ) {
+      browserSession = await ensureBrowserSession(nextAuthSnapshot.accessToken);
+    }
+
+    const trip = await createTrip(
+      { browser_session_id: browserSession.browser_session_id },
+      nextAuthSnapshot.accessToken,
+    );
+    const nextWorkspace: PlannerWorkspaceState = {
+      isEphemeral: false,
+      browserSession,
+      trip,
+      tripDraft: buildStarterTripDraft(trip),
+    };
+
+    return nextWorkspace;
+  }
+
+  function activatePersistedTrip(nextWorkspace: PlannerWorkspaceState) {
+    setPendingTripId(nextWorkspace.trip.trip_id);
+    setFreshTripIds((current) =>
+      current.includes(nextWorkspace.trip.trip_id)
+        ? current
+        : [nextWorkspace.trip.trip_id, ...current],
+    );
+    setWorkspace(nextWorkspace);
+    setRecentTrips((currentTrips) =>
+      mergeRecentTripsWithWorkspace(currentTrips, nextWorkspace),
+    );
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("trip", nextWorkspace.trip.trip_id);
+    nextParams.delete("new");
+    const nextQuery = nextParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, {
+      scroll: false,
+    });
+  }
+
+  async function handleCreateTrip() {
+    if (isCreatingTrip) {
+      return;
+    }
+
+    setIsCreatingTrip(true);
+    setWorkspaceError(null);
+
+    try {
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("trip");
+      nextParams.delete("new");
+      const nextQuery = nextParams.toString();
+      const storedBrowserSessionId = window.sessionStorage.getItem(
+        BROWSER_SESSION_STORAGE_KEY,
+      );
+      const nextWorkspace = buildEphemeralWorkspace(storedBrowserSessionId);
+
+      setPendingTripId(null);
+      setWorkspace(nextWorkspace);
+      router.replace(
+        nextQuery ? `${pathname}?${nextQuery}` : pathname,
+        { scroll: false },
+      );
+    } catch (caughtError) {
+      setPendingTripId(null);
+      setWorkspaceError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Could not start a new trip.",
+      );
+    } finally {
+      setIsCreatingTrip(false);
+    }
   }
 
   return (
@@ -155,17 +322,35 @@ export function TravelPackageWorkspace() {
       ].join(" ")}
     >
       <ChatSidebar
+        activeTripId={activeTripId}
         collapsed={isSidebarCollapsed}
+        onSelectTrip={() => setPendingTripId(null)}
         onToggleCollapsed={() => setIsSidebarCollapsed((current) => !current)}
+        onCreateTrip={handleCreateTrip}
+        isCreatingTrip={isCreatingTrip}
         workspace={workspace}
         recentTrips={recentTrips}
       />
 
       <div className="min-h-0 border-r border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)]">
         <TravelPlannerAssistant
+          activeTripId={activeTripId}
+          authSnapshot={authSnapshot}
+          skipInitialHistorySync={Boolean(
+            (activeTripId && freshTripIds.includes(activeTripId)) ||
+              workspace?.isEphemeral,
+          )}
+          onEnsurePersistedTrip={ensurePersistedTrip}
+          onActivatePersistedTrip={activatePersistedTrip}
           workspace={workspace}
           isBootstrapping={isBootstrapping}
           workspaceError={workspaceError}
+          pendingBoardAction={pendingBoardAction}
+          onBoardActionHandled={(actionId) =>
+            setPendingBoardAction((current) =>
+              current?.action_id === actionId ? null : current,
+            )
+          }
           onDraftUpdated={handleDraftUpdated}
         />
       </div>
@@ -173,11 +358,36 @@ export function TravelPackageWorkspace() {
       <div className="min-h-0 bg-shell">
         <TripBoardPreview
           workspace={workspace}
-          isBootstrapping={isBootstrapping}
+          isBootstrapping={isBootstrapping || (Boolean(activeTripId) && workspace?.trip.trip_id !== activeTripId)}
+          onAction={setPendingBoardAction}
         />
       </div>
     </section>
   );
+}
+
+
+async function resolveWorkspaceAuthSnapshot(
+  currentSnapshot: BrowserAuthSnapshot | null,
+  setAuthSnapshot: Dispatch<SetStateAction<BrowserAuthSnapshot | null>>,
+) {
+  if (currentSnapshot) {
+    return currentSnapshot;
+  }
+
+  const supabase = createSupabaseBrowserClient();
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError) {
+    throw new Error("Could not read the Supabase session for this workspace.");
+  }
+
+  const nextSnapshot = toBrowserAuthSnapshot(session);
+  setAuthSnapshot(nextSnapshot);
+  return nextSnapshot;
 }
 
 
@@ -186,7 +396,6 @@ async function createWorkspace(
   options: {
     selectedTripId: string | null;
     rememberedTripId: string | null;
-    forceNewTrip: boolean;
     recentTrips: TripListItemResponse[];
     signal: AbortSignal;
   },
@@ -196,7 +405,7 @@ async function createWorkspace(
 }> {
   let browserSession = await ensureBrowserSession(accessToken, options.signal);
   const preferredTripId =
-    options.selectedTripId ?? (!options.forceNewTrip ? options.rememberedTripId : null);
+    options.selectedTripId ?? options.rememberedTripId;
 
   if (preferredTripId) {
     try {
@@ -227,7 +436,7 @@ async function createWorkspace(
     }
   }
 
-  if (!options.forceNewTrip && options.recentTrips.length > 0) {
+  if (options.recentTrips.length > 0) {
     for (const recentTrip of options.recentTrips) {
       if (recentTrip.trip_id === preferredTripId) {
         continue;
@@ -259,6 +468,7 @@ async function createWorkspace(
 
     return {
       workspace: {
+        isEphemeral: false,
         browserSession,
         trip,
         tripDraft,
@@ -286,6 +496,7 @@ async function createWorkspace(
 
     return {
       workspace: {
+        isEphemeral: false,
         browserSession,
         trip,
         tripDraft,
@@ -309,6 +520,7 @@ async function loadWorkspaceForTrip(
       ...browserSession,
       browser_session_id: trip.browser_session_id,
     },
+    isEphemeral: false,
     trip,
     tripDraft,
   };
@@ -383,7 +595,11 @@ async function refreshRecentTrips(
 
 function readLastActiveTripId() {
   const storedTripId = window.localStorage.getItem(LAST_ACTIVE_TRIP_STORAGE_KEY);
-  return storedTripId && storedTripId.trim() ? storedTripId : null;
+  if (!storedTripId || !storedTripId.trim()) {
+    return null;
+  }
+
+  return storedTripId.startsWith("draft_trip_") ? null : storedTripId;
 }
 
 function mergeRecentTripsWithWorkspace(

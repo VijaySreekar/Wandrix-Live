@@ -13,18 +13,47 @@ from app.schemas.trip_planning import (
 )
 from app.services.providers.activities import enrich_activities_from_geoapify
 from app.services.providers.flights import enrich_flights_from_amadeus
+from app.services.providers.location_lookup import (
+    Coordinates,
+    resolve_destination_coordinates,
+)
 from app.services.providers.weather import enrich_weather_from_open_meteo
 
 
 def build_module_outputs(
     configuration: TripConfiguration,
+    previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
 ) -> TripModuleOutputs:
+    shared_destination_coordinates = _resolve_shared_destination_coordinates(
+        configuration,
+        previous_configuration,
+        existing_module_outputs,
+    )
+
     return TripModuleOutputs(
-        flights=_build_flight_outputs(configuration, existing_module_outputs),
-        hotels=_build_hotel_outputs(configuration, existing_module_outputs),
-        weather=_build_weather_outputs(configuration, existing_module_outputs),
-        activities=_build_activity_outputs(configuration, existing_module_outputs),
+        flights=_build_flight_outputs(
+            configuration,
+            previous_configuration,
+            existing_module_outputs,
+        ),
+        hotels=_build_hotel_outputs(
+            configuration,
+            previous_configuration,
+            existing_module_outputs,
+        ),
+        weather=_build_weather_outputs(
+            configuration,
+            previous_configuration,
+            existing_module_outputs,
+            shared_destination_coordinates,
+        ),
+        activities=_build_activity_outputs(
+            configuration,
+            previous_configuration,
+            existing_module_outputs,
+            shared_destination_coordinates,
+        ),
     )
 
 
@@ -61,14 +90,19 @@ def _has_timing_signal(configuration: TripConfiguration) -> bool:
 
 def _build_flight_outputs(
     configuration: TripConfiguration,
+    previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
 ) -> list[FlightDetail]:
     if not configuration.selected_modules.flights:
         return []
-    if not (
-        configuration.from_location
-        and configuration.to_location
-        and _has_timing_signal(configuration)
+    current_ready = _is_flight_search_ready(configuration)
+    previous_ready = _is_flight_search_ready(previous_configuration)
+
+    if not current_ready:
+        return existing_module_outputs.flights
+    if previous_ready and not _did_flight_inputs_change(
+        previous_configuration,
+        configuration,
     ):
         return existing_module_outputs.flights
     try:
@@ -80,25 +114,44 @@ def _build_flight_outputs(
 
 def _build_hotel_outputs(
     configuration: TripConfiguration,
+    previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
 ) -> list[HotelStayDetail]:
     if not configuration.selected_modules.hotels:
         return []
-    if not (configuration.to_location and _has_timing_signal(configuration)):
+    if not _is_hotel_search_ready(configuration):
+        return existing_module_outputs.hotels
+    if _is_hotel_search_ready(previous_configuration) and not _did_hotel_inputs_change(
+        previous_configuration,
+        configuration,
+    ):
         return existing_module_outputs.hotels
     return existing_module_outputs.hotels
 
 
 def _build_weather_outputs(
     configuration: TripConfiguration,
+    previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
+    shared_destination_coordinates: Coordinates | None,
 ) -> list[WeatherDetail]:
     if not configuration.selected_modules.weather:
         return []
-    if not (configuration.to_location and _has_timing_signal(configuration)):
+    current_ready = _is_weather_search_ready(configuration)
+    previous_ready = _is_weather_search_ready(previous_configuration)
+
+    if not current_ready:
+        return existing_module_outputs.weather
+    if previous_ready and not _did_weather_inputs_change(
+        previous_configuration,
+        configuration,
+    ):
         return existing_module_outputs.weather
     try:
-        live_weather = enrich_weather_from_open_meteo(configuration)
+        live_weather = enrich_weather_from_open_meteo(
+            configuration,
+            shared_destination_coordinates,
+        )
     except Exception:
         live_weather = []
     return live_weather or existing_module_outputs.weather
@@ -106,17 +159,140 @@ def _build_weather_outputs(
 
 def _build_activity_outputs(
     configuration: TripConfiguration,
+    previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
+    shared_destination_coordinates: Coordinates | None,
 ) -> list[ActivityDetail]:
     if not configuration.selected_modules.activities:
         return []
-    if not (configuration.to_location and _has_timing_signal(configuration)):
+    current_ready = _is_activity_search_ready(configuration)
+    previous_ready = _is_activity_search_ready(previous_configuration)
+
+    if not current_ready:
+        return existing_module_outputs.activities
+    if previous_ready and not _did_activity_inputs_change(
+        previous_configuration,
+        configuration,
+    ):
         return existing_module_outputs.activities
     try:
-        live_activities = enrich_activities_from_geoapify(configuration)
+        live_activities = enrich_activities_from_geoapify(
+            configuration,
+            shared_destination_coordinates,
+        )
     except Exception:
         live_activities = []
     return live_activities or existing_module_outputs.activities
+
+
+def _resolve_shared_destination_coordinates(
+    configuration: TripConfiguration,
+    previous_configuration: TripConfiguration,
+    existing_module_outputs: TripModuleOutputs,
+) -> Coordinates | None:
+    weather_needs_refresh = (
+        configuration.selected_modules.weather
+        and _is_weather_search_ready(configuration)
+        and (
+            not _is_weather_search_ready(previous_configuration)
+            or _did_weather_inputs_change(previous_configuration, configuration)
+            or not existing_module_outputs.weather
+        )
+    )
+    activity_needs_refresh = (
+        configuration.selected_modules.activities
+        and _is_activity_search_ready(configuration)
+        and (
+            not _is_activity_search_ready(previous_configuration)
+            or _did_activity_inputs_change(previous_configuration, configuration)
+            or not existing_module_outputs.activities
+        )
+    )
+
+    if not (weather_needs_refresh or activity_needs_refresh):
+        return None
+
+    if not configuration.to_location:
+        return None
+
+    try:
+        return resolve_destination_coordinates(configuration.to_location)
+    except Exception:
+        return None
+
+
+def _is_flight_search_ready(configuration: TripConfiguration) -> bool:
+    return bool(
+        configuration.from_location
+        and configuration.to_location
+        and _has_timing_signal(configuration)
+    )
+
+
+def _is_hotel_search_ready(configuration: TripConfiguration) -> bool:
+    return bool(configuration.to_location and _has_timing_signal(configuration))
+
+
+def _is_weather_search_ready(configuration: TripConfiguration) -> bool:
+    return bool(configuration.to_location and _has_timing_signal(configuration))
+
+
+def _is_activity_search_ready(configuration: TripConfiguration) -> bool:
+    return bool(configuration.to_location and _has_timing_signal(configuration))
+
+
+def _did_flight_inputs_change(
+    previous_configuration: TripConfiguration,
+    configuration: TripConfiguration,
+) -> bool:
+    return (
+        previous_configuration.from_location != configuration.from_location
+        or previous_configuration.to_location != configuration.to_location
+        or previous_configuration.start_date != configuration.start_date
+        or previous_configuration.end_date != configuration.end_date
+        or previous_configuration.travel_window != configuration.travel_window
+        or previous_configuration.trip_length != configuration.trip_length
+    )
+
+
+def _did_hotel_inputs_change(
+    previous_configuration: TripConfiguration,
+    configuration: TripConfiguration,
+) -> bool:
+    return (
+        previous_configuration.to_location != configuration.to_location
+        or previous_configuration.start_date != configuration.start_date
+        or previous_configuration.end_date != configuration.end_date
+        or previous_configuration.travel_window != configuration.travel_window
+        or previous_configuration.trip_length != configuration.trip_length
+    )
+
+
+def _did_weather_inputs_change(
+    previous_configuration: TripConfiguration,
+    configuration: TripConfiguration,
+) -> bool:
+    return (
+        previous_configuration.to_location != configuration.to_location
+        or previous_configuration.start_date != configuration.start_date
+        or previous_configuration.end_date != configuration.end_date
+        or previous_configuration.travel_window != configuration.travel_window
+        or previous_configuration.trip_length != configuration.trip_length
+    )
+
+
+def _did_activity_inputs_change(
+    previous_configuration: TripConfiguration,
+    configuration: TripConfiguration,
+) -> bool:
+    return (
+        previous_configuration.to_location != configuration.to_location
+        or previous_configuration.start_date != configuration.start_date
+        or previous_configuration.end_date != configuration.end_date
+        or previous_configuration.travel_window != configuration.travel_window
+        or previous_configuration.trip_length != configuration.trip_length
+        or previous_configuration.activity_styles != configuration.activity_styles
+    )
 
 
 def _build_derived_timeline(

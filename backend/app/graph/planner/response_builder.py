@@ -1,3 +1,4 @@
+from app.schemas.conversation import PlannerProfileContext
 from app.schemas.trip_conversation import TripConversationState, TripFieldKey
 from app.schemas.trip_planning import TripConfiguration
 
@@ -7,9 +8,36 @@ def build_assistant_response(
     configuration: TripConfiguration,
     conversation: TripConversationState,
     fallback_text: str | None,
+    profile_context: dict,
 ) -> str:
+    profile = (
+        PlannerProfileContext.model_validate(profile_context)
+        if profile_context
+        else PlannerProfileContext()
+    )
+    greeting_name = _get_greeting_name(profile)
+
     if fallback_text and fallback_text.strip():
         return fallback_text.strip()
+
+    if (
+        conversation.suggestion_board.mode == "destination_suggestions"
+        and conversation.suggestion_board.cards
+    ):
+        destination_names = ", ".join(
+            card.destination_name for card in conversation.suggestion_board.cards[:4]
+        )
+        greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
+        source_line = (
+            f"{conversation.suggestion_board.source_context}. "
+            if conversation.suggestion_board.source_context
+            else ""
+        )
+        return (
+            f"{greeting_prefix}{source_line}"
+            f"Here are four destination directions that fit what you asked for: {destination_names}. "
+            "Pick one on the board if one stands out, or tell me the destination you already have in mind."
+        )
 
     route_summary = (
         f"{configuration.from_location or 'your origin'} to "
@@ -27,8 +55,9 @@ def build_assistant_response(
     ]
 
     if conversation.phase == "opening":
+        greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
         return (
-            "I'm ready to shape this with you. "
+            f"{greeting_prefix}I'm ready to shape this with you. "
             "Tell me where you want to go, roughly when, and where you'd leave from, "
             "and I'll keep the early draft soft until the trip direction is clear."
         )
@@ -50,6 +79,16 @@ def build_assistant_response(
         f"The trip is now coherent enough to review around {route_summary}. "
         "I can keep refining the choices with you or turn this into a clearer trip summary next."
     )
+
+
+def _get_greeting_name(profile: PlannerProfileContext) -> str | None:
+    if profile.first_name and profile.first_name.strip():
+        return profile.first_name.strip()
+
+    if profile.display_name and profile.display_name.strip():
+        return profile.display_name.strip().split(" ")[0]
+
+    return None
 
 
 def _build_trip_shape_summary(configuration: TripConfiguration) -> str:

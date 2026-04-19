@@ -63,8 +63,12 @@ export function TripBoardSandbox() {
         ].join(" ")}
       >
         <ChatSidebar
+          activeTripId={workspace.trip.trip_id}
           collapsed={isSidebarCollapsed}
+          onSelectTrip={() => undefined}
           onToggleCollapsed={() => setIsSidebarCollapsed((current) => !current)}
+          onCreateTrip={() => undefined}
+          isCreatingTrip={false}
           workspace={workspace}
           recentTrips={recentTrips}
         />
@@ -130,6 +134,7 @@ export function TripBoardSandbox() {
           <TripBoardPreview
             workspace={workspace}
             isBootstrapping={false}
+            onAction={() => undefined}
           />
         </section>
       </section>
@@ -223,6 +228,7 @@ function buildSandboxWorkspace(
   switch (scenario) {
     case "barcelona":
       return {
+        isEphemeral: false,
         browserSession: commonBrowserSession,
         trip: {
           trip_id: "preview-trip-barcelona",
@@ -376,6 +382,10 @@ function buildSandboxWorkspace(
             decision_cards: [],
             last_turn_summary: "The route and timing are stable, but the stay area still needs a clearer hotel direction.",
             active_goals: ["Narrow the hotel area", "Keep the family pace relaxed"],
+            suggestion_board: {
+              mode: "helper",
+              cards: [],
+            },
             memory: {
               field_memory: {},
               mentioned_options: [],
@@ -388,6 +398,7 @@ function buildSandboxWorkspace(
       };
     case "lisbon":
       return {
+        isEphemeral: false,
         browserSession: commonBrowserSession,
         trip: {
           trip_id: "preview-trip-lisbon",
@@ -470,6 +481,13 @@ function buildSandboxWorkspace(
             ],
             last_turn_summary: "Lisbon is the front-runner, but the departure point still needs to be locked.",
             active_goals: ["Confirm the origin", "Tighten the spring timing"],
+            suggestion_board: {
+              mode: "decision_cards",
+              title: "Next planning decisions",
+              subtitle:
+                "These are the next choices that will sharpen the trip.",
+              cards: [],
+            },
             memory: {
               field_memory: {},
               mentioned_options: [],
@@ -483,6 +501,7 @@ function buildSandboxWorkspace(
     case "kyoto":
     default:
       return {
+        isEphemeral: false,
         browserSession: commonBrowserSession,
         trip: {
           trip_id: "preview-trip-kyoto",
@@ -745,6 +764,10 @@ function buildSandboxWorkspace(
             decision_cards: [],
             last_turn_summary: "The Kyoto trip is coherent enough to review as a full planner draft.",
             active_goals: ["Review the flow", "Tighten any remaining choices"],
+            suggestion_board: {
+              mode: "helper",
+              cards: [],
+            },
             memory: {
               field_memory: {},
               mentioned_options: [],

@@ -186,8 +186,48 @@ export function getLiveDestinationImage(destination: string | null) {
     return "https://images.unsplash.com/photo-1612698093158-e07ac200d44e?auto=format&fit=crop&w=1400&q=80";
   }
 
+  if (normalized.includes("marrakesh") || normalized.includes("marrakech")) {
+    return "https://images.unsplash.com/photo-1597212720410-255d1466f5eb?auto=format&fit=crop&w=1600&q=80";
+  }
+
+  if (normalized.includes("malaga")) {
+    return "https://images.unsplash.com/photo-1558642084-fd07fae5282e?auto=format&fit=crop&w=1600&q=80";
+  }
+
+  if (normalized.includes("dubai")) {
+    return "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=1600&q=80";
+  }
+
+  if (
+    normalized.includes("canary") ||
+    normalized.includes("tenerife") ||
+    normalized.includes("gran canaria")
+  ) {
+    return "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=1600&q=80";
+  }
+
+  if (normalized.includes("porto")) {
+    return "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=1600&q=80";
+  }
+
+  if (normalized.includes("valencia")) {
+    return "https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1600&q=80";
+  }
+
+  if (normalized.includes("seville")) {
+    return "https://images.unsplash.com/photo-1593351415075-3bac9f45c877?auto=format&fit=crop&w=1600&q=80";
+  }
+
+  if (normalized.includes("rome")) {
+    return "https://images.unsplash.com/photo-1529260830199-42c24126f198?auto=format&fit=crop&w=1600&q=80";
+  }
+
+  if (normalized.includes("athens")) {
+    return "https://images.unsplash.com/photo-1555993539-1732b0258235?auto=format&fit=crop&w=1600&q=80";
+  }
+
   if (destination) {
-    return `https://source.unsplash.com/1400x900/?${encodeURIComponent(`${destination} travel landscape`)}`;
+    return "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1600&q=80";
   }
 
   return "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=80";

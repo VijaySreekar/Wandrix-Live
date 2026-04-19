@@ -8,12 +8,13 @@ from app.repositories.trip_draft_repository import (
     upsert_trip_draft as upsert_trip_draft_record,
 )
 from app.repositories.trip_repository import get_trip_for_user
+from app.repositories.trip_repository import update_trip_title as update_trip_title_record
 from app.schemas.conversation import (
     CheckpointConversationHistoryResponse,
     TripConversationMessageRequest,
     TripConversationMessageResponse,
 )
-from app.schemas.trip_draft import TripPlanningPhase
+from app.schemas.trip_draft import TripDraft, TripPlanningPhase
 
 
 def send_trip_message(
@@ -49,6 +50,14 @@ def send_trip_message(
             "profile_context": payload.profile_context.model_dump(mode="json")
             if payload.profile_context
             else {},
+            "current_location_context": payload.current_location_context.model_dump(
+                mode="json"
+            )
+            if payload.current_location_context
+            else {},
+            "board_action": payload.board_action.model_dump(mode="json")
+            if payload.board_action
+            else {},
             "trip_draft": {
                 "title": draft.title,
                 "configuration": draft.configuration,
@@ -83,6 +92,13 @@ def send_trip_message(
         status=updated_draft.get("status") or draft.status,
         conversation=updated_draft.get("conversation") or draft.conversation,
     )
+    next_title = persisted_draft.title.strip()
+    if next_title and next_title != trip.title:
+        trip = update_trip_title_record(
+            db,
+            trip,
+            title=next_title,
+        )
     phase = cast(
         TripPlanningPhase,
         persisted_draft.status.get("phase") or "opening",
@@ -98,6 +114,18 @@ def send_trip_message(
         thread_id=trip.thread_id,
         draft_phase=phase,
         message=assistant_response,
+        trip_draft=TripDraft.model_validate(
+            {
+                "trip_id": trip.id,
+                "thread_id": trip.thread_id,
+                "title": persisted_draft.title,
+                "configuration": persisted_draft.configuration,
+                "timeline": persisted_draft.timeline,
+                "module_outputs": persisted_draft.module_outputs,
+                "status": persisted_draft.status,
+                "conversation": persisted_draft.conversation,
+            }
+        ),
     )
 
 

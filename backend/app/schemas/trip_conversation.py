@@ -11,6 +11,17 @@ ChatPlannerPhase = Literal[
     "enriching_modules",
     "reviewing",
 ]
+TripSuggestionBoardMode = Literal[
+    "idle",
+    "destination_suggestions",
+    "decision_cards",
+    "helper",
+]
+DestinationSuggestionSelectionStatus = Literal[
+    "suggested",
+    "leading",
+    "confirmed",
+]
 
 TripFieldKey = Literal[
     "from_location",
@@ -50,6 +61,25 @@ class PlannerDecisionCard(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
     description: str = Field(..., min_length=1, max_length=240)
     options: list[str] = Field(default_factory=list, max_length=5)
+
+
+class DestinationSuggestionCard(BaseModel):
+    id: str
+    destination_name: str = Field(..., min_length=1, max_length=120)
+    country_or_region: str = Field(..., min_length=1, max_length=120)
+    image_url: str = Field(..., min_length=1, max_length=500)
+    short_reason: str = Field(..., min_length=1, max_length=240)
+    practicality_label: str = Field(..., min_length=1, max_length=120)
+    selection_status: DestinationSuggestionSelectionStatus = "suggested"
+
+
+class TripSuggestionBoardState(BaseModel):
+    mode: TripSuggestionBoardMode = "helper"
+    source_context: str | None = Field(default=None, max_length=240)
+    title: str | None = Field(default=None, max_length=160)
+    subtitle: str | None = Field(default=None, max_length=320)
+    cards: list[DestinationSuggestionCard] = Field(default_factory=list, max_length=4)
+    own_choice_prompt: str | None = Field(default=None, max_length=240)
 
 
 class ConversationQuestion(BaseModel):
@@ -113,6 +143,9 @@ class TripConversationState(BaseModel):
     decision_cards: list[PlannerDecisionCard] = Field(default_factory=list)
     last_turn_summary: str | None = Field(default=None, max_length=400)
     active_goals: list[str] = Field(default_factory=list)
+    suggestion_board: TripSuggestionBoardState = Field(
+        default_factory=TripSuggestionBoardState
+    )
     memory: TripConversationMemory = Field(default_factory=TripConversationMemory)
 
 

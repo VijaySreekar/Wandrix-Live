@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   Bot,
@@ -18,152 +18,151 @@ import {
   type ChatModelAdapter,
 } from "@assistant-ui/react";
 
+import { TravelPlannerBoardActions } from "@/components/assistant/travel-planner-board-actions";
 import {
   getTripConversationHistory,
   sendTripConversationMessage,
 } from "@/lib/api/conversation";
-import { getTripDraft } from "@/lib/api/trips";
-import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  normalizeHistoryMessages,
+  readCachedThreadMessages,
+  writeCachedThreadMessages,
+  type PersistedThreadMessage,
+} from "@/lib/chat-history-cache";
+import { resolvePlannerLocationForTurn } from "@/lib/planner-location";
+import type { BrowserAuthSnapshot } from "@/lib/supabase/auth-snapshot";
+import type { ConversationBoardAction, PlannerProfileContext } from "@/types/conversation";
+import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
-import type { PlannerProfileContext } from "@/types/conversation";
 import type { TripDraft } from "@/types/trip-draft";
 
 type TravelPlannerAssistantProps = {
+  activeTripId: string | null;
+  authSnapshot: BrowserAuthSnapshot | null;
+  skipInitialHistorySync: boolean;
+  onEnsurePersistedTrip: () => Promise<PlannerWorkspaceState | null>;
+  onActivatePersistedTrip: (workspace: PlannerWorkspaceState) => void;
   workspace: PlannerWorkspaceState | null;
   isBootstrapping: boolean;
   workspaceError: string | null;
+  pendingBoardAction: PlannerBoardActionIntent | null;
+  onBoardActionHandled: (actionId: string) => void;
   onDraftUpdated: (tripDraft: TripDraft) => void;
 };
 
-type PersistedThreadMessage = {
-  id?: string;
-  role: "assistant" | "user" | "system";
-  createdAt?: string;
-  content: string;
-};
-
-const CHAT_HISTORY_STORAGE_PREFIX = "wandrix:chat-history:";
-
 export function TravelPlannerAssistant({
+  activeTripId,
+  authSnapshot,
+  skipInitialHistorySync,
+  onEnsurePersistedTrip,
+  onActivatePersistedTrip,
   workspace,
   isBootstrapping,
   workspaceError,
+  pendingBoardAction,
+  onBoardActionHandled,
   onDraftUpdated,
 }: TravelPlannerAssistantProps) {
   const [profileContext, setProfileContext] = useState<PlannerProfileContext | null>(
     null,
   );
-  const [savedMessages, setSavedMessages] = useState<PersistedThreadMessage[] | null>(
-    null,
-  );
+  const [savedThreadState, setSavedThreadState] = useState<{
+    tripId: string | null;
+    messages: PersistedThreadMessage[] | null;
+  }>({
+    tripId: null,
+    messages: null,
+  });
+  const [isSyncingHistory, setIsSyncingHistory] = useState(false);
+  const boardActionRef = useRef<ConversationBoardAction | null>(null);
 
-  const tripId = workspace?.trip.trip_id ?? null;
+  const tripId = activeTripId ?? workspace?.trip.trip_id ?? null;
+  const hasActiveWorkspace = Boolean(
+    tripId && workspace && workspace.trip.trip_id === tripId,
+  );
+  const savedMessages =
+    savedThreadState.tripId === tripId ? savedThreadState.messages : null;
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadSavedMessages() {
       if (!tripId) {
-        setSavedMessages([]);
+        setSavedThreadState({
+          tripId: null,
+          messages: [],
+        });
+        setIsSyncingHistory(false);
         return;
       }
 
-      try {
-        const supabase = createSupabaseBrowserClient();
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+      const cachedMessages = readCachedThreadMessages(tripId);
+      setSavedThreadState({
+        tripId,
+        messages: cachedMessages,
+      });
+      if (skipInitialHistorySync) {
+        setIsSyncingHistory(false);
+        return;
+      }
 
-        if (session?.access_token) {
+      setIsSyncingHistory(true);
+
+      try {
+        if (authSnapshot?.accessToken) {
           const history = await getTripConversationHistory(
             tripId,
-            session.access_token,
+            authSnapshot.accessToken,
           );
 
           if (history.messages.length > 0) {
-            setSavedMessages(
-              history.messages.map((message, index) => ({
-                id: `${message.role}-${index}`,
-                role: message.role,
-                content: message.content,
-                createdAt: message.created_at ?? undefined,
-              })),
-            );
+            const normalizedMessages = normalizeHistoryMessages(history.messages);
+
+            if (!cancelled) {
+              setSavedThreadState({
+                tripId,
+                messages: normalizedMessages,
+              });
+              writeCachedThreadMessages(tripId, normalizedMessages);
+            }
             return;
           }
+
+          if (!cancelled) {
+            setSavedThreadState({
+              tripId,
+              messages: [],
+            });
+            writeCachedThreadMessages(tripId, []);
+          }
         }
-
-        const rawValue = window.localStorage.getItem(
-          `${CHAT_HISTORY_STORAGE_PREFIX}${tripId}`,
-        );
-
-        if (!rawValue) {
-          setSavedMessages([]);
-          return;
-        }
-
-        const parsed = JSON.parse(rawValue);
-
-        if (!Array.isArray(parsed)) {
-          setSavedMessages([]);
-          return;
-        }
-
-        setSavedMessages(
-          parsed.flatMap((entry) => {
-            if (
-              !entry ||
-              typeof entry !== "object" ||
-              !("role" in entry) ||
-              !("content" in entry)
-            ) {
-              return [];
-            }
-
-            const candidate = entry as Record<string, unknown>;
-            const role = candidate.role;
-            const content = candidate.content;
-
-            if (
-              (role !== "assistant" && role !== "user" && role !== "system") ||
-              typeof content !== "string"
-            ) {
-              return [];
-            }
-
-            return [
-              {
-                id: typeof candidate.id === "string" ? candidate.id : undefined,
-                role,
-                content,
-                createdAt:
-                  typeof candidate.createdAt === "string"
-                    ? candidate.createdAt
-                    : undefined,
-              } satisfies PersistedThreadMessage,
-            ];
-          }),
-        );
       } catch {
-        setSavedMessages([]);
+        if (!cancelled && cachedMessages.length === 0) {
+          setSavedThreadState({
+            tripId,
+            messages: [],
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsSyncingHistory(false);
+        }
       }
     }
 
     void loadSavedMessages();
-  }, [tripId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authSnapshot?.accessToken, skipInitialHistorySync, tripId]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadProfileContext() {
-      const supabase = createSupabaseBrowserClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const userId = session?.user?.id;
-      const userMetadata =
-        session?.user?.user_metadata && typeof session.user.user_metadata === "object"
-          ? (session.user.user_metadata as Record<string, unknown>)
-          : {};
+      const userId = authSnapshot?.userId ?? null;
+      const userMetadata = authSnapshot?.userMetadata ?? {};
 
       if (!userId) {
         if (!cancelled) {
@@ -227,7 +226,7 @@ export function TravelPlannerAssistant({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authSnapshot?.userId, authSnapshot?.userMetadata]);
 
   const adapter = useMemo<ChatModelAdapter>(
     () => ({
@@ -241,13 +240,20 @@ export function TravelPlannerAssistant({
             .trim() ?? "";
 
         const response = await buildAssistantReply({
+          activeTripId: tripId,
           isBootstrapping,
           workspace,
           workspaceError,
           latestText,
+          authSnapshot,
+          onEnsurePersistedTrip,
+          onActivatePersistedTrip,
           profileContext,
+          pendingBoardAction: boardActionRef.current,
           onDraftUpdated,
         });
+
+        boardActionRef.current = null;
 
         let cumulativeText = "";
 
@@ -266,7 +272,18 @@ export function TravelPlannerAssistant({
         }
       },
     }),
-    [isBootstrapping, onDraftUpdated, profileContext, workspace, workspaceError],
+    [
+      authSnapshot,
+      isBootstrapping,
+      onActivatePersistedTrip,
+      onEnsurePersistedTrip,
+      onDraftUpdated,
+      profileContext,
+      boardActionRef,
+      tripId,
+      workspace,
+      workspaceError,
+    ],
   );
 
   if (tripId && savedMessages === null) {
@@ -293,10 +310,16 @@ export function TravelPlannerAssistant({
       adapter={adapter}
       tripId={tripId}
       initialMessages={savedMessages ?? []}
+      isSyncingHistory={isSyncingHistory}
       profileContext={profileContext}
       isBootstrapping={isBootstrapping}
-      hasWorkspace={Boolean(workspace)}
+      hasWorkspace={hasActiveWorkspace}
       hasError={Boolean(workspaceError)}
+      pendingBoardAction={pendingBoardAction}
+      onBoardActionHandled={onBoardActionHandled}
+      onBoardActionReadyForBackend={(action) => {
+        boardActionRef.current = action;
+      }}
     />
   );
 }
@@ -305,18 +328,26 @@ function TravelPlannerAssistantRuntime({
   adapter,
   tripId,
   initialMessages,
+  isSyncingHistory,
   profileContext,
   isBootstrapping,
   hasWorkspace,
   hasError,
+  pendingBoardAction,
+  onBoardActionHandled,
+  onBoardActionReadyForBackend,
 }: {
   adapter: ChatModelAdapter;
   tripId: string | null;
   initialMessages: PersistedThreadMessage[];
+  isSyncingHistory: boolean;
   profileContext: PlannerProfileContext | null;
   isBootstrapping: boolean;
   hasWorkspace: boolean;
   hasError: boolean;
+  pendingBoardAction: PlannerBoardActionIntent | null;
+  onBoardActionHandled: (actionId: string) => void;
+  onBoardActionReadyForBackend: (action: ConversationBoardAction) => void;
 }) {
   const runtime = useLocalRuntime(adapter, {
     initialMessages: initialMessages.map((message) => ({
@@ -330,9 +361,16 @@ function TravelPlannerAssistantRuntime({
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <PersistedThreadStateSync tripId={tripId} />
+      <TravelPlannerBoardActions
+        pendingBoardAction={pendingBoardAction}
+        disabled={isBootstrapping || !hasWorkspace || hasError}
+        onHandled={onBoardActionHandled}
+        onActionReadyForBackend={onBoardActionReadyForBackend}
+      />
       <section className="relative flex h-full min-h-0 flex-col bg-[color:var(--chat-pane-bg)]">
         <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ThreadPrimitive.Viewport className="chat-workspace-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-8">
+        <ThreadPrimitive.Viewport className="chat-workspace-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-8">
+          {isSyncingHistory ? <ConversationSyncBanner /> : null}
             <ThreadPrimitive.Empty>
               <AssistantWelcome
                 disabled={isBootstrapping}
@@ -352,7 +390,16 @@ function TravelPlannerAssistantRuntime({
             </div>
           </ThreadPrimitive.Viewport>
 
-          <Composer />
+          <Composer
+            disabled={isBootstrapping || !hasWorkspace || hasError}
+            disabledPlaceholder={
+              isBootstrapping
+                ? "Attaching the planner workspace..."
+                : !hasWorkspace
+                  ? "Opening this trip..."
+                  : "Resolve the workspace issue before sending."
+            }
+          />
         </ThreadPrimitive.Root>
       </section>
     </AssistantRuntimeProvider>
@@ -391,13 +438,21 @@ function PersistedThreadStateSync({ tripId }: { tripId: string | null }) {
       ];
     });
 
-    window.localStorage.setItem(
-      `${CHAT_HISTORY_STORAGE_PREFIX}${tripId}`,
-      JSON.stringify(persistedMessages),
-    );
+    writeCachedThreadMessages(tripId, persistedMessages);
   }, [messages, tripId]);
 
   return null;
+}
+
+function ConversationSyncBanner() {
+  return (
+    <div className="mx-auto mb-5 flex w-full max-w-[52rem] items-center justify-center">
+      <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/88 px-3 py-1.5 text-[0.72rem] text-muted-foreground shadow-[var(--chat-shadow-soft)]">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[color:var(--accent)]" />
+        <span>Syncing this conversation in the background.</span>
+      </div>
+    </div>
+  );
 }
 
 function AssistantWelcome({
@@ -576,7 +631,13 @@ function AssistantMessage() {
   );
 }
 
-function Composer() {
+function Composer({
+  disabled,
+  disabledPlaceholder,
+}: {
+  disabled: boolean;
+  disabledPlaceholder: string;
+}) {
   const isRunning = useThread((state) => state.isRunning);
 
   return (
@@ -593,14 +654,18 @@ function Composer() {
             <div className="flex min-w-0 flex-1 rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] px-3 py-2.5 transition-colors focus-within:border-[color:var(--accent)]/45">
               <ComposerPrimitive.Input
                 rows={1}
-                placeholder="Continue planning your trip..."
-                className="min-h-12 max-h-40 w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
+                placeholder={
+                  disabled ? disabledPlaceholder : "Continue planning your trip..."
+                }
+                disabled={disabled}
+                className="min-h-12 max-h-40 w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
               />
             </div>
             <ComposerPrimitive.Send asChild>
               <button
                 type="button"
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[linear-gradient(135deg,var(--accent),var(--accent2))] text-white transition-opacity hover:opacity-95"
+                disabled={disabled}
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[linear-gradient(135deg,var(--accent),var(--accent2))] text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-55"
                 aria-label="Send message"
               >
                 <ArrowUp className="h-4 w-4" />
@@ -656,22 +721,38 @@ async function sleep(ms: number, signal: AbortSignal) {
 }
 
 async function buildAssistantReply({
+  activeTripId,
   isBootstrapping,
   workspace,
   workspaceError,
   latestText,
+  authSnapshot,
+  onEnsurePersistedTrip,
+  onActivatePersistedTrip,
   profileContext,
+  pendingBoardAction,
   onDraftUpdated,
 }: {
+  activeTripId: string | null;
   isBootstrapping: boolean;
   workspace: PlannerWorkspaceState | null;
   workspaceError: string | null;
   latestText: string;
+  authSnapshot: BrowserAuthSnapshot | null;
+  onEnsurePersistedTrip: () => Promise<PlannerWorkspaceState | null>;
+  onActivatePersistedTrip: (workspace: PlannerWorkspaceState) => void;
   profileContext: PlannerProfileContext | null;
+  pendingBoardAction: ConversationBoardAction | null;
   onDraftUpdated: (tripDraft: TripDraft) => void;
 }) {
-  if (isBootstrapping || workspaceError || !workspace || !latestText) {
+  const hasAttachedWorkspace =
+    Boolean(activeTripId) &&
+    Boolean(workspace) &&
+    workspace?.trip.trip_id === activeTripId;
+
+  if (isBootstrapping || workspaceError || !hasAttachedWorkspace || !latestText) {
     return buildFallbackAssistantReply({
+      activeTripId,
       isBootstrapping,
       workspace,
       workspaceError,
@@ -679,30 +760,63 @@ async function buildAssistantReply({
     });
   }
 
-  const supabase = createSupabaseBrowserClient();
-  const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
-
-  if (sessionError || !session?.access_token) {
+  if (!authSnapshot?.accessToken) {
     return "I can render the chat shell, but I could not read a valid Supabase access token for the backend conversation call.";
   }
 
   try {
+    const persistedWorkspace =
+      workspace?.isEphemeral ? await onEnsurePersistedTrip() : workspace;
+    const resolvedTripId = persistedWorkspace?.trip.trip_id ?? activeTripId;
+
+    if (!resolvedTripId) {
+      return "I could not prepare a real trip yet, so I’m holding here until the workspace is ready.";
+    }
+
+    const currentLocationContext = await resolvePlannerLocationForTurn({
+      tripId: resolvedTripId,
+      profileContext,
+      tripDraft: workspace?.tripDraft ?? null,
+    });
+
     const response = await sendTripConversationMessage(
-      workspace.trip.trip_id,
+      resolvedTripId,
       {
         message: latestText,
         profile_context: profileContext ?? undefined,
+        current_location_context: currentLocationContext ?? undefined,
+        board_action: pendingBoardAction ?? undefined,
       },
-      session.access_token,
+      authSnapshot.accessToken,
     );
-    const updatedDraft = await getTripDraft(
-      workspace.trip.trip_id,
-      session.access_token,
-    );
-    onDraftUpdated(updatedDraft);
+
+    if (workspace?.isEphemeral && persistedWorkspace) {
+      const nowIso = new Date().toISOString();
+      writeCachedThreadMessages(resolvedTripId, [
+        {
+          id: `${resolvedTripId}-user-0`,
+          role: "user",
+          content: latestText,
+          createdAt: nowIso,
+        },
+        {
+          id: `${resolvedTripId}-assistant-0`,
+          role: "assistant",
+          content: response.message,
+          createdAt: nowIso,
+        },
+      ]);
+      onActivatePersistedTrip({
+        ...persistedWorkspace,
+        trip: {
+          ...persistedWorkspace.trip,
+          title: response.trip_draft.title,
+        },
+        tripDraft: response.trip_draft,
+      });
+    }
+
+    onDraftUpdated(response.trip_draft);
 
     return response.message;
   } catch (error) {
@@ -741,11 +855,13 @@ function buildWelcomeContextLine(profileContext: PlannerProfileContext | null) {
 }
 
 function buildFallbackAssistantReply({
+  activeTripId,
   isBootstrapping,
   workspace,
   workspaceError,
   latestText,
 }: {
+  activeTripId: string | null;
   isBootstrapping: boolean;
   workspace: PlannerWorkspaceState | null;
   workspaceError: string | null;
@@ -759,8 +875,12 @@ function buildFallbackAssistantReply({
     return `I can talk here, but the trip workspace still needs fixing first: ${workspaceError}`;
   }
 
-  if (!workspace) {
+  if (!activeTripId) {
     return "I need a signed-in trip workspace before I can attach this conversation to a real trip and thread.";
+  }
+
+  if (!workspace || workspace.trip.trip_id !== activeTripId) {
+    return "I have the conversation open, and I’m still attaching the trip workspace behind the scenes before I send the next planner turn.";
   }
 
   if (!latestText) {

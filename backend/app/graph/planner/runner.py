@@ -6,6 +6,7 @@ from app.graph.planner.conversation_state import (
     build_status,
 )
 from app.graph.planner.draft_merge import derive_trip_title, merge_trip_configuration
+from app.graph.planner.location_context import resolve_planner_location_context
 from app.graph.planner.provider_enrichment import build_module_outputs, build_timeline
 from app.graph.planner.response_builder import build_assistant_response
 from app.graph.planner.understanding import generate_llm_trip_update
@@ -27,6 +28,10 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
     current_conversation = TripConversationState.model_validate(
         trip_draft.get("conversation", {})
     )
+    resolved_location_context = resolve_planner_location_context(
+        current_location_context=state.get("current_location_context", {}),
+        profile_context=state.get("profile_context", {}),
+    )
     raw_messages = [
         CheckpointConversationMessage.model_validate(message).model_dump(mode="json")
         for message in state.get("raw_messages", [])
@@ -42,11 +47,19 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         status=current_status,
         conversation=current_conversation,
         profile_context=state.get("profile_context", {}),
+        current_location_context=resolved_location_context.model_dump(mode="json")
+        if resolved_location_context
+        else {},
+        board_action=state.get("board_action", {}),
         raw_messages=raw_messages,
     )
 
     next_configuration = merge_trip_configuration(previous_configuration, llm_update)
-    module_outputs = build_module_outputs(next_configuration, existing_module_outputs)
+    module_outputs = build_module_outputs(
+        next_configuration,
+        previous_configuration,
+        existing_module_outputs,
+    )
     timeline = build_timeline(
         configuration=next_configuration,
         llm_preview=llm_update.timeline_preview,
@@ -63,12 +76,15 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         turn_id=turn_id,
         user_message=user_input,
         now=now,
+        resolved_location_context=resolved_location_context,
+        board_action=state.get("board_action", {}),
         record_memory=False,
     )
     assistant_response = build_assistant_response(
         configuration=next_configuration,
         conversation=provisional_conversation,
         fallback_text=llm_update.assistant_response,
+        profile_context=state.get("profile_context", {}),
     )
     next_conversation = build_conversation_state(
         current=current_conversation,
@@ -80,6 +96,8 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         turn_id=turn_id,
         user_message=user_input,
         now=now,
+        resolved_location_context=resolved_location_context,
+        board_action=state.get("board_action", {}),
     )
     next_status = build_status(
         current=current_status,

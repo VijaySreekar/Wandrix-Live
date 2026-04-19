@@ -4,6 +4,7 @@ import type { TripCreateResponse } from "@/types/trip";
 
 
 export type PlannerWorkspaceState = {
+  isEphemeral: boolean;
   browserSession: BrowserSessionCreateResponse;
   trip: TripCreateResponse;
   tripDraft: TripDraft;

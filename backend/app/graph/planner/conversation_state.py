@@ -1,8 +1,15 @@
 from datetime import datetime
 from uuid import uuid4
 
+from app.graph.planner.location_context import ResolvedPlannerLocationContext
 from app.graph.planner.provider_enrichment import has_any_module_output
+from app.graph.planner.suggestion_board import (
+    build_default_decision_cards,
+    build_destination_mentioned_options,
+    build_suggestion_board_state,
+)
 from app.graph.planner.turn_models import ConversationOptionCandidate, TripTurnUpdate
+from app.schemas.conversation import ConversationBoardAction
 from app.schemas.trip_conversation import (
     ConversationDecisionEvent,
     ConversationFieldMemory,
@@ -46,6 +53,8 @@ def build_conversation_state(
     turn_id: str,
     user_message: str,
     now: datetime,
+    resolved_location_context: ResolvedPlannerLocationContext | None = None,
+    board_action: dict | None = None,
     record_memory: bool = True,
 ) -> TripConversationState:
     conversation = current.model_copy(deep=True)
@@ -65,7 +74,7 @@ def build_conversation_state(
     )
     conversation.decision_cards = merge_decision_cards(
         current.decision_cards,
-        llm_update.decision_cards,
+        llm_update.decision_cards or build_default_decision_cards(next_configuration),
         phase,
     )
     conversation.last_turn_summary = (
@@ -74,6 +83,13 @@ def build_conversation_state(
         else build_last_turn_summary(next_configuration, missing_fields)
     )
     conversation.active_goals = merge_active_goals(current.active_goals, llm_update.active_goals)
+    conversation.suggestion_board = build_suggestion_board_state(
+        current=conversation,
+        configuration=next_configuration,
+        llm_update=llm_update,
+        resolved_location_context=resolved_location_context,
+        board_action=board_action or {},
+    )
     if record_memory:
         conversation.memory = merge_conversation_memory(
             current=current.memory,
@@ -86,6 +102,7 @@ def build_conversation_state(
             user_message=user_message,
             phase=phase,
             now=now,
+            board_action=board_action or {},
         )
 
     return conversation
@@ -243,6 +260,7 @@ def merge_conversation_memory(
     user_message: str,
     phase: str,
     now: datetime,
+    board_action: dict,
 ) -> TripConversationMemory:
     memory = current.model_copy(deep=True)
 
@@ -279,7 +297,10 @@ def merge_conversation_memory(
 
     memory.mentioned_options = _merge_option_memory(
         memory.mentioned_options,
-        llm_update.mentioned_options,
+        [
+            *llm_update.mentioned_options,
+            *build_destination_mentioned_options(llm_update.destination_suggestions),
+        ],
         turn_id,
         now,
     )
@@ -304,6 +325,19 @@ def merge_conversation_memory(
         phase=phase,
         now=now,
     )
+
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action and action.type == "select_destination_suggestion":
+        leading_value = ", ".join(
+            [value for value in [action.destination_name, action.country_or_region] if value]
+        )
+        if leading_value:
+            memory.mentioned_options = _merge_option_memory(
+                memory.mentioned_options,
+                [ConversationOptionCandidate(kind="destination", value=leading_value)],
+                turn_id,
+                now,
+            )
     return memory
 
 

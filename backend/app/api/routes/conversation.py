@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.db.session import get_db
+from app.graph.checkpointer import compile_planning_graph_with_pool
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.conversation import (
     CheckpointConversationHistoryResponse,
@@ -26,12 +27,7 @@ def send_trip_message_route(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> TripConversationMessageResponse:
-    graph = getattr(request.app.state, "planning_graph", None)
-    if graph is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Planning graph is not available.",
-        )
+    graph = _resolve_request_graph(request)
 
     return send_trip_message(
         graph,
@@ -52,12 +48,7 @@ def get_trip_conversation_history_route(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CheckpointConversationHistoryResponse:
-    graph = getattr(request.app.state, "planning_graph", None)
-    if graph is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Planning graph is not available.",
-        )
+    graph = _resolve_request_graph(request)
 
     return get_trip_conversation_history(
         graph,
@@ -65,3 +56,14 @@ def get_trip_conversation_history_route(
         trip_id=trip_id,
         user_id=current_user.id,
     )
+
+
+def _resolve_request_graph(request: Request):
+    pool = getattr(request.app.state, "checkpointer_pool", None)
+    try:
+        return compile_planning_graph_with_pool(pool)
+    except Exception as exc:  # pragma: no cover - defensive route fallback
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Planning graph is not available.",
+        ) from exc

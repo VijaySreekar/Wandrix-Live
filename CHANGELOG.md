@@ -9,6 +9,466 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Fixed Recent Sidebar Title Drift After Reload
+
+Technical Summary:
+- Fixed the draft-update path in the chat workspace so sidebar recent-trip entries are updated from the latest in-memory workspace state instead of a stale outer `workspace` closure.
+- This removes a race where the active chat title could update correctly in the workspace while the cached recent-trips list stayed on an older generic `Trip abc123` label, especially after first-message persistence and reload.
+
+Plain-English Summary:
+- The latest chat should no longer keep showing its trip code in the sidebar after reload just because the recent list missed the title update.
+- When Wandrix gets a real title for the trip, the saved chat list should now stay in sync.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Improved Broad Chat Titles And Active Sidebar Title Sync
+
+Technical Summary:
+- Strengthened the planner title-generation prompt so broad but meaningful first-turn asks now produce grounded saved-chat titles like `Warm Getaway` instead of falling back to generic `Trip abc123` labels.
+- Re-ran the trip retitle script against existing saved chats so recently created generic chats could pick up better names from their stored conversation context.
+- Updated the chat sidebar so the currently open trip prefers the live workspace draft title over any stale cached list title while the page is attaching after reload.
+
+Plain-English Summary:
+- Broad chats like “I want to go somewhere warm” now get a proper saved name instead of a trip code.
+- Even right after reload, the active chat should settle onto the real trip title instead of sticking to the generic cached label.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/understanding.py`
+- `backend/scripts/retitle_and_prune_trips.py`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Stabilized The First Real Chat Send From A New Trip
+
+Technical Summary:
+- Changed the `/chat` first-send flow so ephemeral new-trip shells do not immediately swap routes before the first backend conversation turn finishes.
+- `TravelPlannerAssistant` now waits for the real persisted trip to be created, sends the first turn to that trip, seeds the local thread cache with the first user/assistant exchange, and only then activates the persisted workspace.
+- Added a workspace handoff guard so the chat bootstrap logic does not immediately re-run while the route is still catching up from `/chat` to the newly persisted trip, which was causing extra empty trips and blank-chat resets.
+
+Plain-English Summary:
+- Starting a brand-new chat should now feel much more stable.
+- The first message stays visible, the assistant reply comes back properly, and Wandrix should no longer jump into another blank chat right in the middle of that first exchange.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Filtered Stale Empty Trips Out Of Sidebar Cache
+
+Technical Summary:
+- Added recent-trip cache hygiene in `frontend/src/lib/recent-trips-cache.ts` so blank generic trips are filtered out when reading and writing the sidebar cache.
+- The filter now drops stale cached rows that still look like untouched placeholder chats, which prevents deleted empty trips from reappearing in the sidebar from `localStorage` after the database has already been cleaned.
+- Cleared the live browser cache entry for the current user and reloaded `/chat` to verify the sidebar now reflects the real cleaned trip list.
+
+Plain-English Summary:
+- The empty chats you were still seeing were coming from old browser cache, not the database.
+- Wandrix now cleans those stale blank entries out of the sidebar cache so they do not keep popping back in after cleanup.
+
+Files / Areas Touched:
+- `frontend/src/lib/recent-trips-cache.ts`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Retitled Used Chats And Removed Empty Saved Trips
+
+Technical Summary:
+- Added a backend maintenance script at `backend/scripts/retitle_and_prune_trips.py` to clean up old saved-trip data.
+- The script reads persisted trip context and raw checkpointed chat messages, generates short sidebar-friendly titles for real chats through the LLM, updates both `trips.title` and `trip_drafts.title`, and removes trips that have no real planning activity.
+- The empty-trip cleanup also deletes any matching LangGraph checkpoint rows by `thread_id` so the removed chats do not leave orphaned checkpoint data behind.
+- Ran the cleanup against the current database and removed 57 empty trips while retitling 19 meaningful chats.
+
+Plain-English Summary:
+- Old blank chats are gone now, so the sidebar should be much easier to scan.
+- The chats you actually used now have more useful names instead of generic `Trip abc123` labels.
+
+Files / Areas Touched:
+- `backend/scripts/retitle_and_prune_trips.py`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Synced LLM Trip Titles Into Saved Trips And Sidebar Time Labels
+
+Technical Summary:
+- Updated the planner extraction prompt so the LLM now aims to produce a concise 2-6 word trip title when there is enough real trip signal, instead of falling back to generic labels.
+- Persisted the draft title into the main `trips` row after conversation turns, so sidebar listings and later reloads use the same summarized title that the planner generated.
+- Updated the chat workspace to sync the in-memory workspace trip title with the latest draft title immediately after each turn.
+- Replaced the sidebar's old route-shaping fallback text with relative activity time formatting based on `updated_at`, using minutes/hours ago for today, days ago within a week, and weekday labels after that.
+
+Plain-English Summary:
+- Wandrix now gives used chats a better short title after the first real message, so the sidebar is easier to scan.
+- The saved trip list no longer says vague things like `Route still being shaped`; it now shows when each chat was last active in a more natural way.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/repositories/trip_repository.py`
+- `backend/app/services/conversation_service.py`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Fixed New Trip Route Activation In Chat
+
+Technical Summary:
+- Replaced the browser-level `window.history.replaceState(...)` call in the chat workspace new-trip flow with Next.js app-router navigation through `router.replace(...)`.
+- This keeps the `?trip=` query in sync with the actual client router state after creating a fresh trip, so the newly created trip becomes the active route instead of leaving the interface logically attached to the previous one.
+
+Plain-English Summary:
+- Clicking `New Trip` should now open the new trip properly.
+- Wandrix now switches to the fresh trip through Next’s router instead of using a lower-level history update that could leave the old trip selected.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Made New Trip Switch Active Chat Immediately
+
+Technical Summary:
+- Added an optimistic pending trip id in the chat workspace so a freshly created trip becomes the active chat target immediately instead of waiting for the router query to finish updating.
+- Added a bootstrap short-circuit for the exact selected trip already present in workspace state, which prevents a redundant reload of the same new trip right after creation.
+
+Plain-English Summary:
+- `New Trip` should now feel much faster and more direct.
+- As soon as Wandrix creates the new trip template, the chat switches to it right away instead of hanging onto the old trip until the route cycle completes.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Stopped New Trips From Mounting With Old Conversation History
+
+Technical Summary:
+- Changed the assistant runtime’s saved-message state to track both the `tripId` and the messages together, instead of keeping one generic message array across trip switches.
+- The chat now only mounts a thread runtime with history that belongs to the currently active trip, which prevents a newly created trip from briefly rendering the previous trip’s messages before its own history state catches up.
+
+Plain-English Summary:
+- A fresh trip should no longer open with the old chat still visible.
+- Wandrix now keeps each trip’s message state properly separated, so a new trip starts clean instead of momentarily showing the previous conversation.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Cleared Stale Local Thread Cache When A Trip Has No Saved History
+
+Technical Summary:
+- Updated the assistant history loader so an empty backend conversation history now explicitly resets the local cached thread for that trip instead of leaving stale client-only messages in place.
+- This prevents fresh or empty trips from continuing to show bad cached content after reloads when the server has no actual conversation for that trip.
+
+Plain-English Summary:
+- If a trip has no saved chat history, Wandrix now clears the local copy instead of showing old messages by mistake.
+- That means empty trips should stay empty, even after refresh, instead of inheriting leftover chat from another trip.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Made New Trip Open With A Local Starter Draft
+
+Technical Summary:
+- Added a frontend starter-draft builder so a newly created trip can mount immediately with the known default planner shape instead of waiting on a follow-up `getTripDraft()` request before the UI feels ready.
+- Updated the chat workspace new-trip flow to use that local starter draft as soon as `createTrip()` returns, and marked freshly created trip ids so the assistant skips the initial history-sync call for those blank trips.
+
+Plain-English Summary:
+- Opening a new trip should now feel much faster.
+- Wandrix now shows the fresh planner template right away after the trip is created instead of pausing to fetch an empty draft and empty history before the chat looks usable.
+
+Files / Areas Touched:
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Stopped Empty New Trips From Being Persisted Before First Use
+
+Technical Summary:
+- Reworked the `/chat` new-trip flow so clicking `New Trip` now opens an ephemeral local workspace instead of immediately creating a database trip and draft.
+- Added an explicit persisted/ephemeral workspace flag, a local ephemeral trip builder, and a first-send persistence hook so the real browser session and trip are only created when the user actually sends the first message.
+- Prevented ephemeral trips from polluting recent trips, last-active-trip storage, and initial history sync while keeping the assistant able to convert the local draft into a real trip transparently on first use.
+
+Plain-English Summary:
+- Empty chat templates are no longer being saved as real trips.
+- Wandrix now waits until you actually send a message before it creates a trip in the database, which keeps the trip list cleaner and avoids storing unused blank sessions.
+
+Files / Areas Touched:
+- `frontend/src/types/planner-workspace.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Saved Stitch Reference Assets For The Improved Travel Planner Screen
+
+## 2026-04-19 - Rebuilt Destination Suggestions As A Separate Stitch-Matched Board Component
+
+## 2026-04-19 - Added A Dedicated Destination Image Resolver For Suggestion Cards
+
+Technical Summary:
+- Added a new frontend destination-image resolver that caches card images per session and prefers place-specific imagery instead of treating all suggestion cards as generic travel wallpaper.
+- The resolver now uses a three-step strategy: curated destination matches first, Wikimedia page-summary images second, and only then a safe fallback image.
+- Updated the destination suggestion cards to resolve their images asynchronously through the new utility while keeping the suggestion UI isolated from the rest of the board flow.
+
+Plain-English Summary:
+- The destination cards now have a better image system behind them.
+- Instead of just showing random travel photos, Wandrix now tries much harder to show something that actually matches the destination, and it remembers the result so the board feels more stable during the session.
+
+Files / Areas Touched:
+- `frontend/src/lib/destination-images.ts`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+Technical Summary:
+- Recreated the destination-suggestion UI as its own dedicated board component instead of mixing the Stitch-style layout into the broader board preview file.
+- Replaced the previous uneven editorial layout with a stricter Stitch-style two-column card grid, matching the saved reference much more closely with a flat travel-editorial composition, image-first cards, compact badges, and a single `Select this` action.
+- Kept the destination-suggestion mode isolated so later board stages can evolve independently without rewriting the early suggestion surface again.
+
+Plain-English Summary:
+- The destination suggestions on the right are now built as their own separate piece, which makes the design easier to control and easier to reuse later.
+- I also reshaped the layout to look much closer to the Stitch example you shared instead of keeping the older custom version that still felt off.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+Technical Summary:
+- Downloaded the hosted Stitch screenshot and generated HTML for the `Improved Travel Planner` screen from project `7418467430330422379`.
+- Stored both reference assets locally under the repo docs area so the board redesign can follow the exact screen style instead of loosely approximating it.
+
+Plain-English Summary:
+- The Stitch design you pointed me to is now saved inside the project.
+- We can use that exact visual direction as the reference for the next UI pass, including treating `Explore this` as the `Select this` interaction pattern.
+
+Files / Areas Touched:
+- `docs/stitch-references/improved-travel-planner/improved-travel-planner.png`
+- `docs/stitch-references/improved-travel-planner/improved-travel-planner.html`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Redesigned The Destination Suggestion Board And Hardened Image Fallbacks
+
+Technical Summary:
+- Rebuilt the destination suggestion board into a more editorial split layout with one lead destination, three supporting options, and a cleaner own-choice action instead of the previous uniform generated-looking card grid.
+- Added stronger destination image fallbacks in the shared board-image helper so common suggestion cities now resolve to high-quality curated Unsplash images instead of depending on fragile generic source URLs.
+- Updated the suggestion board image resolver to ignore low-quality `source.unsplash.com` links from planner output and replace them with stable curated destination imagery.
+
+Plain-English Summary:
+- The destination suggestions on the right side should now look much better and feel more like a real travel product.
+- The images should also be much more reliable and higher quality, instead of random weak placeholders or broken generic wallpaper pulls.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Added Location-Aware Destination Suggestions To Early Chat Planning
+
+Technical Summary:
+- Extended the planner turn contract and persisted conversation state with a structured `suggestion_board` payload, destination suggestion cards, location-context input, and board-action input so `/chat` can drive early destination choices without relying on freeform text alone.
+- Added backend location-context resolution, suggestion-board state building, and warmer suggestion responses so broad destination asks can use browser location first, fall back to saved home-base context, and stay conservative about what is actually confirmed.
+- Wired the frontend chat and board together with an on-demand browser-location helper, a board-action bridge for destination-card clicks and `Own choice`, and a new right-side suggestion board that renders from persisted trip conversation state instead of placeholder copy.
+- Switched conversation routes to compile a fresh planning graph from the pooled checkpointer per request, which keeps the pooled setup but avoids reusing a stale graph/checkpointer object during conversation sends and history reads.
+- Updated the chat planner spec so the destination-suggestion board flow is documented as part of the core `/chat` planner behavior.
+
+Plain-English Summary:
+- Wandrix can now suggest destinations much more intelligently when the user says something broad like wanting somewhere sunny or romantic.
+- If location assistance is allowed, the assistant can use the user's current location; otherwise it falls back to the saved home base and says so clearly.
+- The right board can now show four visual destination options plus an `Own choice` path, and clicking a suggestion now behaves like a real planner input instead of a fake UI-only interaction.
+- The backend conversation history/send path is also safer again because it no longer depends on one reused graph object.
+
+Files / Areas Touched:
+- `backend/app/api/routes/conversation.py`
+- `backend/app/core/application.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/location_context.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/services/conversation_service.py`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/lib/planner-location.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/planner-board.ts`
+- `docs/chat-planner-spec.md`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Deduplicated Destination Geocoding Across Weather And Activities
+
+Technical Summary:
+- Extracted destination coordinate lookup into a shared provider helper so weather and activity enrichment no longer each call Mapbox separately for the same destination.
+- Updated planner provider enrichment to resolve destination coordinates once per turn when weather or activities actually need fresh data, then pass those coordinates into both module enrichers.
+- Kept the change local to the planner flow and added a safe fallback so a failed shared geocode lookup does not break the whole turn.
+
+Plain-English Summary:
+- Wandrix now does less duplicate location work when planning weather and activity ideas.
+- If both modules need fresh information for the same destination, the planner looks up the place once and reuses it instead of asking Mapbox twice.
+
+Files / Areas Touched:
+- `backend/app/services/providers/location_lookup.py`
+- `backend/app/services/providers/weather.py`
+- `backend/app/services/providers/activities.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Kept The Chat Workspace Mounted While Switching Existing Trips
+
+Technical Summary:
+- Removed the eager `setWorkspace(null)` reset at the start of chat workspace bootstrap so switching from one saved trip to another no longer tears down the entire attached workspace shell first.
+- Kept the existing cache-first and delayed-attach flow intact, but now the sidebar, chat shell, and board container stay mounted while the newly selected trip hydrates in the background.
+
+Plain-English Summary:
+- Moving between saved trips should feel less like a page reload now.
+- Wandrix keeps the chat layout in place while the new trip attaches, instead of blanking the whole workspace first.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Reused One Browser Auth Snapshot Across The Chat Workspace
+
+Technical Summary:
+- Added a shared browser auth snapshot helper so the workspace resolves the Supabase session once and passes the access token, user id, and user metadata into the assistant runtime.
+- Updated the chat workspace bootstrap and trip-creation flow to reuse that snapshot instead of scattering repeated `supabase.auth.getSession()` calls through the chat send, history sync, and profile-default loading paths.
+- Removed the assistant-level session lookup so conversation history fetches, profile-context hydration, and backend conversation sends now all ride on the same workspace-owned auth state.
+
+Plain-English Summary:
+- The chat frontend now does less repeated auth work in the background.
+- Wandrix reads the signed-in session once for the workspace and reuses it, instead of repeatedly asking Supabase for the same session during normal chat activity.
+
+Files / Areas Touched:
+- `frontend/src/lib/supabase/auth-snapshot.ts`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Replaced Per-Request Graph Creation With A Pooled Checkpointer
+
+Technical Summary:
+- Switched the LangGraph Postgres checkpoint lifecycle from a fresh per-request saver/graph to a startup-owned `psycopg_pool.ConnectionPool`.
+- Compiled the planning graph once against a pooled `PostgresSaver`, kept startup responsible for checkpoint setup, and closed the pool cleanly on shutdown.
+- Preserved the stale-connection fix while removing the expensive per-request graph recompilation and connection creation path.
+
+Plain-English Summary:
+- The backend chat graph should now be cheaper to use on every request.
+- Instead of rebuilding the graph and database connection every time, Wandrix now keeps a safer pooled setup alive for the app and reuses it across requests.
+
+Files / Areas Touched:
+- `backend/app/graph/checkpointer.py`
+- `backend/app/core/application.py`
+- `backend/app/api/routes/conversation.py`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Stopped Provider Enrichment From Re-Running On Every Chat Turn
+
+Technical Summary:
+- Updated planner provider enrichment so flight, weather, and activity calls only re-run when the module becomes ready for the first time or when the inputs that matter for that module actually change.
+- Added per-module input-change guards based on route, timing, and activity-style changes instead of re-calling external providers on every follow-up message.
+- Kept the behavior simple and local to the planner flow without introducing a broader custom caching layer.
+
+Plain-English Summary:
+- Wandrix should no longer keep re-querying live providers every time the user says something minor like “okay” or asks a follow-up.
+- The planner now reuses the current results unless the trip details relevant to that module actually changed.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/runner.py`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Removed The Extra Draft Fetch After Every Chat Turn
+
+Technical Summary:
+- Extended the backend conversation response contract so each successful trip-message send now returns the freshly persisted `trip_draft` alongside the assistant message.
+- Updated the frontend assistant runtime to consume the returned draft directly instead of issuing a second `getTripDraft()` request after every chat turn.
+- Reduced one backend round-trip and one extra draft read from the hot chat-send path.
+
+Plain-English Summary:
+- Sending a message in chat now does less unnecessary work.
+- Wandrix no longer asks the backend for the same updated trip draft twice after every turn, which should make chat responses a bit leaner.
+
+Files / Areas Touched:
+- `backend/app/schemas/conversation.py`
+- `backend/app/services/conversation_service.py`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Stopped Conversation History From Reusing A Closed Checkpointer Connection
+
+Technical Summary:
+- Removed the long-lived compiled LangGraph instance from FastAPI app state so conversation routes no longer depend on a single startup-time Postgres checkpointer connection.
+- Added a request-scoped planning graph context that opens a fresh checkpointer for each conversation send/history call, which avoids stale closed psycopg connections during checkpoint reads.
+- Kept startup responsible only for one-time checkpoint table setup.
+
+Plain-English Summary:
+- The backend was trying to read chat history through an old database connection that had already closed.
+- Now each conversation request gets a fresh graph connection, so loading saved chat history should be much more stable.
+
+Files / Areas Touched:
+- `backend/app/graph/checkpointer.py`
+- `backend/app/core/application.py`
+- `backend/app/api/routes/conversation.py`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Made Chat Load First, Board Load Later, And Seeded The Sidebar From Cache
+
+Technical Summary:
+- Added client-side recent-trip caching so the sidebar can render saved trips from local storage immediately before the network refresh completes.
+- Updated the chat runtime to restore local conversation history first for an existing trip, then sync checkpoint history from the backend in the background instead of blocking the whole pane.
+- Split the loading behavior so the chat can open quickly while the right-side board stays in a later-loading helper state with a subtle animated loading treatment.
+- Tightened the composer and sidebar selection logic so the active trip is reflected immediately while a selected trip is still attaching its workspace.
+
+Plain-English Summary:
+- The left side should now feel much faster because saved trips and past chat messages appear from cache first.
+- The board now waits its turn instead of blocking the whole experience.
+- Opening an old trip should feel smoother and more understandable because chat appears first, while the right side quietly catches up.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/lib/chat-history-cache.ts`
+- `frontend/src/lib/recent-trips-cache.ts`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Made New Trip Create A Fresh Workspace In Place
+
+Technical Summary:
+- Reworked the chat sidebar `New Trip` action so it no longer relies on the `new` query parameter to force a full workspace bootstrap.
+- Added an in-place trip creation flow in the travel workspace that creates a brand-new persisted trip, swaps it into the active workspace immediately, and updates the URL without reloading the entire planner state.
+- Disabled the new-trip button while the fresh trip is being created so duplicate trip creation is less likely.
+
+Plain-English Summary:
+- Clicking `New Trip` now opens a genuinely new trip instead of tearing everything down and rebuilding the page.
+- The planner should feel much smoother because it no longer reloads all the saved-trip and workspace setup just to start a fresh chat.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Reserved The Right Board For Later Itinerary Generation
+
+Technical Summary:
+- Simplified the right-side chat board into a single centered helper state instead of rendering live itinerary cards during early planning.
+- Tightened the helper copy so it explicitly states that the board is reserved for the later confirmed-trip stage, not for active detail collection.
+- Left the chat as the primary planning surface while preserving the previously richer board snapshot in the docs for future restoration.
+
+Plain-English Summary:
+- The right side now stays intentionally quiet while the trip is still being discussed.
+- Wandrix will collect details in chat first, and only later should that area turn into the real itinerary board.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
 ## 2026-04-19 - Saved A Recoverable Snapshot Of The Current Chat UI And Ignored Local Workspace Noise
 
 Technical Summary:

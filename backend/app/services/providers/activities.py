@@ -1,7 +1,10 @@
 from app.core.config import get_settings
 from app.integrations.geoapify.client import create_geoapify_client
-from app.integrations.mapbox.client import create_mapbox_client
 from app.schemas.trip_planning import ActivityDetail, TripConfiguration
+from app.services.providers.location_lookup import (
+    Coordinates,
+    resolve_destination_coordinates,
+)
 
 
 STYLE_CATEGORY_MAP = {
@@ -17,11 +20,16 @@ STYLE_CATEGORY_MAP = {
 }
 
 
-def enrich_activities_from_geoapify(configuration: TripConfiguration) -> list[ActivityDetail]:
+def enrich_activities_from_geoapify(
+    configuration: TripConfiguration,
+    coordinates: Coordinates | None = None,
+) -> list[ActivityDetail]:
     if not _can_search_activities(configuration):
         return []
 
-    latitude, longitude = _resolve_coordinates(configuration.to_location or "")
+    latitude, longitude = coordinates or resolve_destination_coordinates(
+        configuration.to_location or "",
+    )
     if latitude is None or longitude is None:
         return []
 
@@ -91,38 +99,6 @@ def enrich_activities_from_geoapify(configuration: TripConfiguration) -> list[Ac
             break
 
     return activity_items
-
-
-def _resolve_coordinates(location_name: str) -> tuple[float | None, float | None]:
-    settings = get_settings()
-    with create_mapbox_client() as client:
-        response = client.get(
-            "/search/geocode/v6/forward",
-            params={
-                "q": location_name,
-                "limit": 1,
-                "access_token": settings.mapbox_access_token,
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
-
-    features = payload.get("features") or []
-    if not features:
-        return None, None
-
-    coordinates = (features[0].get("geometry") or {}).get("coordinates") or []
-    if len(coordinates) < 2:
-        return None, None
-
-    longitude = coordinates[0]
-    latitude = coordinates[1]
-    if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
-        return None, None
-
-    return float(latitude), float(longitude)
-
-
 def _derive_categories(configuration: TripConfiguration) -> list[str]:
     categories: list[str] = []
     for style in configuration.activity_styles:

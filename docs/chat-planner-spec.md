@@ -67,7 +67,51 @@ The trip draft owns:
 - `decision_cards`
 - `last_turn_summary`
 - `active_goals`
+- `suggestion_board`
 - `memory`
+
+## Suggestion Board
+
+`conversation.suggestion_board` is the structured board state for early planning.
+
+It should drive the right-hand board directly instead of relying on freeform assistant copy.
+
+The board can be in one of these modes:
+- `helper`
+- `destination_suggestions`
+- `decision_cards`
+- `idle`
+
+### Destination Suggestions
+
+Destination suggestion mode is only for broad destination asks.
+
+Rules:
+- use browser location first when the user allowed location assistance
+- fall back to saved home-base context when browser location is unavailable
+- say clearly which source is being used
+- show exactly four destination cards
+- keep suggestions as options, not confirmations
+
+Each destination card should contain:
+- destination name
+- country or region
+- image
+- short reason
+- one practicality signal
+- selection status
+
+The board should also offer an `Own choice` action that sends the user back to chat to type their own destination.
+
+### Decision Cards
+
+After the destination is confirmed, the board should move to the next useful choice set instead of returning to plain helper copy immediately.
+
+Examples:
+- timing direction
+- departure point
+- stay direction
+- trip tone
 
 ### Open Questions
 
@@ -200,6 +244,8 @@ Important rule:
 ## Provider Activation
 
 Providers should activate module-by-module, not all at once.
+
+Before destination confirmation, the board should stay in suggestion or decision mode rather than pretending the itinerary exists already.
 
 ### Weather
 Trigger only when:

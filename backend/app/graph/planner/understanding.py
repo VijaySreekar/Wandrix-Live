@@ -13,6 +13,8 @@ def generate_llm_trip_update(
     status: TripDraftStatus,
     conversation: TripConversationState,
     profile_context: dict,
+    current_location_context: dict,
+    board_action: dict,
     raw_messages: list[dict],
 ) -> TripTurnUpdate:
     if not user_input.strip():
@@ -26,8 +28,23 @@ Update the trip conservatively using the latest user turn in context.
 
 Rules:
 - Be warm, a little chatty, precise, and planner-like.
+- If there is enough trip signal, generate a concise sidebar-style title in 2 to 6 words.
+- Titles should feel like a human summary of the trip direction, such as "Kyoto Food Escape" or "Lisbon Spring Weekend".
+- Even if the trip is still broad, prefer a grounded working title from the user's real intent, such as "Warm Getaway", "Sunny June Escape", or "Luxury City Break".
+- Only leave title empty when there is truly no meaningful travel intent in the latest turn.
+- Never return generic placeholders like "Trip", "Trip planner", "Travel plan", or raw id-like labels.
 - Never let profile defaults override explicit trip details.
 - Do not infer traveler counts from vague social phrasing alone.
+- If the user has not chosen a destination and their ask is broad, you may proactively suggest destination options.
+- When you suggest destinations, return exactly 4 destination_suggestions with image_url, short_reason, and one practicality_label each.
+- For each destination suggestion image_url, use a real HTTPS image URL. A good default format is https://source.unsplash.com/1200x900/?DESTINATION+travel
+- Destination suggestions should optimize for fit plus travel practicality from the location context you were given.
+- If no browser location or saved home-base context is available, ask for the user's departure city, home base, or airport before giving practicality-weighted destination suggestions.
+- If browser location is available, say so clearly in location_source_summary.
+- If browser location is unavailable and saved home base context is available, say that clearly in location_source_summary.
+- Do not generate destination suggestion cards when the user already gave a concrete destination.
+- A board_action of select_destination_suggestion means the user is leaning toward that place, but it is not confirmed yet.
+- A board_action of own_choice means the user wants to type their own destination in chat.
 - Explicit user statements become confirmed_fields.
 - Plausible but not explicit details stay inferred_fields.
 - Rejected or corrected options go into rejected_options.
@@ -58,6 +75,12 @@ Current conversation state:
 
 Saved profile context:
 {profile_context}
+
+Current location context:
+{current_location_context}
+
+Latest board action:
+{board_action}
 
 Recent raw messages:
 {recent_messages}

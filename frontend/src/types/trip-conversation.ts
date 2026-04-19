@@ -34,11 +34,39 @@ export type ConversationOptionKind =
   | "budget_posture";
 
 export type ConversationQuestionStatus = "open" | "answered" | "dismissed";
+export type TripSuggestionBoardMode =
+  | "idle"
+  | "destination_suggestions"
+  | "decision_cards"
+  | "helper";
+export type DestinationSuggestionSelectionStatus =
+  | "suggested"
+  | "leading"
+  | "confirmed";
 
 export type PlannerDecisionCard = {
   title: string;
   description: string;
   options: string[];
+};
+
+export type DestinationSuggestionCard = {
+  id: string;
+  destination_name: string;
+  country_or_region: string;
+  image_url: string;
+  short_reason: string;
+  practicality_label: string;
+  selection_status: DestinationSuggestionSelectionStatus;
+};
+
+export type TripSuggestionBoardState = {
+  mode: TripSuggestionBoardMode;
+  source_context?: string | null;
+  title?: string | null;
+  subtitle?: string | null;
+  cards: DestinationSuggestionCard[];
+  own_choice_prompt?: string | null;
 };
 
 export type ConversationQuestion = {
@@ -100,6 +128,7 @@ export type TripConversationState = {
   decision_cards: PlannerDecisionCard[];
   last_turn_summary?: string | null;
   active_goals: string[];
+  suggestion_board: TripSuggestionBoardState;
   memory: TripConversationMemory;
 };
 

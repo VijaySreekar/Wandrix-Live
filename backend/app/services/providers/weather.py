@@ -1,7 +1,9 @@
-from app.core.config import get_settings
-from app.integrations.mapbox.client import create_mapbox_client
 from app.integrations.open_meteo.client import create_open_meteo_client
 from app.schemas.trip_planning import TripConfiguration, WeatherDetail
+from app.services.providers.location_lookup import (
+    Coordinates,
+    resolve_destination_coordinates,
+)
 
 
 WMO_WEATHER_LABELS = {
@@ -27,11 +29,16 @@ WMO_WEATHER_LABELS = {
 }
 
 
-def enrich_weather_from_open_meteo(configuration: TripConfiguration) -> list[WeatherDetail]:
+def enrich_weather_from_open_meteo(
+    configuration: TripConfiguration,
+    coordinates: Coordinates | None = None,
+) -> list[WeatherDetail]:
     if not _can_search_weather(configuration):
         return []
 
-    latitude, longitude = _resolve_coordinates(configuration.to_location or "")
+    latitude, longitude = coordinates or resolve_destination_coordinates(
+        configuration.to_location or "",
+    )
     if latitude is None or longitude is None:
         return []
 
@@ -73,39 +80,6 @@ def enrich_weather_from_open_meteo(configuration: TripConfiguration) -> list[Wea
         )
 
     return weather_items
-
-
-def _resolve_coordinates(location_name: str) -> tuple[float | None, float | None]:
-    settings = get_settings()
-    with create_mapbox_client() as client:
-        response = client.get(
-            "/search/geocode/v6/forward",
-            params={
-                "q": location_name,
-                "limit": 1,
-                "access_token": settings.mapbox_access_token,
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
-
-    features = payload.get("features") or []
-    if not features:
-        return None, None
-
-    first_feature = features[0]
-    coordinates = (first_feature.get("geometry") or {}).get("coordinates") or []
-    if len(coordinates) < 2:
-        return None, None
-
-    longitude = coordinates[0]
-    latitude = coordinates[1]
-    if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
-        return None, None
-
-    return float(latitude), float(longitude)
-
-
 def _can_search_weather(configuration: TripConfiguration) -> bool:
     return bool(configuration.selected_modules.weather and configuration.to_location)
 

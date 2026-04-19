@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   BookOpen,
   ChevronDown,
@@ -12,7 +12,6 @@ import {
   Search,
 } from "lucide-react";
 
-import { formatTripWindowDisplay } from "@/lib/trip-timing";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { TripListItemResponse } from "@/types/trip";
 
@@ -20,51 +19,53 @@ const INITIAL_VISIBLE = 5;
 const LOAD_MORE_COUNT = 5;
 
 type ChatSidebarProps = {
+  activeTripId: string | null;
   collapsed: boolean;
+  onSelectTrip: () => void;
   onToggleCollapsed: () => void;
+  onCreateTrip: () => void;
+  isCreatingTrip: boolean;
   workspace: PlannerWorkspaceState | null;
   recentTrips: TripListItemResponse[];
 };
 
 export function ChatSidebar({
+  activeTripId,
   collapsed,
+  onSelectTrip,
   onToggleCollapsed,
+  onCreateTrip,
+  isCreatingTrip,
   workspace,
   recentTrips,
 }: ChatSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
 
-  const currentTripId = workspace?.trip.trip_id ?? searchParams.get("trip");
+  const currentTripId = activeTripId ?? workspace?.trip.trip_id ?? null;
   const recentSessions = useMemo(
     () =>
       recentTrips
         .filter((trip) => matchesTripQuery(trip, query))
         .map((trip) => ({
           id: trip.trip_id,
-          title: trip.title,
-          subtitle: trip.phase ?? trip.trip_status,
-          route:
-            trip.from_location || trip.to_location
-              ? `${trip.from_location ?? "Origin"} to ${trip.to_location ?? "Destination"}`
-              : "Route still being shaped",
-          dates: formatTripDates(trip),
+          title:
+            trip.trip_id === currentTripId && workspace?.trip.trip_id === trip.trip_id
+              ? workspace.tripDraft.title
+              : trip.title,
+          activityTime: formatTripActivityTime(trip.updated_at),
           isCurrent: trip.trip_id === currentTripId,
         })),
-    [currentTripId, query, recentTrips],
+    [currentTripId, query, recentTrips, workspace],
   );
 
   const visibleSessions = recentSessions.slice(0, visibleCount);
   const hasMore = recentSessions.length > visibleCount;
 
   function handleNewChat() {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("new", Date.now().toString());
-    params.delete("trip");
-    router.push(`${pathname}?${params.toString()}`);
+    onCreateTrip();
   }
 
   function handleShowMore() {
@@ -83,8 +84,9 @@ export function ChatSidebar({
           <button
             type="button"
             onClick={handleNewChat}
+            disabled={isCreatingTrip}
             className={[
-              "inline-flex items-center justify-center rounded-lg bg-[color:var(--accent)] text-white transition-opacity hover:opacity-90",
+              "inline-flex items-center justify-center rounded-lg bg-[color:var(--accent)] text-white transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-75",
               collapsed
                 ? "h-10 w-10"
                 : "h-9 flex-1 gap-2 text-[0.8rem] font-semibold",
@@ -93,7 +95,7 @@ export function ChatSidebar({
             title="New trip"
           >
             <Plus className="h-3.5 w-3.5" />
-            {!collapsed ? "New Trip" : null}
+            {!collapsed ? (isCreatingTrip ? "Creating..." : "New Trip") : null}
           </button>
 
           <button
@@ -150,7 +152,10 @@ export function ChatSidebar({
                   <button
                     key={session.id}
                     type="button"
-                    onClick={() => router.push(`${pathname}?trip=${session.id}`)}
+                    onClick={() => {
+                      onSelectTrip();
+                      router.push(`${pathname}?trip=${session.id}`);
+                    }}
                     className={[
                       "group flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent)]/40",
                       session.isCurrent
@@ -171,7 +176,7 @@ export function ChatSidebar({
                         {session.title}
                       </div>
                       <div className="mt-0.5 truncate text-[0.7rem] leading-normal text-[color:var(--sidebar-muted-text)]">
-                        {session.dates ?? session.route}
+                        {session.activityTime}
                       </div>
                     </div>
                   </button>
@@ -201,7 +206,10 @@ export function ChatSidebar({
                 <button
                   key={session.id}
                   type="button"
-                  onClick={() => router.push(`${pathname}?trip=${session.id}`)}
+                  onClick={() => {
+                    onSelectTrip();
+                    router.push(`${pathname}?trip=${session.id}`);
+                  }}
                   className={[
                     "flex h-10 w-10 items-center justify-center rounded-lg border text-[0.72rem] font-semibold uppercase transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent)]/40",
                     session.isCurrent
@@ -283,16 +291,38 @@ function matchesTripQuery(trip: TripListItemResponse, query: string) {
   return searchableText.includes(normalizedQuery);
 }
 
-function formatTripDates(trip: TripListItemResponse) {
-  const summary = formatTripWindowDisplay(
-    {
-      start_date: trip.start_date,
-      end_date: trip.end_date,
-      travel_window: trip.travel_window,
-      trip_length: trip.trip_length,
-    },
-    { emptyLabel: "" },
-  ).trim();
+function formatTripActivityTime(updatedAt: string) {
+  const updatedAtDate = new Date(updatedAt);
+  if (Number.isNaN(updatedAtDate.getTime())) {
+    return "Recently updated";
+  }
 
-  return summary || null;
+  const now = new Date();
+  const diffMs = now.getTime() - updatedAtDate.getTime();
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+
+  if (diffMs < minuteMs) {
+    return "Just now";
+  }
+
+  if (diffMs < hourMs) {
+    const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  }
+
+  if (diffMs < dayMs) {
+    const hours = Math.max(1, Math.floor(diffMs / hourMs));
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+
+  if (diffMs < 7 * dayMs) {
+    const days = Math.max(1, Math.floor(diffMs / dayMs));
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+  }).format(updatedAtDate);
 }
