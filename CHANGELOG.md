@@ -9,6 +9,20 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Stopped Supabase Cookie Writes From Crashing Chat Pages
+
+Technical Summary:
+- Updated the shared frontend Supabase server helper so cookie writes are best-effort instead of mandatory when `createServerClient` runs inside a server-rendered page.
+- Kept cookie reads intact for auth checks on `/chat` and other protected pages, while allowing route handlers like the auth callback to continue setting cookies where Next.js permits it.
+- Removed the localhost-only crash path where `supabase.auth.getUser()` attempted a cookie refresh during render and triggered Next 16's `cookies().set` restriction.
+
+Plain-English Summary:
+- The main planner page should stop failing with a server error when Wandrix checks whether you are signed in.
+- Protected pages can still read your session normally, and the login callback can keep saving auth cookies without the chat workspace crashing first.
+
+Files / Areas Touched:
+- `frontend/src/lib/supabase/server.ts`
+
 ## 2026-04-19 - Deferred Sidebar Preference Hydration In Chat Workspaces
 
 Technical Summary:
