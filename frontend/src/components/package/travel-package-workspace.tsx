@@ -19,6 +19,8 @@ const CHAT_SIDEBAR_COLLAPSED_KEY = "wandrix.chat_sidebar_collapsed";
 const LAST_ACTIVE_TRIP_STORAGE_KEY = "wandrix.last_active_trip_id";
 const RECENT_TRIPS_LIMIT = 24;
 const TRIP_LIST_BOOTSTRAP_TIMEOUT_MS = 3500;
+const RECENT_TRIPS_REFRESH_TIMEOUT_MS = 5000;
+const WORKSPACE_BOOTSTRAP_TIMEOUT_MS = 12000;
 
 
 export function TravelPackageWorkspace() {
@@ -69,15 +71,21 @@ export function TravelPackageWorkspace() {
 
         const rememberedTripId =
           newChatNonce || selectedTripId ? null : readLastActiveTripId();
-        const initialTripList = await loadInitialTripList(session.access_token);
-        const bootResult = await createWorkspace(
-          session.access_token,
-          {
-            selectedTripId,
-            rememberedTripId,
-            forceNewTrip: Boolean(newChatNonce),
-            recentTrips: initialTripList.items,
-          },
+        const forceNewTrip = Boolean(newChatNonce);
+        const initialTripList = forceNewTrip
+          ? { items: [] }
+          : await loadInitialTripList(session.access_token);
+        const bootResult = await withAbortableTimeout(
+          (signal) =>
+            createWorkspace(session.access_token, {
+              selectedTripId,
+              rememberedTripId,
+              forceNewTrip,
+              recentTrips: initialTripList.items,
+              signal,
+            }),
+          WORKSPACE_BOOTSTRAP_TIMEOUT_MS,
+          "Workspace setup took too long.",
         );
 
         if (!cancelled) {
@@ -185,19 +193,20 @@ async function createWorkspace(
     rememberedTripId: string | null;
     forceNewTrip: boolean;
     recentTrips: TripListItemResponse[];
+    signal: AbortSignal;
   },
 ): Promise<{
   workspace: PlannerWorkspaceState;
   didCreateTrip: boolean;
 }> {
-  let browserSession = await ensureBrowserSession(accessToken);
+  let browserSession = await ensureBrowserSession(accessToken, options.signal);
   const preferredTripId =
     options.selectedTripId ?? (!options.forceNewTrip ? options.rememberedTripId : null);
 
   if (preferredTripId) {
     try {
-      const trip = await getTrip(preferredTripId, accessToken);
-      const tripDraft = await getTripDraft(trip.trip_id, accessToken);
+      const trip = await getTrip(preferredTripId, accessToken, options.signal);
+      const tripDraft = await getTripDraft(trip.trip_id, accessToken, options.signal);
 
       return {
         workspace: {
@@ -225,8 +234,16 @@ async function createWorkspace(
   }
 
   if (!options.forceNewTrip && options.recentTrips.length > 0) {
-    const latestTrip = await getTrip(options.recentTrips[0].trip_id, accessToken);
-    const latestTripDraft = await getTripDraft(latestTrip.trip_id, accessToken);
+    const latestTrip = await getTrip(
+      options.recentTrips[0].trip_id,
+      accessToken,
+      options.signal,
+    );
+    const latestTripDraft = await getTripDraft(
+      latestTrip.trip_id,
+      accessToken,
+      options.signal,
+    );
 
     return {
       workspace: {
@@ -245,8 +262,9 @@ async function createWorkspace(
     const trip = await createTrip(
       { browser_session_id: browserSession.browser_session_id },
       accessToken,
+      options.signal,
     );
-    const tripDraft = await getTripDraft(trip.trip_id, accessToken);
+    const tripDraft = await getTripDraft(trip.trip_id, accessToken, options.signal);
 
     return {
       workspace: {
@@ -266,13 +284,14 @@ async function createWorkspace(
     }
 
     window.sessionStorage.removeItem(BROWSER_SESSION_STORAGE_KEY);
-    browserSession = await ensureBrowserSession(accessToken);
+    browserSession = await ensureBrowserSession(accessToken, options.signal);
 
     const trip = await createTrip(
       { browser_session_id: browserSession.browser_session_id },
       accessToken,
+      options.signal,
     );
-    const tripDraft = await getTripDraft(trip.trip_id, accessToken);
+    const tripDraft = await getTripDraft(trip.trip_id, accessToken, options.signal);
 
     return {
       workspace: {
@@ -288,6 +307,7 @@ async function createWorkspace(
 
 async function ensureBrowserSession(
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<BrowserSessionCreateResponse> {
   const storedBrowserSessionId = window.sessionStorage.getItem(BROWSER_SESSION_STORAGE_KEY);
 
@@ -308,6 +328,7 @@ async function ensureBrowserSession(
       locale: navigator.language,
     },
     accessToken,
+    signal,
   );
 
   window.sessionStorage.setItem(
@@ -320,9 +341,10 @@ async function ensureBrowserSession(
 
 async function loadInitialTripList(accessToken: string) {
   try {
-    return await withTimeout(
-      listTrips(RECENT_TRIPS_LIMIT, accessToken),
+    return await withAbortableTimeout(
+      (signal) => listTrips(RECENT_TRIPS_LIMIT, accessToken, signal),
       TRIP_LIST_BOOTSTRAP_TIMEOUT_MS,
+      "Timed out while loading saved trips.",
     );
   } catch {
     return { items: [] };
@@ -335,7 +357,11 @@ async function refreshRecentTrips(
   setRecentTrips: Dispatch<SetStateAction<TripListItemResponse[]>>,
 ) {
   try {
-    const nextTrips = await listTrips(RECENT_TRIPS_LIMIT, accessToken);
+    const nextTrips = await withAbortableTimeout(
+      (signal) => listTrips(RECENT_TRIPS_LIMIT, accessToken, signal),
+      RECENT_TRIPS_REFRESH_TIMEOUT_MS,
+      "Timed out while refreshing saved trips.",
+    );
 
     if (!shouldCancel()) {
       setRecentTrips(nextTrips.items);
@@ -350,19 +376,34 @@ function readLastActiveTripId() {
   return storedTripId && storedTripId.trim() ? storedTripId : null;
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withAbortableTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  const controller = new AbortController();
+
   return await new Promise<T>((resolve, reject) => {
     const timeout = window.setTimeout(() => {
-      reject(new Error("Timed out while loading saved trips."));
+      controller.abort(new DOMException(timeoutMessage, "AbortError"));
+      reject(new Error(timeoutMessage));
     }, timeoutMs);
 
-    promise
+    run(controller.signal)
       .then((value) => {
         window.clearTimeout(timeout);
         resolve(value);
       })
       .catch((error: unknown) => {
         window.clearTimeout(timeout);
+        if (
+          (error instanceof DOMException && error.name === "AbortError") ||
+          (error instanceof Error && error.name === "AbortError")
+        ) {
+          reject(new Error(timeoutMessage));
+          return;
+        }
+
         reject(error);
       });
   });

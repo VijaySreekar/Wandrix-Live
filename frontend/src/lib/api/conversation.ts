@@ -9,10 +9,11 @@ export function sendTripConversationMessage(
   tripId: string,
   payload: TripConversationMessageRequest,
   accessToken?: string,
+  signal?: AbortSignal,
 ) {
   return postJson<TripConversationMessageResponse, TripConversationMessageRequest>(
     `/api/v1/trips/${tripId}/conversation`,
     payload,
-    { accessToken },
+    { accessToken, signal },
   );
 }

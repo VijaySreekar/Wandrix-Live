@@ -8,10 +8,11 @@ import type {
 export function createBrowserSession(
   payload: BrowserSessionCreateRequest = {},
   accessToken?: string,
+  signal?: AbortSignal,
 ) {
   return postJson<BrowserSessionCreateResponse, BrowserSessionCreateRequest>(
     "/api/v1/browser-sessions",
     payload,
-    { accessToken },
+    { accessToken, signal },
   );
 }

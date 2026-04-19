@@ -9,6 +9,24 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Aborted Stalled Chat Workspace Requests
+
+Technical Summary:
+- Added `AbortSignal` support to the shared frontend API client and threaded it through the trip, browser-session, and conversation helpers used by the chat workspace.
+- Replaced the old Promise-only timeout helper in the `/chat` workspace bootstrap with an aborting timeout so timed-out saved-trip and workspace requests stop in-flight instead of lingering as zombie fetches.
+- Stopped the fresh-trip bootstrap path from waiting on the recent-trips sidebar before attaching the main planner workspace, and added an aborting timeout for the sidebar refresh as well.
+
+Plain-English Summary:
+- The chat workspace should no longer sit on a never-ending loading state when a trip boot request stalls.
+- Wandrix now cuts off stuck startup requests more cleanly and prioritizes opening the main planner before worrying about refreshing the saved-trip rail.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/lib/api/client.ts`
+- `frontend/src/lib/api/trips.ts`
+- `frontend/src/lib/api/browser-sessions.ts`
+- `frontend/src/lib/api/conversation.ts`
+
 ## 2026-04-19 - Made Chat Bootstrap Recover From Slow Trip Lists
 
 Technical Summary:

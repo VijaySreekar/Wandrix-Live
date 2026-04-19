@@ -10,12 +10,13 @@ type JsonRequestOptions = {
   accessToken?: string;
   method?: "GET" | "POST" | "PUT";
   payload?: unknown;
+  signal?: AbortSignal;
 };
 
 
 async function requestJson<TResponse>(
   path: string,
-  { accessToken, method = "GET", payload }: JsonRequestOptions = {},
+  { accessToken, method = "GET", payload, signal }: JsonRequestOptions = {},
 ): Promise<TResponse> {
   const headers = new Headers();
 
@@ -32,6 +33,7 @@ async function requestJson<TResponse>(
     headers,
     body: payload !== undefined ? JSON.stringify(payload) : undefined,
     cache: "no-store",
+    signal,
   });
 
   if (!response.ok) {
