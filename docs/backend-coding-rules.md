@@ -54,10 +54,13 @@ Validate and normalize AI responses before using them in downstream logic or ret
 3. Separate orchestration from provider calls.
 `services/` should decide what to generate; `integrations/llm/` should handle the actual model request.
 
-4. Preserve deterministic fallbacks where possible.
-If AI output fails, the API should still be able to return a safe fallback or a controlled error.
+4. Do not treat deterministic extraction as the primary planner strategy.
+Heuristic parsing is allowed only as a temporary fallback or safety net. New planner understanding should move toward LLM-first structured extraction.
 
-5. Keep travel assumptions explicit.
+5. Prefer clarification over brittle guessing.
+If a user message is ambiguous, the planner should ask a follow-up question or keep the field inferred, rather than hard-locking a value from a weak heuristic.
+
+6. Keep travel assumptions explicit.
 Currencies, durations, traveler counts, and regional assumptions should be visible in code, not hidden in magic values.
 
 ## Code Style Rules
@@ -104,3 +107,6 @@ When changing response shapes used by the frontend, coordinate the frontend upda
 
 4. Append meaningful backend changes to `CHANGELOG.md`.
 Each entry must include both technical detail and a plain-English explanation.
+
+5. Reduce heuristic parsing over time.
+Do not add more regex and keyword rules as the default way to understand user intent unless there is a strong short-term reason and a clear plan to replace them.

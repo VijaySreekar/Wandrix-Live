@@ -51,7 +51,7 @@ export function TripModuleWorkspace({
         } = await supabase.auth.getSession();
 
         if (sessionError || !session?.access_token) {
-          throw new Error("Sign in to view this planning surface.");
+          throw new Error("Sign in to view this reference view.");
         }
 
         const [tripResponse, providerStatusResponse] = await Promise.all([
@@ -88,7 +88,7 @@ export function TripModuleWorkspace({
           setError(
             caughtError instanceof Error
               ? caughtError.message
-              : "Could not load the module workspace.",
+              : "Could not load the module reference view.",
           );
         }
       } finally {
@@ -223,7 +223,7 @@ export function TripModuleWorkspace({
         ) : null}
 
         {isLoading ? (
-          <ModuleMessage message="Loading the planning surface..." />
+          <ModuleMessage message="Loading the reference view..." />
         ) : error ? (
           <ModuleMessage message={error} />
         ) : !activeTrip || !draft ? (
@@ -278,7 +278,7 @@ export function TripModuleWorkspace({
                     This view already reads from the saved trip draft, so it will improve as the planner fills richer module data.
                   </li>
                   <li className="rounded-lg border border-shell-border bg-panel px-3 py-2">
-                    The chat workspace remains the main editing surface while these module pages become more focused planning tools.
+                    The chat workspace remains the main place for planning while these module pages stay focused on inspection and reference.
                   </li>
                 </ul>
               </div>
@@ -550,36 +550,36 @@ function getModuleMeta(module: ModuleKind) {
     case "flights":
       return {
         label: "Flights",
-        heading: "Flight planning",
+        heading: "Flight reference",
         sidebarCopy: "Choose a saved trip and inspect the route and flight layer for that plan.",
         description:
-          "Use this surface to inspect route context, flight placeholders, and timeline movement for the selected trip.",
+          "Use this surface to inspect route context, flight placeholders, and timeline movement for the selected trip while continuing to plan inside chat.",
         primaryNote:
-          "Flight discovery will eventually bring in carrier, timing, and route options here.",
+          "Flight discovery will eventually bring in carrier, timing, and route options here, but final trip shaping still happens in chat.",
         itemsHeading: "Structured flight items",
         timelineType: "flight" as const,
       };
     case "hotels":
       return {
         label: "Hotels",
-        heading: "Hotel planning",
+        heading: "Hotel reference",
         sidebarCopy: "Choose a saved trip and inspect the stay and neighborhood layer for that plan.",
         description:
-          "Use this surface to inspect stay details, hotel placeholders, and lodging blocks for the selected trip.",
+          "Use this surface to inspect stay details, hotel placeholders, and lodging blocks for the selected trip while continuing to plan inside chat.",
         primaryNote:
-          "Hotel discovery will eventually bring in stay options, areas, and check-in details here.",
+          "Hotel discovery will eventually bring in stay options, areas, and check-in details here, but final trip shaping still happens in chat.",
         itemsHeading: "Structured hotel items",
         timelineType: "hotel" as const,
       };
     case "activities":
       return {
         label: "Activities",
-        heading: "Activity planning",
+        heading: "Activity reference",
         sidebarCopy: "Choose a saved trip and inspect the destination highlights and itinerary moments for that plan.",
         description:
-          "Use this surface to inspect saved destination highlights, activity suggestions, and the moments they occupy in the itinerary.",
+          "Use this surface to inspect saved destination highlights, activity suggestions, and the moments they occupy in the itinerary while continuing to plan inside chat.",
         primaryNote:
-          "This view already reflects live Geoapify-backed highlights when the planner has enough destination context.",
+          "This view already reflects live Geoapify-backed highlights when the planner has enough destination context, but final trip shaping still happens in chat.",
         itemsHeading: "Structured activity items",
         timelineType: "activity" as const,
       };

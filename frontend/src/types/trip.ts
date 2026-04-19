@@ -16,6 +16,7 @@ export type TripCreateResponse = {
 export type TripListItemResponse = TripCreateResponse & {
   updated_at: string;
   phase: string | null;
+  brochure_ready: boolean;
   from_location: string | null;
   to_location: string | null;
   start_date: string | null;

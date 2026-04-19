@@ -26,6 +26,7 @@ class TripCreateResponse(BaseModel):
 class TripListItemResponse(TripCreateResponse):
     updated_at: datetime
     phase: str | None = None
+    brochure_ready: bool = False
     from_location: str | None = None
     to_location: str | None = None
     start_date: str | None = None

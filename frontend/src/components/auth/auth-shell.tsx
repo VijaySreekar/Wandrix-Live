@@ -1,26 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-
 type AuthMode = "signin" | "signup";
-
 
 type AuthShellProps = {
   nextPath: string;
 };
 
-
 export function AuthShell({ nextPath }: AuthShellProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const onboardingPath = `${nextPath}${nextPath.includes("?") ? "&" : "?"}onboarding=1`;
   const [mode, setMode] = useState<AuthMode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,7 +46,7 @@ export function AuthShell({ nextPath }: AuthShellProps) {
         return;
       }
 
-      const emailRedirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+      const emailRedirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(onboardingPath)}`;
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
@@ -61,13 +60,13 @@ export function AuthShell({ nextPath }: AuthShellProps) {
       }
 
       if (data.session) {
-        router.replace(nextPath);
+        router.replace(onboardingPath);
         router.refresh();
         return;
       }
 
       setMessage(
-        "Account created. Check your email to confirm the account before continuing.",
+        "Account created. Check your email to confirm it, then finish your account setup before planning.",
       );
     } catch (caughtError) {
       setError(
@@ -81,45 +80,30 @@ export function AuthShell({ nextPath }: AuthShellProps) {
   }
 
   return (
-    <main className="flex min-h-screen items-center px-6 py-10 sm:px-10">
-      <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="rounded-[2rem] border border-panel-border bg-panel p-8 shadow-[0_24px_80px_rgba(86,50,21,0.18)] backdrop-blur md:p-10">
-          <div className="space-y-5">
-            <span className="w-fit rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-accent-strong">
+    <main className="min-h-[calc(100vh-var(--nav-height))] bg-background px-4 py-10 sm:px-6 sm:py-16">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-center">
+        <div className="relative w-full max-w-md rounded-[2rem] border border-shell-border bg-background p-6 shadow-sm sm:p-8">
+          <div className="relative">
+            <span className="inline-flex items-center gap-2 rounded-full border border-shell-border bg-panel px-3 py-1 text-sm text-foreground/70">
+              <span className="h-2 w-2 rounded-full bg-[color:var(--brand-ocean)]" />
               Authentication
             </span>
-            <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-              Sign in to open your trip workspace.
+
+            <h1 className="mt-5 text-3xl font-semibold tracking-tight text-foreground">
+              {mode === "signin"
+                ? "Log in to reopen your trip workspace."
+                : "Create your Wandrix account."}
             </h1>
-            <p className="max-w-2xl text-base leading-7 text-foreground/75 sm:text-lg">
-              Wandrix keeps each conversation tied to your saved trips. Sign in
-              first so the assistant, trip board, and brochure all stay attached
-              to your account.
+            <p className="mt-3 text-sm leading-7 text-foreground/72">
+              Conversation, board, and brochure stay connected to the same saved
+              trip, and first-time setup lets Wandrix start with better context.
             </p>
           </div>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
-            {[
-              "Each conversation becomes a saved trip.",
-              "The live board updates from the same draft the chat uses.",
-              "Your brochure and trip history stay attached to your account.",
-              "This auth flow uses the Supabase setup already wired into the app.",
-            ].map((item) => (
-              <div
-                key={item}
-                className="rounded-[1.5rem] border border-panel-border bg-background px-4 py-4 text-sm leading-7 text-foreground/75"
-              >
-                {item}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-[2rem] border border-panel-border bg-panel p-8 shadow-[0_24px_80px_rgba(86,50,21,0.18)] backdrop-blur md:p-10">
-          <div className="flex items-center gap-2 rounded-full border border-panel-border bg-background p-1">
+          <div className="relative mt-6 flex items-center gap-2 rounded-full border border-shell-border bg-panel p-1">
             <ModeButton
               active={mode === "signin"}
-              label="Sign in"
+              label="Log in"
               onClick={() => setMode("signin")}
             />
             <ModeButton
@@ -129,77 +113,91 @@ export function AuthShell({ nextPath }: AuthShellProps) {
             />
           </div>
 
-          <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
-            <label className="grid gap-2 text-sm text-foreground/80">
+          <form className="relative mt-6 grid gap-4" onSubmit={handleSubmit}>
+            <label className="grid gap-2 text-sm text-foreground/82">
               Email
               <input
                 type="email"
                 autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="rounded-[1.25rem] border border-panel-border bg-background px-4 py-3 text-foreground outline-none transition focus:border-accent"
+                className="h-12 rounded-[1.25rem] border border-shell-border bg-background px-4 text-foreground outline-none transition focus:border-[color:var(--brand-ocean)]"
                 placeholder="you@example.com"
                 required
               />
             </label>
 
-            <label className="grid gap-2 text-sm text-foreground/80">
+            <label className="grid gap-2 text-sm text-foreground/82">
               Password
-              <input
-                type="password"
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="rounded-[1.25rem] border border-panel-border bg-background px-4 py-3 text-foreground outline-none transition focus:border-accent"
-                placeholder="Enter your password"
-                required
-                minLength={6}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  autoComplete={
+                    mode === "signin" ? "current-password" : "new-password"
+                  }
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="h-12 w-full rounded-[1.25rem] border border-shell-border bg-background px-4 pr-16 text-foreground outline-none transition focus:border-[color:var(--brand-ocean)]"
+                  placeholder={
+                    mode === "signin"
+                      ? "Enter your password"
+                      : "Create a password"
+                  }
+                  required
+                  minLength={6}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-foreground/60 transition hover:bg-panel hover:text-foreground"
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
             </label>
 
-            {message && (
-              <p className="rounded-[1.25rem] border border-panel-border bg-background px-4 py-3 text-sm leading-7 text-foreground/80">
+            {message ? (
+              <p className="rounded-[1.25rem] border border-shell-border bg-panel px-4 py-3 text-sm leading-7 text-foreground/80">
                 {message}
               </p>
-            )}
+            ) : null}
 
-            {error && (
-              <p className="rounded-[1.25rem] border border-panel-border bg-background px-4 py-3 text-sm leading-7 text-foreground/80">
+            {error ? (
+              <p className="rounded-[1.25rem] border border-[color:var(--brand-ocean)]/20 bg-[color:var(--brand-ocean)]/8 px-4 py-3 text-sm leading-7 text-foreground/80">
                 {error}
               </p>
-            )}
+            ) : null}
 
             <button
               type="submit"
               disabled={isLoading}
-              className="inline-flex items-center justify-center rounded-full bg-accent px-6 py-3 font-semibold text-white transition hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex h-12 items-center justify-center rounded-[1.25rem] bg-[linear-gradient(135deg,var(--brand-ocean),var(--brand-sun))] px-6 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(29,78,216,0.2)] transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {isLoading
                 ? mode === "signin"
-                  ? "Signing in..."
+                  ? "Logging in..."
                   : "Creating account..."
                 : mode === "signin"
-                  ? "Sign in"
+                  ? "Log in"
                   : "Create account"}
             </button>
           </form>
 
-          <div className="mt-6 flex items-center justify-between gap-4 text-sm text-foreground/70">
+          <div className="relative mt-6 flex items-center justify-between gap-4 text-sm text-foreground/68">
             <p>
               {mode === "signin"
                 ? "Need an account? Switch to create account."
-                : "Already have an account? Switch back to sign in."}
+                : "Already signed up? Switch back to log in."}
             </p>
-            <Link className="font-semibold text-accent-strong" href="/">
+            <Link href="/" className="font-semibold text-[color:var(--brand-ocean)]">
               Back home
             </Link>
           </div>
-        </section>
+        </div>
       </div>
     </main>
   );
 }
-
 
 function ModeButton({
   active,
@@ -214,11 +212,12 @@ function ModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition ${
+      className={[
+        "flex-1 rounded-full px-4 py-2.5 text-sm font-semibold transition",
         active
-          ? "bg-accent text-white"
-          : "text-foreground/70 hover:bg-panel"
-      }`}
+          ? "bg-[linear-gradient(135deg,var(--brand-ocean),var(--brand-sun))] text-white shadow-[0_12px_30px_rgba(29,78,216,0.2)]"
+          : "text-foreground/68 hover:bg-white/70 hover:text-foreground",
+      ].join(" ")}
     >
       {label}
     </button>

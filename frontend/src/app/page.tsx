@@ -1,8 +1,8 @@
 import Link from "next/link";
+import { ArrowRight, Calendar, MapPin, Sparkles } from "lucide-react";
 
-import { SignOutButton } from "@/components/auth/sign-out-button";
+import { BackgroundBeamsWithCollision } from "@/components/ui/background-beams-with-collision";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
-
 
 export default async function Home() {
   const supabase = await createSupabaseServerClient();
@@ -10,100 +10,82 @@ export default async function Home() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const primaryHref = user ? "/chat" : "/auth?next=/chat";
+  const secondaryHref = user ? "/trips" : "/auth";
+
   return (
-    <main className="px-5 py-5 sm:px-8">
-      <section className="grid min-h-[calc(100vh-7.5rem)] gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-[2rem] border border-shell-border bg-shell p-8 shadow-[0_24px_80px_rgba(86,50,21,0.12)]">
-          <div className="space-y-5">
-            <span className="w-fit rounded-full border border-accent/20 bg-accent-soft px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-accent-strong">
-              Conversation-first travel planning
-            </span>
-            <h1 className="max-w-4xl font-display text-6xl font-semibold tracking-tight text-foreground">
-              Plan the trip in chat.
-              <span className="block text-foreground/70">Watch the board build itself.</span>
-            </h1>
-            <p className="max-w-2xl text-lg leading-8 text-foreground/75">
-              Wandrix is designed around a split workspace: chat on the left,
-              live trip board on the right, and a brochure-quality outcome at the end.
-            </p>
-          </div>
-
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              href={user ? "/chat" : "/auth?next=/chat"}
-              className="rounded-full bg-accent px-6 py-3 text-sm font-semibold text-white transition hover:bg-accent-strong"
-            >
-              {user ? "Open chat workspace" : "Sign in to start planning"}
-            </Link>
-            {!user && (
-              <Link
-                href="/auth"
-                className="rounded-full border border-shell-border px-6 py-3 text-sm font-semibold text-foreground transition hover:bg-background"
-              >
-                Create account
-              </Link>
-            )}
-          </div>
-
-          <div className="mt-10 grid gap-4 md:grid-cols-3">
-            {[
-              "Top nav for Home, Flights, Hotels, and Chat",
-              "Sidebar with recent sessions and saved trips",
-              "Chat and trip board sharing the full workspace",
-            ].map((item) => (
-              <div
-                key={item}
-                className="rounded-[1.5rem] border border-shell-border bg-panel px-4 py-4 text-sm leading-7 text-foreground/75"
-              >
-                {item}
-              </div>
-            ))}
-          </div>
+    <BackgroundBeamsWithCollision className="min-h-[calc(100vh-4rem)] py-16 md:py-24">
+      <main className="relative z-10 mx-auto flex w-full max-w-6xl flex-col items-center px-4 sm:px-6">
+        <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-background/60 px-3 py-1 text-sm text-muted-foreground backdrop-blur">
+          <Sparkles className="h-4 w-4 text-accent" />
+          Agent-driven travel packages, end-to-end.
         </div>
 
-        <div className="grid gap-5">
-          <div className="rounded-[2rem] border border-shell-border bg-shell p-6 shadow-[0_24px_80px_rgba(86,50,21,0.12)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-accent-strong">
-              Account
-            </p>
-            {user ? (
-              <div className="mt-4 flex items-center justify-between gap-4 rounded-[1.5rem] border border-shell-border bg-panel px-4 py-4">
-                <div>
-                  <p className="font-semibold text-foreground">Signed in</p>
-                  <p className="text-sm text-foreground/70">{user.email}</p>
-                </div>
-                <SignOutButton />
-              </div>
-            ) : (
-              <div className="mt-4 rounded-[1.5rem] border border-shell-border bg-panel px-4 py-4 text-sm leading-7 text-foreground/75">
-                Sign in before entering the planner so your conversation, board,
-                and saved trips all stay attached to your account.
-              </div>
-            )}
-          </div>
+        <h1 className="mt-6 max-w-3xl text-balance text-center [font-family:var(--font-brand)] text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
+          Plan trips in minutes with{" "}
+          <span className="bg-[linear-gradient(135deg,var(--accent),var(--accent2))] bg-clip-text text-transparent">
+            Wandrix
+          </span>
+          .
+        </h1>
 
-          <div className="rounded-[2rem] border border-shell-border bg-shell p-6 shadow-[0_24px_80px_rgba(86,50,21,0.12)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-accent-strong">
-              Product shape
-            </p>
-            <div className="mt-4 grid gap-3">
-              {[
-                "Chat route uses the full page instead of a centered card",
-                "Recent sessions sit in the left sidebar",
-                "Trip board stays visible while the conversation evolves",
-                "Saved trips route is reserved for the library view",
-              ].map((item) => (
-                <div
-                  key={item}
-                  className="rounded-[1.25rem] border border-shell-border bg-panel px-4 py-3 text-sm leading-7 text-foreground/75"
-                >
-                  {item}
-                </div>
-              ))}
+        <p className="mt-6 max-w-2xl text-pretty text-center text-lg leading-8 text-muted-foreground">
+          Tell us your budget, dates, interests, accessibility needs, and
+          weather preferences. Wandrix assembles a feasible itinerary with
+          stays, transport, and activities, plus a clear price breakdown.
+        </p>
+
+        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
+          <Link
+            href={primaryHref}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,var(--accent),var(--accent2))] px-6 text-accent-foreground shadow-sm transition hover:opacity-95"
+          >
+            Get Started <ArrowRight className="h-4 w-4" />
+          </Link>
+          <Link
+            href={secondaryHref}
+            className="inline-flex h-11 items-center justify-center rounded-full border border-border/60 bg-background px-6 text-foreground shadow-sm transition hover:bg-muted/40"
+          >
+            View dashboard
+          </Link>
+        </div>
+
+        <section className="mt-12 grid w-full grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-border/60 bg-background/60 p-6 shadow-sm backdrop-blur">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Calendar className="h-4 w-4 text-accent" />
+              Constraints first
             </div>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              Dates, budget, and time windows are treated as hard constraints.
+              Itineraries are built to be feasible, not just pretty.
+            </p>
           </div>
-        </div>
-      </section>
-    </main>
+
+          <div className="rounded-2xl border border-border/60 bg-background/60 p-6 shadow-sm backdrop-blur">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <MapPin className="h-4 w-4 text-accent" />
+              Places + activities
+            </div>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              Curated options based on interests, seasonality, and
+              accessibility needs, organized day-by-day with trade-offs
+              explained.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-background/60 p-6 shadow-sm backdrop-blur">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <span className="h-4 w-4 rounded-full bg-[linear-gradient(135deg,var(--accent),var(--accent2))]" />
+              Modular providers
+            </div>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              Built with a provider-agnostic API layer so services can be
+              swapped without rewriting the planning logic.
+            </p>
+          </div>
+        </section>
+      </main>
+    </BackgroundBeamsWithCollision>
   );
 }

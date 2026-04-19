@@ -1,6 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
+import {
+  ArrowUp,
+  Bot,
+  Sparkles,
+  UserRound,
+} from "lucide-react";
 
 import {
   AssistantRuntimeProvider,
@@ -73,23 +79,9 @@ export function TravelPlannerAssistant({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <section className="flex h-full min-h-0 flex-col rounded-xl border border-shell-border bg-shell">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-shell-border px-5 py-4">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Chat</h2>
-            <p className="mt-1 text-sm text-foreground/68">
-              {workspace
-                ? `Connected to ${workspace.trip.trip_id} and ${workspace.trip.thread_id}.`
-                : "Waiting for an authenticated trip workspace."}
-            </p>
-          </div>
-          <div className="rounded-md border border-shell-border bg-panel px-3 py-2 text-xs font-medium text-foreground/65">
-            {isBootstrapping ? "Booting" : "Backend bridge"}
-          </div>
-        </div>
-
+      <section className="relative flex h-full min-h-0 flex-col bg-[color:var(--chat-pane-bg)]">
         <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-panel-strong px-5 py-5">
+          <ThreadPrimitive.Viewport className="chat-workspace-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-8">
             <ThreadPrimitive.Empty>
               <AssistantWelcome
                 disabled={isBootstrapping}
@@ -98,7 +90,7 @@ export function TravelPlannerAssistant({
               />
             </ThreadPrimitive.Empty>
 
-            <div className="mt-auto flex flex-col gap-3">
+            <div className="mx-auto mt-auto flex w-full max-w-4xl flex-col gap-6 pb-40">
               <ThreadPrimitive.Messages
                 components={{
                   UserMessage,
@@ -125,68 +117,110 @@ function AssistantWelcome({
   hasError: boolean;
 }) {
   return (
-    <div className="flex h-full min-h-[24rem] flex-col justify-between gap-6">
-      <div className="space-y-4">
+    <div className="mx-auto flex h-full min-h-[24rem] w-full max-w-4xl flex-col justify-end gap-6 px-1 pt-2">
+      <div className="space-y-2">
+        <div className="text-xs font-medium uppercase tracking-[0.22em] text-[color:var(--accent)]">
+          Wandrix planner
+        </div>
         <div className="space-y-2">
-          <h3 className="text-3xl font-semibold tracking-tight text-foreground">
-            Start planning through conversation.
-          </h3>
-          <p className="max-w-2xl text-sm leading-7 text-foreground/72">
-            This assistant shell is now calling the FastAPI backend. The next
-            layer is swapping the simple backend reply builder for the real
-            LangGraph orchestration flow.
+          <div className="text-sm font-semibold text-foreground">Start with a trip idea</div>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Pick a starting point and refine the details in chat.
           </p>
         </div>
-
-        <div className="rounded-lg border border-shell-border bg-shell px-4 py-4 text-sm leading-7 text-foreground/72">
-          {disabled && <p>Finishing workspace setup before the first run.</p>}
-          {!disabled && hasWorkspace && (
-            <p>
-              The runtime is ready. Messages now go through the authenticated
-              backend trip conversation bridge.
-            </p>
-          )}
-          {!disabled && !hasWorkspace && !hasError && (
-            <p>Sign in first so the assistant can attach the conversation to a trip.</p>
-          )}
-          {!disabled && hasError && (
-            <p>The workspace needs attention before the assistant can fully attach to it.</p>
-          )}
-        </div>
+        {disabled ? (
+          <p className="text-sm text-muted-foreground">
+            Finishing workspace setup before the first run.
+          </p>
+        ) : null}
+        {!disabled && !hasWorkspace && !hasError ? (
+          <p className="text-sm text-muted-foreground">
+            Sign in first so the assistant can attach the conversation to a trip.
+          </p>
+        ) : null}
+        {!disabled && hasError ? (
+          <p className="text-sm text-muted-foreground">
+            The workspace needs attention before the assistant can fully attach to it.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <ThreadPrimitive.Suggestion
-          className="rounded-lg border border-shell-border bg-shell px-4 py-4 text-left text-sm leading-6 text-foreground transition-colors hover:bg-panel disabled:opacity-50"
+          className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
           prompt="Plan a 5-day food and culture trip to Kyoto for two adults."
           autoSend
           disabled={disabled || !hasWorkspace}
         >
-          Plan a 5-day food and culture trip to Kyoto for two adults.
+          <div className="flex items-start justify-between gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
+          </div>
+          <div className="mt-4 text-base font-semibold text-foreground">
+            Kyoto food and culture
+          </div>
+          <div className="mt-1 text-sm leading-6 text-muted-foreground">
+            Plan a 5-day food and culture trip to Kyoto for two adults.
+          </div>
         </ThreadPrimitive.Suggestion>
         <ThreadPrimitive.Suggestion
-          className="rounded-lg border border-shell-border bg-shell px-4 py-4 text-left text-sm leading-6 text-foreground transition-colors hover:bg-panel disabled:opacity-50"
+          className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
           prompt="Help me shape a luxury long weekend in Lisbon with flights and hotel ideas."
           autoSend
           disabled={disabled || !hasWorkspace}
         >
-          Help me shape a luxury long weekend in Lisbon with flights and hotel ideas.
+          <div className="flex items-start justify-between gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
+          </div>
+          <div className="mt-4 text-base font-semibold text-foreground">
+            Lisbon luxury weekend
+          </div>
+          <div className="mt-1 text-sm leading-6 text-muted-foreground">
+            Help me shape a luxury long weekend in Lisbon with flights and hotel ideas.
+          </div>
         </ThreadPrimitive.Suggestion>
         <ThreadPrimitive.Suggestion
-          className="rounded-lg border border-shell-border bg-shell px-4 py-4 text-left text-sm leading-6 text-foreground transition-colors hover:bg-panel disabled:opacity-50"
+          className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
           prompt="Suggest a relaxed family trip to Barcelona with weather-aware activities."
           autoSend
           disabled={disabled || !hasWorkspace}
         >
-          Suggest a relaxed family trip to Barcelona with weather-aware activities.
+          <div className="flex items-start justify-between gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
+          </div>
+          <div className="mt-4 text-base font-semibold text-foreground">
+            Barcelona family escape
+          </div>
+          <div className="mt-1 text-sm leading-6 text-muted-foreground">
+            Suggest a relaxed family trip to Barcelona with weather-aware activities.
+          </div>
         </ThreadPrimitive.Suggestion>
         <ThreadPrimitive.Suggestion
-          className="rounded-lg border border-shell-border bg-shell px-4 py-4 text-left text-sm leading-6 text-foreground transition-colors hover:bg-panel disabled:opacity-50"
+          className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
           prompt="What should the live trip board show as I refine my itinerary?"
           autoSend
           disabled={disabled}
         >
-          What should the live trip board show as I refine my itinerary?
+          <div className="flex items-start justify-between gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
+          </div>
+          <div className="mt-4 text-base font-semibold text-foreground">
+            Live board guidance
+          </div>
+          <div className="mt-1 text-sm leading-6 text-muted-foreground">
+            What should the live trip board show as I refine my itinerary?
+          </div>
         </ThreadPrimitive.Suggestion>
       </div>
     </div>
@@ -195,9 +229,14 @@ function AssistantWelcome({
 
 function UserMessage() {
   return (
-    <MessagePrimitive.Root className="ml-auto max-w-[82%]">
-      <div className="rounded-lg border border-accent/20 bg-accent-soft px-4 py-3 text-sm leading-7 text-foreground">
-        <MessagePrimitive.Parts />
+    <MessagePrimitive.Root className="flex justify-end">
+      <div className="flex max-w-[min(86%,44rem)] items-end gap-3">
+        <div className="min-w-0 flex-1 rounded-[1.1rem] rounded-br-md border border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,var(--color-background))] px-5 py-4 text-[length:var(--chat-size-body)] leading-[var(--chat-line-body)] text-foreground shadow-[var(--chat-shadow-card)]">
+          <MessagePrimitive.Parts />
+        </div>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted/50 text-muted-foreground ring-1 ring-border/60">
+          <UserRound className="h-4 w-4" />
+        </div>
       </div>
     </MessagePrimitive.Root>
   );
@@ -205,9 +244,18 @@ function UserMessage() {
 
 function AssistantMessage() {
   return (
-    <MessagePrimitive.Root className="max-w-[90%]">
-      <div className="rounded-lg border border-shell-border bg-shell px-4 py-3 text-sm leading-7 text-foreground/85">
-        <MessagePrimitive.Parts />
+    <MessagePrimitive.Root className="flex flex-col items-start gap-3">
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[color:color-mix(in_srgb,var(--accent)_12%,transparent)] text-[color:var(--accent)] shadow-[var(--chat-shadow-card)] ring-1 ring-[color:color-mix(in_srgb,var(--accent)_14%,transparent)]">
+          <Bot className="h-4 w-4" />
+        </div>
+        <div className="max-w-[min(100%,48rem)]">
+          <div className="overflow-hidden rounded-[1rem] border border-border/70 bg-background/92 shadow-[var(--chat-shadow-soft)] dark:bg-card/96">
+            <div className="px-5 py-4 text-[length:var(--chat-size-body)] leading-[var(--chat-line-body)] text-foreground">
+              <MessagePrimitive.Parts />
+            </div>
+          </div>
+        </div>
       </div>
     </MessagePrimitive.Root>
   );
@@ -215,23 +263,36 @@ function AssistantMessage() {
 
 function Composer() {
   return (
-    <ComposerPrimitive.Root className="border-t border-shell-border bg-shell p-4">
-      <div className="rounded-lg border border-shell-border bg-background px-3 py-3">
-        <ComposerPrimitive.Input
-          rows={1}
-          placeholder="Describe the trip you want to build..."
-          className="min-h-12 w-full resize-none bg-transparent text-sm leading-7 text-foreground outline-none placeholder:text-foreground/45"
-        />
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="text-xs text-foreground/45">assistant-ui backend bridge</p>
-          <ComposerPrimitive.Send asChild>
-            <button
-              type="button"
-              className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-strong"
-            >
-              Send
-            </button>
-          </ComposerPrimitive.Send>
+    <ComposerPrimitive.Root className="border-t border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)] px-4 pb-4 pt-3 sm:px-8">
+      <div className="mx-auto w-full max-w-4xl">
+        <div className="overflow-hidden rounded-xl border border-[color:var(--chat-rail-border-strong)] bg-[color:var(--chat-rail-surface-strong)] p-2">
+          <div className="flex items-end gap-2">
+            <div className="flex min-w-0 flex-1 rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] px-3 py-2.5 transition-colors focus-within:border-[color:var(--accent)]/45">
+              <ComposerPrimitive.Input
+                rows={1}
+                placeholder="Continue planning your trip..."
+                className="min-h-12 max-h-40 w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+            <ComposerPrimitive.Send asChild>
+              <button
+                type="button"
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[linear-gradient(135deg,var(--accent),var(--accent2))] text-white transition-opacity hover:opacity-95"
+                aria-label="Send message"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            </ComposerPrimitive.Send>
+            <ComposerPrimitive.Cancel asChild>
+              <button
+                type="button"
+                className="h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-foreground transition-colors hover:bg-[color:var(--chat-rail-surface)] disabled:hidden"
+                aria-label="Stop generating"
+              >
+                <span className="h-4 w-4 rounded-[0.2rem] bg-current" />
+              </button>
+            </ComposerPrimitive.Cancel>
+          </div>
         </div>
       </div>
     </ComposerPrimitive.Root>

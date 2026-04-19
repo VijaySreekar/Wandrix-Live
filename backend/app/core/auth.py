@@ -28,7 +28,7 @@ async def get_current_user(
             detail="Supabase auth is not configured on the backend.",
         )
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
         response = await client.get(
             f"{settings.supabase_url}/auth/v1/user",
             headers={

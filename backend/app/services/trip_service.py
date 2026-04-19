@@ -91,6 +91,7 @@ def list_trips(
                 **_build_trip_response(trip).model_dump(),
                 updated_at=trip.updated_at,
                 phase=_extract_trip_phase(trip),
+                brochure_ready=_extract_brochure_ready(trip),
                 from_location=_extract_configuration_value(trip, "from_location"),
                 to_location=_extract_configuration_value(trip, "to_location"),
                 start_date=_extract_configuration_value(trip, "start_date"),
@@ -187,6 +188,14 @@ def _extract_trip_phase(trip) -> str | None:
         return phase if isinstance(phase, str) else None
 
     return None
+
+
+def _extract_brochure_ready(trip) -> bool:
+    if trip.draft and isinstance(trip.draft.status, dict):
+        brochure_ready = trip.draft.status.get("brochure_ready")
+        return brochure_ready is True
+
+    return False
 
 
 def _extract_configuration_value(trip, key: str) -> str | None:

@@ -1,18 +1,16 @@
 import { redirect } from "next/navigation";
 
-import { TravelPackageWorkspace } from "@/components/package/travel-package-workspace";
-import { OnboardingDialog } from "@/components/profile/onboarding-dialog";
+import { ProfilePageView } from "@/components/profile/profile-page";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
 
-
-export default async function ChatPage() {
+export default async function ProfilePage() {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/auth?next=/chat");
+    redirect("/auth?next=/profile");
   }
 
   const userMetadata =
@@ -26,13 +24,17 @@ export default async function ChatPage() {
     user.email?.split("@")[0] ||
     "Traveler";
 
+  const avatarUrl =
+    (typeof userMetadata.avatar_url === "string" && userMetadata.avatar_url) ||
+    null;
+
   return (
-    <main className="chat-workspace-shell h-[calc(100vh-4.75rem)] overflow-hidden">
-      <TravelPackageWorkspace />
-      <OnboardingDialog
+    <main className="min-h-[calc(100vh-var(--nav-height))]">
+      <ProfilePageView
         userId={user.id}
         initialEmail={user.email ?? ""}
         initialDisplayName={initialDisplayName}
+        avatarUrl={avatarUrl}
       />
     </main>
   );

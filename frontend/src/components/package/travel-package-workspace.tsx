@@ -58,15 +58,22 @@ export function TravelPackageWorkspace() {
           throw new Error("Sign in to start a persisted trip workspace.");
         }
 
-        const bootData = await createWorkspace(
+        const initialTripList = await listTrips(24, session.access_token);
+        const bootResult = await createWorkspace(
           session.access_token,
-          selectedTripId,
+          {
+            selectedTripId,
+            forceNewTrip: Boolean(newChatNonce),
+            recentTrips: initialTripList.items,
+          },
         );
-        const listedTrips = await listTrips(12, session.access_token);
+        const recentTripItems = bootResult.didCreateTrip
+          ? (await listTrips(24, session.access_token)).items
+          : initialTripList.items;
 
         if (!cancelled) {
-          setWorkspace(bootData);
-          setRecentTrips(listedTrips.items);
+          setWorkspace(bootResult.workspace);
+          setRecentTrips(recentTripItems);
         }
       } catch (caughtError) {
         if (!cancelled) {
@@ -136,10 +143,10 @@ export function TravelPackageWorkspace() {
   }
 
   return (
-    <section className="grid h-full min-h-0 gap-3 xl:grid-cols-[260px_minmax(0,1.05fr)_minmax(0,0.95fr)]">
+    <section className="grid h-full min-h-0 bg-background xl:grid-cols-[264px_minmax(0,1.05fr)_minmax(0,0.95fr)]">
       <ChatSidebar workspace={workspace} recentTrips={recentTrips} />
 
-      <div className="min-h-0">
+      <div className="min-h-0 border-r border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)]">
         <TravelPlannerAssistant
           workspace={workspace}
           isBootstrapping={isBootstrapping}
@@ -148,20 +155,26 @@ export function TravelPackageWorkspace() {
         />
       </div>
 
-      <div className="min-h-0 space-y-3">
-        <TripBoardPreview
-          workspace={workspace}
-          isBootstrapping={isBootstrapping}
-          lastDraftChanges={lastDraftChanges}
-        />
+      <div className="min-h-0 bg-shell">
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <TripBoardPreview
+              workspace={workspace}
+              isBootstrapping={isBootstrapping}
+              lastDraftChanges={lastDraftChanges}
+            />
+          </div>
 
-        <PackageFormPanel
-          isBootstrapping={isBootstrapping}
-          isLoading={isLoading}
-          error={error}
-          onGenerate={handleGenerate}
-          result={result}
-        />
+          <div className="border-t border-shell-border">
+            <PackageFormPanel
+              isBootstrapping={isBootstrapping}
+              isLoading={isLoading}
+              error={error}
+              onGenerate={handleGenerate}
+              result={result}
+            />
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -170,21 +183,48 @@ export function TravelPackageWorkspace() {
 
 async function createWorkspace(
   accessToken: string,
-  selectedTripId: string | null,
-): Promise<PlannerWorkspaceState> {
+  options: {
+    selectedTripId: string | null;
+    forceNewTrip: boolean;
+    recentTrips: TripListItemResponse[];
+  },
+): Promise<{
+  workspace: PlannerWorkspaceState;
+  didCreateTrip: boolean;
+}> {
   let browserSession = await ensureBrowserSession(accessToken);
 
-  if (selectedTripId) {
-    const trip = await getTrip(selectedTripId, accessToken);
+  if (options.selectedTripId) {
+    const trip = await getTrip(options.selectedTripId, accessToken);
     const tripDraft = await getTripDraft(trip.trip_id, accessToken);
 
     return {
-      browserSession: {
-        ...browserSession,
-        browser_session_id: trip.browser_session_id,
+      workspace: {
+        browserSession: {
+          ...browserSession,
+          browser_session_id: trip.browser_session_id,
+        },
+        trip,
+        tripDraft,
       },
-      trip,
-      tripDraft,
+      didCreateTrip: false,
+    };
+  }
+
+  if (!options.forceNewTrip && options.recentTrips.length > 0) {
+    const latestTrip = await getTrip(options.recentTrips[0].trip_id, accessToken);
+    const latestTripDraft = await getTripDraft(latestTrip.trip_id, accessToken);
+
+    return {
+      workspace: {
+        browserSession: {
+          ...browserSession,
+          browser_session_id: latestTrip.browser_session_id,
+        },
+        trip: latestTrip,
+        tripDraft: latestTripDraft,
+      },
+      didCreateTrip: false,
     };
   }
 
@@ -196,9 +236,12 @@ async function createWorkspace(
     const tripDraft = await getTripDraft(trip.trip_id, accessToken);
 
     return {
-      browserSession,
-      trip,
-      tripDraft,
+      workspace: {
+        browserSession,
+        trip,
+        tripDraft,
+      },
+      didCreateTrip: true,
     };
   } catch (caughtError) {
     const shouldRecover =
@@ -219,9 +262,12 @@ async function createWorkspace(
     const tripDraft = await getTripDraft(trip.trip_id, accessToken);
 
     return {
-      browserSession,
-      trip,
-      tripDraft,
+      workspace: {
+        browserSession,
+        trip,
+        tripDraft,
+      },
+      didCreateTrip: true,
     };
   }
 }
@@ -344,8 +390,8 @@ function PackageFormPanel({
   result: TravelPackageResponse | null;
 }) {
   return (
-    <div className="space-y-3 rounded-xl border border-shell-border bg-shell p-4">
-      <div className="rounded-lg border border-shell-border bg-panel px-5 py-4">
+    <div className="space-y-3 p-4">
+      <div className="px-1 pb-1">
         <h2 className="mt-2 font-display text-3xl font-semibold tracking-tight text-foreground">
           Prompt the board directly
         </h2>

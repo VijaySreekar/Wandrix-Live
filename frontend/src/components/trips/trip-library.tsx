@@ -2,17 +2,23 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { listTrips } from "@/lib/api/trips";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TripListItemResponse } from "@/types/trip";
 
+type TripLibraryFilter = "all" | "active" | "review" | "brochure";
+
 export function TripLibrary() {
+  const searchParams = useSearchParams();
   const [trips, setTrips] = useState<TripListItemResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "active" | "review">("all");
+  const [filter, setFilter] = useState<TripLibraryFilter>(() =>
+    resolveTripLibraryFilter(searchParams.get("filter")),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -67,11 +73,15 @@ export function TripLibrary() {
         }
 
         if (filter === "active") {
-          return (trip.phase ?? trip.trip_status) !== "ready_for_review";
+          return !trip.brochure_ready;
         }
 
         if (filter === "review") {
           return (trip.phase ?? trip.trip_status) === "ready_for_review";
+        }
+
+        if (filter === "brochure") {
+          return trip.brochure_ready;
         }
 
         return true;
@@ -84,11 +94,11 @@ export function TripLibrary() {
       <div className="flex flex-wrap items-end justify-between gap-4 rounded-xl border border-shell-border bg-shell px-5 py-4">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            Saved trips
+            Trip library
           </h1>
           <p className="mt-1 max-w-2xl text-sm leading-7 text-foreground/70">
-            Every persisted trip lives here, so you can reopen the conversation,
-            keep refining the board, and move toward the final brochure.
+            Every persisted trip lives here. Use the brochure-ready filter for
+            finished trips that are ready to open as brochure-style output.
           </p>
         </div>
         <Link
@@ -103,13 +113,14 @@ export function TripLibrary() {
         <div className="flex flex-wrap gap-2">
           {[
             { label: "All trips", value: "all" },
-            { label: "Active", value: "active" },
+            { label: "In progress", value: "active" },
             { label: "Ready for review", value: "review" },
+            { label: "Brochure-ready", value: "brochure" },
           ].map((option) => (
             <button
               key={option.value}
               type="button"
-              onClick={() => setFilter(option.value as "all" | "active" | "review")}
+              onClick={() => setFilter(option.value as TripLibraryFilter)}
               className={`rounded-md border px-3 py-2 text-sm transition-colors ${
                 filter === option.value
                   ? "border-accent/35 bg-accent-soft text-foreground"
@@ -140,11 +151,11 @@ export function TripLibrary() {
         </div>
       ) : trips.length === 0 ? (
         <div className="rounded-xl border border-shell-border bg-shell px-5 py-5 text-sm text-foreground/70">
-          You do not have any saved trips yet. Start a chat and the trip will appear here.
+          You do not have any trips yet. Start a chat and the session will appear here.
         </div>
       ) : filteredTrips.length === 0 ? (
         <div className="rounded-xl border border-shell-border bg-shell px-5 py-5 text-sm text-foreground/70">
-          No trips match that filter yet. Try a different search or open a recent trip from chat.
+          No trips match that filter yet. Try a different search or switch between in-progress and brochure-ready trips.
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -228,6 +239,14 @@ export function TripLibrary() {
       )}
     </section>
   );
+}
+
+function resolveTripLibraryFilter(value: string | null): TripLibraryFilter {
+  if (value === "active" || value === "review" || value === "brochure") {
+    return value;
+  }
+
+  return "all";
 }
 
 function formatPhase(value: string) {

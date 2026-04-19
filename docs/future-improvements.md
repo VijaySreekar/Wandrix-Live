@@ -25,6 +25,10 @@ As of `2026-04-18`, Wandrix already has:
 - Mapbox geocoding support
 - partial Amadeus flight integration
 
+Core product rule:
+- `/chat` is the main planning workspace
+- module pages like flights, hotels, and activities are supporting reference views, not parallel planning centers
+
 ## Highest Priority
 
 These are the most valuable next improvements.
@@ -34,6 +38,8 @@ These are the most valuable next improvements.
 The chat loop works, but the planner still needs deeper travel intelligence.
 
 Improve:
+- remove or shrink deterministic extraction over time
+- move trip understanding toward LLM-first structured parsing
 - better extraction of dates, traveler counts, budgets, and styles
 - better follow-up questions when information is missing
 - stronger structured timeline generation per day
@@ -43,6 +49,10 @@ Improve:
 Why:
 - this is the core product value
 - better reasoning improves every surface: chat, board, modules, and brochure
+
+Rule:
+- do not expand heuristic parsing as the long-term solution
+- treat current deterministic extraction as temporary fallback logic that should be reduced
 
 ### 2. Finish Live Flights
 
@@ -194,6 +204,10 @@ Improve:
 
 Why:
 - this will make both the chat and board more transparent
+
+This is important because:
+- it gives us a better replacement for brittle regex-style extraction
+- it lets the planner admit uncertainty instead of committing the wrong detail
 
 ### 13. Add Better Memory and Resume Behavior
 

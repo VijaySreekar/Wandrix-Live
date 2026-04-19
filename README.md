@@ -82,10 +82,11 @@ Set these before wiring real AI logic:
 
 ## Frontend routes
 
+- `/profile` - detailed account profile and travel-defaults editing
 - `/chat` - conversation-first planner workspace with sidebar, assistant, and live trip board
-- `/flights` - saved-trip flight planning surface
-- `/hotels` - saved-trip hotel planning surface
-- `/activities` - saved-trip activities and highlights planning surface
+- `/flights` - saved-trip flight reference view
+- `/hotels` - saved-trip hotel reference view
+- `/activities` - saved-trip activities and highlights reference view
 - `/trips` - saved trip library
 - `/brochure/[tripId]` - brochure-style trip presentation
 

@@ -9,6 +9,497 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Profile Page and Dialog-Based Onboarding
+
+Technical Summary:
+- Created a dedicated profile page component (`profile-page.tsx`) that always shows a clean settings view with avatar, name, email, and editable travel defaults — no longer conditionally showing the onboarding setup flow.
+- Created a multi-step onboarding dialog component (`onboarding-dialog.tsx`) with a wizard flow (Welcome → Profile → Home base → Preferences → Location) that opens automatically only when a user signs up via `?onboarding=1` query parameter.
+- Updated the auth-shell signup redirect to route new users to `/chat?onboarding=1` instead of `/profile`, so onboarding happens as a dialog overlay on the chat page.
+- Simplified the user account popover to show a single "Profile & travel defaults" link instead of two separate links.
+- The old `profile-onboarding.tsx` setup/settings dual-mode component is no longer used by the profile page route.
+
+Plain-English Summary:
+- Clicking "Profile" in the navbar now opens a proper profile page showing your avatar, name, email, and travel defaults — not the onboarding wizard.
+- Onboarding only happens once, right after signup, as a friendly step-by-step dialog overlay on the chat page. Users can skip it and come back to set things up from their profile later.
+- The profile page always looks the same whether you're a new or returning user.
+
+Files / Areas Touched:
+- `frontend/src/components/profile/profile-page.tsx` (new)
+- `frontend/src/components/profile/onboarding-dialog.tsx` (new)
+- `frontend/src/app/profile/page.tsx`
+- `frontend/src/app/chat/page.tsx`
+- `frontend/src/components/auth/auth-shell.tsx`
+- `frontend/src/components/auth/user-account-popover.tsx`
+
+## 2026-04-19 - Account Menu Cleanup And One-Time Account Setup Flow
+
+Technical Summary:
+- Replaced the inline account popover with a cleaner dropdown menu built on shared Radix dropdown primitives, while keeping the signed-in name and avatar visible in the top navigation.
+- Changed the account menu so `Edit profile` now routes to the dedicated `/profile` page instead of opening an inline editor inside the header control.
+- Reworked the `/profile` experience into two modes: first-run account setup when required fields are still missing, and a normal profile/defaults edit page after setup is complete.
+- Updated signup copy and routing language so the flow now talks about account setup instead of planner onboarding, and refreshed route documentation to match.
+
+Plain-English Summary:
+- The account control in the header is cleaner now and behaves more like a normal product menu.
+- Editing your profile now happens on its own page instead of inside a cramped dropdown.
+- First-time users still get guided through the basic setup once, but after that the same page behaves like a regular profile settings page instead of repeating onboarding forever.
+
+Files / Areas Touched:
+- `frontend/src/components/animate-ui/components/radix/dropdown-menu.tsx`
+- `frontend/src/components/auth/user-account-popover.tsx`
+- `frontend/src/components/profile/profile-onboarding.tsx`
+- `frontend/src/app/profile/page.tsx`
+- `frontend/src/components/auth/auth-shell.tsx`
+- `frontend/package.json`
+- `frontend/package-lock.json`
+- `README.md`
+
+## 2026-04-19 - Profile Page Expanded Into Full Inline Settings Form
+
+Technical Summary:
+- Rebuilt the live `/profile` route into a detailed inline settings page instead of relying on separate edit dialogs for each section.
+- Added fuller profile data capture fields including first name, last name, home address details, home airport, currency, preferences, and location-assistance controls.
+- Kept Supabase metadata updates for core identity fields while continuing to store broader profile/default values locally for the current product stage.
+- Simplified the account menu label back to `Profile` so it matches the new page's broader role.
+
+Plain-English Summary:
+- The profile page now feels like a real settings page instead of a collection of popups.
+- You can enter more complete information there, including your name and home address details, without opening little dialogs for everything.
+- The menu label is simpler now too, so `Profile` takes you to the full profile page.
+
+Files / Areas Touched:
+- `frontend/src/components/profile/profile-page.tsx`
+- `frontend/src/components/auth/user-account-popover.tsx`
+- `README.md`
+
+## 2026-04-19 - Account Trigger Surface Flattened Into Navbar
+
+Technical Summary:
+- Removed the white background from the account trigger so it now sits on a transparent surface inside the navbar.
+- Kept the interaction affordance through hover-only tint and border feedback instead of a persistent chip-style background.
+
+Plain-English Summary:
+- The account control should look less boxy now.
+- Instead of sitting on a white pill-like background, it blends into the navbar until you hover it.
+
+Files / Areas Touched:
+- `frontend/src/components/auth/user-account-popover.tsx`
+
+## 2026-04-19 - Navbar Tint And Cleaner Account Trigger Surface
+
+Technical Summary:
+- Removed the blue-tinted background treatment from the account trigger so the control sits on a neutral surface again.
+- Added subtle shared navbar tint tokens in the global theme and applied them to the top navigation background.
+- Kept the accent language present in the header without letting the account component carry the full color burden.
+
+Plain-English Summary:
+- The account control should look cleaner now because it no longer has that blue background behind it.
+- The navbar itself has a very light theme tint now, so the top of the app feels less plain without becoming loud.
+
+Files / Areas Touched:
+- `frontend/src/app/globals.css`
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/auth/user-account-popover.tsx`
+
+## 2026-04-19 - Account Control Re-Aligned With App Accent Colors
+
+Technical Summary:
+- Removed the temporary account-specific red accent tokens from the global theme.
+- Reworked the account trigger so it now uses the shared accent-soft surface and the same accent gradient language already used by primary buttons.
+- Kept the account control visually distinct without introducing a separate color system that could drift from the rest of the product.
+
+Plain-English Summary:
+- The account control now matches the app better.
+- Instead of using a separate red look, it now feels like part of the same Wandrix button/color family you already see elsewhere in the interface.
+
+Files / Areas Touched:
+- `frontend/src/app/globals.css`
+- `frontend/src/components/auth/user-account-popover.tsx`
+
+## 2026-04-19 - Account Menu Positioning And Hover Polish
+
+Technical Summary:
+- Adjusted the account dropdown menu alignment so it anchors more naturally from the account control instead of feeling offset to the wrong side.
+- Improved the trigger and item hover states with clearer surface and border feedback.
+- Renamed the main account action from `Edit profile` to `Profile` to keep the menu copy simpler.
+- Removed the duplicated email line from the header trigger so the compact account control only shows the user's name, while the dropdown still carries the fuller account context.
+
+Plain-English Summary:
+- The account menu should now feel more neatly attached to the avatar/name control.
+- Hover states are cleaner and easier to read.
+- The menu wording is simpler, so `Profile` now takes you to the profile page.
+- The top bar also looks less repetitive now because the email is no longer repeated outside the dropdown.
+
+Files / Areas Touched:
+- `frontend/src/components/auth/user-account-popover.tsx`
+- `frontend/src/components/animate-ui/components/radix/dropdown-menu.tsx`
+
+## 2026-04-18 - Sidebar Session Loading Stabilized And Brochure Terminology Clarified
+
+Technical Summary:
+- Hardened backend Supabase token verification by making the auth check's outbound HTTPX call ignore environment proxy settings, which resolved the hanging `GET /api/v1/trips` path during local browser bootstrapping.
+- Extended the trip list contract with `brochure_ready` so the frontend can distinguish all persisted trips from brochure-ready outcomes.
+- Updated the chat sidebar footer to point to brochure-ready trips specifically, and rewrote the trip library wording/filtering so "brochure" terminology now refers to finished brochure-style outputs instead of the full trip history.
+- Revalidated the backend with a compile check, revalidated the frontend with ESLint and a production Next.js build, and confirmed the fix in Chrome DevTools by reloading `/chat` until the sidebar trip requests completed successfully.
+
+Plain-English Summary:
+- The reason you sometimes saw no sessions at all was that the backend trip-list request was hanging during auth verification, so the chat page never received any session data to render.
+- That path is now stable again, and I verified in the browser that recent sessions load back into the sidebar.
+- I also cleaned up the wording so "Brochures" now means the finished brochure-style trips, while the session list on the left remains the live chat history.
+
+Files / Areas Touched:
+- `backend/app/core/auth.py`
+- `backend/app/schemas/trip.py`
+- `backend/app/services/trip_service.py`
+- `frontend/src/types/trip.ts`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/trips/trip-library.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Chat Boot Flow Reuses Latest Trip Instead Of Always Creating One
+
+Technical Summary:
+- Updated the `/chat` workspace boot flow so it loads the latest saved trip by default when there is no explicit `trip` query parameter, instead of always creating a brand-new trip record on page entry.
+- Kept explicit new-session behavior intact by continuing to create a fresh trip only when the `new` query flag is present or when the user has no saved trips yet.
+- Increased the recent-trip fetch window used by the chat workspace sidebar boot path so the left rail has more prior sessions available to display.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The app was creating a new blank trip too often, which made it feel like your previous sessions were not loading properly in the sidebar.
+- Now the chat page reopens your latest real trip unless you explicitly start a new one, so the sidebar history should behave much more like you expect.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Sidebar: Restore New Trip Button, Saved Trips & Show More
+
+Technical Summary:
+- Restored the full-width accent "New Trip" button at the top of the sidebar (compact `h-9` variant).
+- Added `visibleCount` state and `INITIAL_VISIBLE`/`LOAD_MORE_COUNT` constants (both 5) to progressively reveal trip items instead of rendering all at once.
+- Added a "Show more" button with `ChevronDown` icon that appears only when there are hidden items.
+- Search resets `visibleCount` back to `INITIAL_VISIBLE` on every keystroke.
+- Renamed footer link from "All trips" to "Saved Trips" with the `BookOpen` icon.
+
+Plain-English Summary:
+- The sidebar now shows the "New Trip" button again, only displays 5 trips at a time with a "Show more" option, and has a clear "Saved Trips" link at the bottom.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Minimal Sidebar Layout Redesign
+
+Technical Summary:
+- Replaced the large accent-colored "New Trip" button with a compact icon-only `+` button in the header row.
+- Removed the verbose "Recent chats" section header and description; replaced with a clean uppercase "Trips" label.
+- Added a search icon inside the search input for better affordance; tightened input padding.
+- Simplified trip list items: removed the wrapping `<div>`, reduced to single `<button>` per item, collapsed three metadata lines into one, tightened vertical spacing (`space-y-0.5`, `py-2`).
+- Replaced hardcoded Slate dot colors with theme-aware `--sidebar-shell-border` / `--sidebar-muted-text` tokens.
+- Added a persistent "All trips" footer link with a top border separator, replacing the inline "Saved" link.
+- All colors still reference existing `--sidebar-*` CSS custom properties.
+
+Plain-English Summary:
+- The sidebar now looks much cleaner and more minimal — a small plus icon instead of a big blue button, a compact search bar with an icon, tighter trip cards, and a subtle footer link to the full trip library.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Removed Duplicate Sidebar Theme Controls
+
+Technical Summary:
+- Removed the left-sidebar footer controls for accent and light/dark mode so theme switching is owned only by the shared top navigation.
+- Deleted the now-unused sidebar imports and kept the rest of the recent-chat rail layout unchanged.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The sidebar no longer shows the extra theme and color controls.
+- Theme switching now only lives in the top navbar, which keeps the UI cleaner and avoids duplicate controls.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Middle Chat Column Matched More Closely To Legacy Workspace
+
+Technical Summary:
+- Refined the assistant-driven middle chat column so it follows the old ADTPG conversation shell more literally while keeping the current assistant-ui and backend conversation bridge intact.
+- Added shared chat-shell tokens and scrollbar styling in `globals.css`, applied the workspace shell to the `/chat` page, and aligned the middle column container to the imported chat surface instead of the earlier generic shell colors.
+- Removed the extra Wandrix-specific chat header/status block, tightened the empty-state layout, preserved the legacy-style message bubble treatment, and switched the composer to assistant-ui's real cancel control instead of the temporary placeholder button.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The center chat area should now feel much closer to the old app instead of still looking like a newer Wandrix panel.
+- I kept all the current chat functionality working, but made the visuals and structure read more like the scrapped project you wanted copied.
+- The biggest changes were removing the extra top chrome, tightening the starter state, and making the message/composer area behave like one continuous chat pane.
+
+Files / Areas Touched:
+- `frontend/src/app/globals.css`
+- `frontend/src/app/chat/page.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Recent Chat Row Styling Matched To Legacy Shelf
+
+Technical Summary:
+- Restyled the chat sidebar's recent-session rows to follow the older embedded conversation-shelf pattern more literally.
+- Replaced the custom Wandrix list treatment with compact rounded rows, active-state surface highlighting, a leading status dot, smaller title/meta typography, and simplified metadata lines.
+- Preserved the current trip-based navigation and search behavior while switching the presentation to the legacy row style.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The recent chats in the sidebar should now look much closer to the old app's list style.
+- This was a visual refinement only; the same sessions and trip-opening behavior still work underneath.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Integrated Three-Section Chat Workspace Shell
+
+Technical Summary:
+- Refactored the `/chat` workspace layout to use a continuous three-column page shell for sidebar, conversation, and trip-board areas instead of padded floating panels.
+- Removed the outer rounded card treatment from the left rail, assistant column, and trip-board column so the workspace reads as shared page sections separated by borders.
+- Simplified the sidebar structure further by flattening recent-session presentation into a more list-like rail and keeping saved-trip access inline with the recent-chat header.
+- Preserved existing planner functionality, including `new` query resets, `trip` query session selection, backend chat wiring, draft updates, and the right-rail package form.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The chat workspace now behaves more like one real page split into three sections, instead of three separate rounded boxes.
+- The sidebar is now part of the page itself, and the middle and right areas follow the same structure.
+- The planner behavior underneath is still the same; this was a layout and styling pass, not a feature rewrite.
+
+Files / Areas Touched:
+- `frontend/src/app/chat/page.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Sidebar Simplification And Recent Chat List Alignment
+
+Technical Summary:
+- Removed the extra left-rail navigation items for Home, Flights, Hotels, and Activities from the chat workspace sidebar.
+- Flattened the sidebar structure by removing the separate saved-trips card and folding saved-trip access into the recent-chat header actions.
+- Restyled the recent session items from boxed cards into a tighter list treatment while preserving the existing `trip` query navigation, search filtering, and new-chat reset behavior.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The chat sidebar is cleaner now and no longer shows the extra menu items you wanted removed.
+- Saved trips are still accessible, but they are no longer in their own chunky panel.
+- The recent chats should now feel much closer to the old list-style sidebar while still using Wandrix's current functionality.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Left Sidebar Visual Port For Chat Workspace
+
+Technical Summary:
+- Reworked the Wandrix chat workspace sidebar to follow the older ADTPG left-rail styling more closely, including the neutral shell surface, menu links, prominent top action, saved-trips card, recent-trip list styling, and footer controls.
+- Kept the current Wandrix sidebar behavior intact by preserving the existing `new` query reset flow, `trip` query selection flow, recent-trip search filtering, and saved-trips route wiring.
+- Added the sidebar design tokens needed to support the imported shell/surface/active states in both light and dark mode.
+- Reused the newly added theme and accent pickers in the sidebar footer so the left rail behaves more like the old product without introducing separate state paths.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The left sidebar in the chat workspace now looks much closer to the old project instead of the earlier plain panel.
+- I kept the current Wandrix functionality underneath it, so selecting trips, starting a new chat, and opening saved trips should still work the same way.
+- This was a styling and structure port for the sidebar, not a rewrite of the planner logic.
+
+Files / Areas Touched:
+- `frontend/src/app/globals.css`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Fixed Theme Toggle Token Wiring
+
+Technical Summary:
+- Replaced the frontend dark theme token override from a `prefers-color-scheme` media query with a `.dark` class override in `globals.css`.
+- Aligned the global token system with the existing client-side theme toggle and layout boot script, both of which already control the `dark` class on the root element.
+- This makes manual light/dark switching deterministic instead of depending on the operating system preference after page load.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- Light mode and dark mode should now actually switch when you use the navbar toggle.
+- The bug was that the toggle changed the class, but the app colors were still listening to the OS theme rule instead of that class.
+
+Files / Areas Touched:
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Literal Home Page Port And Theme Controls
+
+Technical Summary:
+- Replaced the Wandrix landing page implementation with a near-literal port of the ADTPG home page structure, including the centered hero layout, CTA treatment, feature cards, Lucide icons, and animated beam background behavior.
+- Added a reusable `BackgroundBeamsWithCollision` UI component backed by the `motion` package so the landing page can match the old animated background treatment instead of relying on approximate local gradients.
+- Added client-side theme initialization in the root layout plus reusable navbar controls for light/dark mode and accent palette switching, using localStorage-backed state and CSS variable updates.
+- Updated shared theme tokens so the imported accent picker can drive `--accent`, `--accent2`, `--accent-foreground`, and the dark-mode class correctly across the app shell.
+- Added the required frontend dependencies for the ported UI pieces and revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The home page now follows the old ADTPG version much more directly instead of just borrowing pieces from it.
+- The app also now has the theme toggle and accent picker you asked for, so light/dark mode and color themes can be changed from the navbar.
+- This pass was about making the imported frontend feel like the old project again, not just “similar.”
+
+Files / Areas Touched:
+- `frontend/package.json`
+- `frontend/package-lock.json`
+- `frontend/src/app/layout.tsx`
+- `frontend/src/app/globals.css`
+- `frontend/src/app/page.tsx`
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/app/brand-wordmark.tsx`
+- `frontend/src/components/ui/background-beams-with-collision.tsx`
+- `frontend/src/components/ui/theme-toggle.tsx`
+- `frontend/src/components/ui/accent-picker.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Literal Navbar White Surface Alignment
+
+Technical Summary:
+- Reworked the shared top navigation classes to follow the ADTPG reference more literally, including a white `bg-background` header surface, reference-style nav-link states, and removal of the tinted glass pill wrapper around the desktop nav.
+- Updated the signed-in navbar controls to sit on the same neutral surface language instead of the earlier translucent blue-tinted treatment.
+- Removed the home and auth page atmospheric beam overlays and glass-card styling so the navbar now sits over a plain white page surface instead of inheriting color from the content underneath.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The navbar should now actually read as white, like the reference, instead of a tinted overlay.
+- I also removed the extra page effects that were making the whole top of the app feel different from the old project.
+- This was a visual alignment pass, not a routing or auth logic change.
+
+Files / Areas Touched:
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/app/app-nav-links.tsx`
+- `frontend/src/components/auth/sign-out-button.tsx`
+- `frontend/src/app/page.tsx`
+- `frontend/src/components/auth/auth-shell.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Removed Warm Tint From Full-Page Surfaces
+
+Technical Summary:
+- Removed the remaining yellow-warm color mixing from the shared landing and auth full-page background treatments in `globals.css`.
+- Updated the hero atmosphere gradients, animated beam columns, beam flares, and gradient text treatment to stay in the blue-and-white palette instead of blending toward gold.
+- Kept the page structure unchanged while making the overall surface read cooler and closer to the reference navbar color family.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The page-wide brownish cast should now be gone.
+- The big background effects now stay cool and blue instead of warming the whole screen.
+- This was a color cleanup only, not a layout change.
+
+Files / Areas Touched:
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Navbar Palette Alignment With ADTPG Reference
+
+Technical Summary:
+- Replaced the imported brown-toned global surface tokens with the blue, white, neutral, and dark-mode values used by the ADTPG reference navbar theme.
+- Kept the previously ported navbar, landing, and auth structure intact, but updated the shared `background`, `panel`, `glass`, `accent`, and muted tokens so those screens now inherit the same core palette as the reference.
+- Adjusted the hero background blend to stay bright and neutral instead of warming the page with the old brown-derived base colors.
+- Revalidated the frontend with ESLint and a production Next.js build.
+
+Plain-English Summary:
+- The weird brown cast is gone.
+- The imported screens now use the same blue-and-white color direction as the old reference navbar instead of the warmer palette that slipped in during the first port.
+- I did not use the `uncodixfy` skill for this pass.
+
+Files / Areas Touched:
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-18 - Legacy Landing, Navbar, And Login Visual Port
+
+Technical Summary:
+- Reworked the shared frontend top navigation to borrow the scrapped ADTPG visual language while keeping Wandrix's current server-authenticated links and sign-out flow intact.
+- Rebuilt the home page around the older project's hero, glass-panel, and beam-style presentation, but kept Wandrix's current conversation-first product messaging and route wiring.
+- Restyled the `/auth` experience to match the previous login-page aesthetic while preserving the existing combined sign-in and sign-up Supabase flow.
+- Added a `/login` route alias that redirects into `/auth`, and extended shared global styling tokens to support the imported branding, glass surfaces, and atmospheric backgrounds.
+- Verified the frontend with ESLint and a production Next.js build after the port.
+
+Plain-English Summary:
+- The app now looks much closer to the styling from your older ADTPG frontend on the navbar, landing page, and login experience.
+- I kept Wandrix's newer structure and auth wiring underneath, so this is a visual transplant rather than a rollback of the newer app architecture.
+- There is also now a `/login` path for convenience, even though the real auth screen still lives at `/auth`.
+
+Files / Areas Touched:
+- `frontend/src/app/layout.tsx`
+- `frontend/src/app/globals.css`
+- `frontend/src/app/page.tsx`
+- `frontend/src/app/login/page.tsx`
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/app/app-nav-links.tsx`
+- `frontend/src/components/app/brand-wordmark.tsx`
+- `frontend/src/components/auth/auth-shell.tsx`
+- `frontend/src/components/auth/sign-out-button.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Account Popover And Post-Signup Onboarding Flow
+
+Technical Summary:
+- Replaced the top-level Profile navigation item with an account popover in the header that shows the user's name beside an avatar chip and keeps sign-out inside the same control.
+- Added a client-side account popover built with Radix Popover and Motion, with inline profile editing and a direct link into planner-default onboarding.
+- Updated signup flow so successful signups and email-confirmation redirects lead into onboarding before chat, rather than treating onboarding as a permanent top-level destination.
+- Kept `/profile` as the onboarding route, but reframed it as a first-run and account-settings flow rather than a primary navigation page.
+
+Plain-English Summary:
+- The app now handles account access the way you described: through an avatar-and-name menu in the top bar instead of a separate Profile tab.
+- New users are guided into onboarding after signup so Wandrix can learn their soft defaults before planning starts.
+
+Files / Areas Touched:
+- `frontend/package.json`
+- `frontend/src/components/auth/user-account-popover.tsx`
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/auth/auth-shell.tsx`
+- `frontend/src/app/profile/page.tsx`
+- `frontend/src/components/profile/profile-onboarding.tsx`
+- `README.md`
+
+## 2026-04-19 - Profile Onboarding Flow
+
+Technical Summary:
+- Added a new authenticated `/profile` route that serves as the onboarding and soft-defaults setup surface for Wandrix.
+- Built a checklist-style onboarding flow with per-step dialogs for display name, home airport and currency, travel preferences, location assistance, and the transition into chat.
+- Added lightweight reusable frontend primitives for dialog, button, input, label, and class-name composition so the onboarding flow can use the requested dialog-driven pattern without depending on missing external UI files.
+- Updated navigation and route docs so profile setup is part of the visible product flow.
+
+Plain-English Summary:
+- Wandrix now has a real onboarding page where a signed-in user can set the personal defaults the chat should use as soft guidance.
+- The assistant can now be prepared to greet people more personally and start with better assumptions, while still keeping chat as the main place where actual trip planning happens.
+
+Files / Areas Touched:
+- `frontend/src/app/profile/page.tsx`
+- `frontend/src/components/profile/profile-onboarding.tsx`
+- `frontend/src/components/animate-ui/components/radix/dialog.tsx`
+- `frontend/src/components/ui/button.tsx`
+- `frontend/src/components/ui/input.tsx`
+- `frontend/src/components/ui/label.tsx`
+- `frontend/src/lib/utils.ts`
+- `frontend/src/components/app/app-top-nav.tsx`
+- `README.md`
+
+## 2026-04-19 - Chat-First Planning Rule
+
+Technical Summary:
+- Updated repo documentation to explicitly define `/chat` as the primary planning workspace for Wandrix.
+- Reframed flights, hotels, and activities routes in the README and UI copy as supporting reference views rather than parallel planning surfaces.
+- Updated module workspace messaging so the product language stays aligned with the conversation-first architecture.
+
+Plain-English Summary:
+- The project now clearly treats chat as the main place where trip planning happens.
+- The flights, hotels, and activities pages are now described as supporting views instead of separate planning tools.
+
+Files / Areas Touched:
+- `AGENTS.md`
+- `docs/future-improvements.md`
+- `README.md`
+- `frontend/src/components/modules/trip-module-workspace.tsx`
+
 ## 2026-04-18 - Initial Repository Publishing Safeguards
 
 Technical Summary:
@@ -23,6 +514,22 @@ Plain-English Summary:
 Files / Areas Touched:
 - `.gitignore`
 - `CHANGELOG.md`
+
+## 2026-04-18 - LLM-First Planner Rule
+
+Technical Summary:
+- Updated the repo rules to make LLM-first, schema-validated trip understanding the intended long-term planner direction.
+- Added explicit guidance that deterministic extraction and heuristic parsing may exist as temporary fallback only, and should be reduced over time instead of expanded.
+- Added matching guidance to the future improvements roadmap so later sessions keep steering away from brittle regex-style planner behavior.
+
+Plain-English Summary:
+- The project rules now clearly say we should not keep building the planner around hardcoded parsing rules.
+- Heuristics can stay as short-term backup, but the real direction is a smarter AI-first planner that handles ambiguity better.
+
+Files / Areas Touched:
+- `AGENTS.md`
+- `docs/backend-coding-rules.md`
+- `docs/future-improvements.md`
 
 ## 2026-04-18 - Future Improvements Roadmap Document
 

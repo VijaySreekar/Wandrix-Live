@@ -16,7 +16,7 @@ export function TripBoardPreview({
 }: TripBoardPreviewProps) {
   if (isBootstrapping) {
     return (
-      <section className="rounded-xl border border-shell-border bg-shell">
+      <section className="bg-shell">
         <div className="border-b border-shell-border px-5 py-4">
           <h2 className="text-base font-semibold text-foreground">Trip board</h2>
           <p className="mt-1 text-sm text-foreground/68">Preparing draft state</p>
@@ -33,7 +33,7 @@ export function TripBoardPreview({
 
   if (!workspace) {
     return (
-      <section className="rounded-xl border border-shell-border bg-shell">
+      <section className="bg-shell">
         <div className="border-b border-shell-border px-5 py-4">
           <h2 className="text-base font-semibold text-foreground">Trip board</h2>
           <p className="mt-1 text-sm text-foreground/68">Trip board unavailable</p>
@@ -83,7 +83,7 @@ export function TripBoardPreview({
   ];
 
   return (
-    <section className="rounded-xl border border-shell-border bg-shell">
+    <section className="bg-shell">
       <div className="border-b border-shell-border px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
