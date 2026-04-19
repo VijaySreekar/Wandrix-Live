@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { TravelPlannerAssistant } from "@/components/assistant/travel-planner-assistant";
@@ -16,6 +16,9 @@ import type { TripListItemResponse } from "@/types/trip";
 
 const BROWSER_SESSION_STORAGE_KEY = "wandrix.browser_session_id";
 const CHAT_SIDEBAR_COLLAPSED_KEY = "wandrix.chat_sidebar_collapsed";
+const LAST_ACTIVE_TRIP_STORAGE_KEY = "wandrix.last_active_trip_id";
+const RECENT_TRIPS_LIMIT = 24;
+const TRIP_LIST_BOOTSTRAP_TIMEOUT_MS = 3500;
 
 
 export function TravelPackageWorkspace() {
@@ -64,23 +67,25 @@ export function TravelPackageWorkspace() {
           throw new Error("Sign in to start a persisted trip workspace.");
         }
 
-        const initialTripList = await listTrips(24, session.access_token);
+        const rememberedTripId =
+          newChatNonce || selectedTripId ? null : readLastActiveTripId();
+        const initialTripList = await loadInitialTripList(session.access_token);
         const bootResult = await createWorkspace(
           session.access_token,
           {
             selectedTripId,
+            rememberedTripId,
             forceNewTrip: Boolean(newChatNonce),
             recentTrips: initialTripList.items,
           },
         );
-        const recentTripItems = bootResult.didCreateTrip
-          ? (await listTrips(24, session.access_token)).items
-          : initialTripList.items;
 
         if (!cancelled) {
           setWorkspace(bootResult.workspace);
-          setRecentTrips(recentTripItems);
+          setRecentTrips(initialTripList.items);
         }
+
+        void refreshRecentTrips(session.access_token, () => cancelled, setRecentTrips);
       } catch (caughtError) {
         if (!cancelled) {
           setWorkspaceError(
@@ -102,6 +107,15 @@ export function TravelPackageWorkspace() {
       cancelled = true;
     };
   }, [newChatNonce, selectedTripId]);
+
+  useEffect(() => {
+    if (!workspace?.trip.trip_id) {
+      window.localStorage.removeItem(LAST_ACTIVE_TRIP_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(LAST_ACTIVE_TRIP_STORAGE_KEY, workspace.trip.trip_id);
+  }, [workspace?.trip.trip_id]);
 
   function handleDraftUpdated(nextDraft: PlannerWorkspaceState["tripDraft"]) {
     setWorkspace((current) => {
@@ -168,6 +182,7 @@ async function createWorkspace(
   accessToken: string,
   options: {
     selectedTripId: string | null;
+    rememberedTripId: string | null;
     forceNewTrip: boolean;
     recentTrips: TripListItemResponse[];
   },
@@ -176,22 +191,37 @@ async function createWorkspace(
   didCreateTrip: boolean;
 }> {
   let browserSession = await ensureBrowserSession(accessToken);
+  const preferredTripId =
+    options.selectedTripId ?? (!options.forceNewTrip ? options.rememberedTripId : null);
 
-  if (options.selectedTripId) {
-    const trip = await getTrip(options.selectedTripId, accessToken);
-    const tripDraft = await getTripDraft(trip.trip_id, accessToken);
+  if (preferredTripId) {
+    try {
+      const trip = await getTrip(preferredTripId, accessToken);
+      const tripDraft = await getTripDraft(trip.trip_id, accessToken);
 
-    return {
-      workspace: {
-        browserSession: {
-          ...browserSession,
-          browser_session_id: trip.browser_session_id,
+      return {
+        workspace: {
+          browserSession: {
+            ...browserSession,
+            browser_session_id: trip.browser_session_id,
+          },
+          trip,
+          tripDraft,
         },
-        trip,
-        tripDraft,
-      },
-      didCreateTrip: false,
-    };
+        didCreateTrip: false,
+      };
+    } catch (caughtError) {
+      const shouldRecoverRememberedTrip =
+        preferredTripId === options.rememberedTripId &&
+        caughtError instanceof Error &&
+        caughtError.message === "Trip was not found.";
+
+      if (!shouldRecoverRememberedTrip) {
+        throw caughtError;
+      }
+
+      window.localStorage.removeItem(LAST_ACTIVE_TRIP_STORAGE_KEY);
+    }
   }
 
   if (!options.forceNewTrip && options.recentTrips.length > 0) {
@@ -286,4 +316,54 @@ async function ensureBrowserSession(
   );
 
   return browserSession;
+}
+
+async function loadInitialTripList(accessToken: string) {
+  try {
+    return await withTimeout(
+      listTrips(RECENT_TRIPS_LIMIT, accessToken),
+      TRIP_LIST_BOOTSTRAP_TIMEOUT_MS,
+    );
+  } catch {
+    return { items: [] };
+  }
+}
+
+async function refreshRecentTrips(
+  accessToken: string,
+  shouldCancel: () => boolean,
+  setRecentTrips: Dispatch<SetStateAction<TripListItemResponse[]>>,
+) {
+  try {
+    const nextTrips = await listTrips(RECENT_TRIPS_LIMIT, accessToken);
+
+    if (!shouldCancel()) {
+      setRecentTrips(nextTrips.items);
+    }
+  } catch {
+    // Keep the current workspace responsive even if the sidebar list refresh fails.
+  }
+}
+
+function readLastActiveTripId() {
+  const storedTripId = window.localStorage.getItem(LAST_ACTIVE_TRIP_STORAGE_KEY);
+  return storedTripId && storedTripId.trim() ? storedTripId : null;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return await new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(new Error("Timed out while loading saved trips."));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      })
+      .catch((error: unknown) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      });
+  });
 }

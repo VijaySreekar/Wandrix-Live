@@ -9,6 +9,20 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Made Chat Bootstrap Recover From Slow Trip Lists
+
+Technical Summary:
+- Reworked the `/chat` workspace bootstrap so the main planner no longer stays blocked behind the sidebar trip-list fetch.
+- Added a timeout-limited initial trip-list load, support for restoring the last active trip when available, and a background recent-trips refresh after the workspace comes up.
+- Kept recovery scoped to the chat workspace so a slow or wedged recent-trip request can degrade the sidebar without freezing the assistant pane and live board bootstrap.
+
+Plain-English Summary:
+- The chat workspace should feel less fragile now when the saved-trip rail is slow.
+- Instead of letting one trip-list request freeze the whole planning screen, Wandrix now tries to get the trip workspace attached first and fills the sidebar in afterward.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+
 ## 2026-04-19 - Added Planner Clarification Metadata And Softer Ambiguity Fallbacks
 
 Technical Summary:
