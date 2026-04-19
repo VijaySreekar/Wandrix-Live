@@ -352,6 +352,7 @@ function buildSandboxWorkspace(
             confirmed_fields: ["from_location", "to_location", "start_date", "end_date"],
             inferred_fields: ["activity_styles"],
             open_questions: ["Do you want me to keep the hotel area family-friendly and walkable?"],
+            decision_cards: [],
             brochure_ready: false,
             last_updated_at: "2026-04-19T09:00:00Z",
           },
@@ -406,6 +407,20 @@ function buildSandboxWorkspace(
             open_questions: [
               "Where would you be traveling from?",
               "What rough dates or month should I shape this around?",
+            ],
+            decision_cards: [
+              {
+                title: "Keep Lisbon or compare alternatives",
+                description:
+                  "The brief already points toward a relaxed, food-forward city break, so a quick direction choice would sharpen the board faster.",
+                options: ["Keep Lisbon", "Compare Porto", "Compare Valencia"],
+              },
+              {
+                title: "Set the timing",
+                description:
+                  "Even a rough month or weekend helps flights, weather, and hotel pacing feel more concrete.",
+                options: ["Late April", "May bank holiday", "Keep the month flexible"],
+              },
             ],
             brochure_ready: false,
             last_updated_at: "2026-04-19T09:00:00Z",
@@ -667,6 +682,7 @@ function buildSandboxWorkspace(
             confirmed_fields: ["from_location", "to_location", "start_date", "end_date", "activity_styles"],
             inferred_fields: ["selected_modules"],
             open_questions: [],
+            decision_cards: [],
             brochure_ready: true,
             last_updated_at: "2026-04-19T09:00:00Z",
           },

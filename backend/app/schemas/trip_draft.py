@@ -119,12 +119,19 @@ class TimelineItem(BaseModel):
     status: TimelineItemStatus = "draft"
 
 
+class PlannerDecisionCard(BaseModel):
+    title: str = Field(..., min_length=1, max_length=120)
+    description: str = Field(..., min_length=1, max_length=240)
+    options: list[str] = Field(default_factory=list, max_length=5)
+
+
 class TripDraftStatus(BaseModel):
     phase: TripPlanningPhase = "collecting_requirements"
     missing_fields: list[str] = Field(default_factory=list)
     confirmed_fields: list[TripFieldKey] = Field(default_factory=list)
     inferred_fields: list[TripFieldKey] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
+    decision_cards: list[PlannerDecisionCard] = Field(default_factory=list)
     brochure_ready: bool = False
     last_updated_at: datetime | None = None
 

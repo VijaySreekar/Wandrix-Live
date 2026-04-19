@@ -713,6 +713,10 @@ function EmptyPanel({ message }: { message: string }) {
 }
 
 function buildSelectionCards(draft: PlannerWorkspaceState["tripDraft"]) {
+  if (draft.status.decision_cards.length > 0) {
+    return draft.status.decision_cards;
+  }
+
   const cards = draft.status.missing_fields.map((fieldName) => {
     switch (fieldName) {
       case "from_location":

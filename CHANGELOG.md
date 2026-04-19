@@ -9,6 +9,24 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Persisted Planner Decision Cards On The Live Board
+
+Technical Summary:
+- Extended the shared trip-draft status contract with persisted `decision_cards` so the backend planner can store concrete, LLM-generated choice bundles alongside its clarification questions instead of forcing the board to guess from generic frontend fallbacks.
+- Updated the LangGraph bootstrap node prompt and structured turn-update schema so ambiguous but high-signal turns can return specific option cards, while also nudging the model to infer obvious adult traveler counts from natural phrasing and to avoid locking exact dates unless the user provided them explicitly.
+- Wired the `/chat` board choices rail to render the persisted decision cards from the saved draft first, and refreshed the board sandbox data so the preview path matches the richer planner contract.
+
+Plain-English Summary:
+- When a traveler gives Wandrix a messy but useful brief, the right-hand board can now show concrete next-step choices like destination shortlists or trip-length options instead of bland placeholder chips.
+- The planner is also better at carrying conversational clues like "me and my sister" into the saved trip state so the live board stays closer to what the chat actually established.
+
+Files / Areas Touched:
+- `backend/app/graph/nodes/bootstrap.py`
+- `backend/app/schemas/trip_draft.py`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/types/trip-draft.ts`
+
 ## 2026-04-19 - Stopped Supabase Cookie Writes From Crashing Chat Pages
 
 Technical Summary:

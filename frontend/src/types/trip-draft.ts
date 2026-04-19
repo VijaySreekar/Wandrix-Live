@@ -120,12 +120,19 @@ export type TimelineItem = {
   status: TimelineItemStatus;
 };
 
+export type PlannerDecisionCard = {
+  title: string;
+  description: string;
+  options: string[];
+};
+
 export type TripDraftStatus = {
   phase: TripPlanningPhase;
   missing_fields: string[];
   confirmed_fields: TripFieldKey[];
   inferred_fields: TripFieldKey[];
   open_questions: string[];
+  decision_cards: PlannerDecisionCard[];
   brochure_ready: boolean;
   last_updated_at: string | null;
 };

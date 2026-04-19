@@ -10,6 +10,7 @@ from app.schemas.trip_draft import (
     ActivityStyle,
     FlightDetail,
     HotelStayDetail,
+    PlannerDecisionCard,
     PlanningModuleKey,
     TripFieldKey,
     TimelineItem,
@@ -45,8 +46,20 @@ class TripTurnUpdate(BaseModel):
     title: str | None = None
     from_location: str | None = None
     to_location: str | None = None
-    start_date: date | None = None
-    end_date: date | None = None
+    start_date: date | None = Field(
+        default=None,
+        description=(
+            "Only use this when the user gave an explicit calendar date or fixed date range. "
+            "Leave null for rough timing like 'late January', 'spring', or '4 or 5 nights'."
+        ),
+    )
+    end_date: date | None = Field(
+        default=None,
+        description=(
+            "Only use this when the user gave an explicit calendar date or fixed date range. "
+            "Leave null for rough timing like 'late January', 'spring', or '4 or 5 nights'."
+        ),
+    )
     budget_gbp: float | None = None
     adults: int | None = Field(default=None, ge=1)
     children: int | None = Field(default=None, ge=0)
@@ -55,6 +68,7 @@ class TripTurnUpdate(BaseModel):
     confirmed_fields: list[TripFieldKey] = Field(default_factory=list)
     inferred_fields: list[TripFieldKey] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
+    decision_cards: list[PlannerDecisionCard] = Field(default_factory=list)
     timeline_preview: list[ProposedTimelineItem] = Field(default_factory=list)
     assistant_response: str
 
@@ -98,12 +112,17 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         llm_update=llm_update,
         missing_fields=missing_fields,
     )
+    decision_cards = _merge_decision_cards(
+        llm_update=llm_update,
+        missing_fields=missing_fields,
+    )
     phase = "planning" if not missing_fields else "collecting_requirements"
     status.phase = phase
     status.missing_fields = missing_fields
     status.confirmed_fields = confirmed_fields
     status.inferred_fields = inferred_fields
     status.open_questions = open_questions if missing_fields else []
+    status.decision_cards = decision_cards if missing_fields else []
     status.brochure_ready = phase == "planning"
     status.last_updated_at = datetime.now(timezone.utc)
 
@@ -154,9 +173,13 @@ Take the latest user message and update the travel draft conservatively.
 Rules:
 - Only extract fields that are supported by the user's message or current draft.
 - Do not invent exact travel dates unless the user clearly provided them.
+- Treat rough timing like "late January", "end of January", "spring", or "4 or 5 nights" as flexible timing, not exact calendar dates. Keep start_date and end_date unset unless the user gave a concrete date or fixed range.
+- Infer traveler counts from clear natural phrasing when the user names the group in plain language. Examples: "me and my partner", "me and my mum", "me and my sister", or "the two of us" should update adults to 2 unless children are mentioned.
 - Use confirmed_fields for details the user clearly stated in this turn.
 - Use inferred_fields for soft assumptions or best-effort readings that should stay provisional.
 - If something important is still unclear, add 1 or 2 short open_questions instead of silently locking a weak guess.
+- If the user has given enough signal to compare likely directions, include 1 to 3 decision_cards with concrete options that would help them answer quickly.
+- Keep decision card options short, specific, and grounded in the user's stated pace, season, budget posture, and geography. Prefer real candidate destinations or timing choices over generic placeholders.
 - If the user provided enough detail, produce a small high-level timeline preview with 2 to 5 items.
 - If enough signal already exists, let assistant_response propose a provisional trip direction before asking follow-up questions.
 - Keep assistant_response concise, warm, and specific about what changed and what is still missing.
@@ -515,6 +538,41 @@ def _merge_open_questions(
         merged_questions.append(cleaned)
 
     return merged_questions[:2]
+
+
+def _merge_decision_cards(
+    *,
+    llm_update: TripTurnUpdate,
+    missing_fields: list[str],
+) -> list[PlannerDecisionCard]:
+    if not missing_fields:
+        return []
+
+    merged_cards: list[PlannerDecisionCard] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+
+    for card in llm_update.decision_cards:
+        title = card.title.strip()
+        description = card.description.strip()
+        options = [option.strip() for option in card.options if option.strip()]
+
+        if not title or not description:
+            continue
+
+        key = (title.lower(), tuple(option.lower() for option in options))
+        if key in seen:
+            continue
+
+        seen.add(key)
+        merged_cards.append(
+            PlannerDecisionCard(
+                title=title,
+                description=description,
+                options=options[:4],
+            )
+        )
+
+    return merged_cards[:3]
 
 
 def _derive_title(configuration: TripConfiguration) -> str:
