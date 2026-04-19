@@ -11,6 +11,7 @@ from app.schemas.trip_draft import (
     FlightDetail,
     HotelStayDetail,
     PlanningModuleKey,
+    TripFieldKey,
     TimelineItem,
     TimelineItemType,
     TripConfiguration,
@@ -51,6 +52,9 @@ class TripTurnUpdate(BaseModel):
     children: int | None = Field(default=None, ge=0)
     selected_modules: TripModuleSelectionUpdate = Field(default_factory=TripModuleSelectionUpdate)
     activity_styles: list[ActivityStyle] = Field(default_factory=list)
+    confirmed_fields: list[TripFieldKey] = Field(default_factory=list)
+    inferred_fields: list[TripFieldKey] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
     timeline_preview: list[ProposedTimelineItem] = Field(default_factory=list)
     assistant_response: str
 
@@ -84,16 +88,34 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
     )
 
     missing_fields = _compute_missing_fields(configuration)
+    confirmed_fields, inferred_fields = _merge_field_signals(
+        configuration=configuration,
+        status=status,
+        llm_update=llm_update,
+    )
+    open_questions = _merge_open_questions(
+        configuration=configuration,
+        llm_update=llm_update,
+        missing_fields=missing_fields,
+    )
     phase = "planning" if not missing_fields else "collecting_requirements"
     status.phase = phase
     status.missing_fields = missing_fields
+    status.confirmed_fields = confirmed_fields
+    status.inferred_fields = inferred_fields
+    status.open_questions = open_questions if missing_fields else []
     status.brochure_ready = phase == "planning"
     status.last_updated_at = datetime.now(timezone.utc)
 
     assistant_response = (
         llm_update.assistant_response.strip()
         if llm_update.assistant_response.strip()
-        else _build_fallback_response(configuration, missing_fields)
+        else _build_fallback_response(
+            configuration,
+            missing_fields,
+            open_questions,
+            inferred_fields,
+        )
     )
 
     return {
@@ -132,9 +154,16 @@ Take the latest user message and update the travel draft conservatively.
 Rules:
 - Only extract fields that are supported by the user's message or current draft.
 - Do not invent exact travel dates unless the user clearly provided them.
+- Use confirmed_fields for details the user clearly stated in this turn.
+- Use inferred_fields for soft assumptions or best-effort readings that should stay provisional.
+- If something important is still unclear, add 1 or 2 short open_questions instead of silently locking a weak guess.
 - If the user provided enough detail, produce a small high-level timeline preview with 2 to 5 items.
+- If enough signal already exists, let assistant_response propose a provisional trip direction before asking follow-up questions.
 - Keep assistant_response concise, warm, and specific about what changed and what is still missing.
 - Prefer structured travel-planning language over generic chatbot language.
+
+Allowed field keys for confirmed_fields and inferred_fields:
+["from_location", "to_location", "start_date", "end_date", "budget_gbp", "adults", "children", "activity_styles", "selected_modules"]
 
 Current draft title:
 {title}
@@ -422,6 +451,72 @@ def _compute_missing_fields(configuration: TripConfiguration) -> list[str]:
     return missing_fields
 
 
+def _merge_field_signals(
+    *,
+    configuration: TripConfiguration,
+    status: TripDraftStatus,
+    llm_update: TripTurnUpdate,
+) -> tuple[list[TripFieldKey], list[TripFieldKey]]:
+    available_fields = _collect_available_fields(configuration)
+    confirmed = {
+        field
+        for field in [*status.confirmed_fields, *llm_update.confirmed_fields]
+        if field in available_fields
+    }
+    inferred = {
+        field
+        for field in [*status.inferred_fields, *llm_update.inferred_fields]
+        if field in available_fields and field not in confirmed
+    }
+
+    return sorted(confirmed), sorted(inferred)
+
+
+def _collect_available_fields(configuration: TripConfiguration) -> set[TripFieldKey]:
+    available_fields: set[TripFieldKey] = set()
+
+    if configuration.from_location:
+        available_fields.add("from_location")
+    if configuration.to_location:
+        available_fields.add("to_location")
+    if configuration.start_date:
+        available_fields.add("start_date")
+    if configuration.end_date:
+        available_fields.add("end_date")
+    if configuration.budget_gbp is not None:
+        available_fields.add("budget_gbp")
+    if configuration.travelers.adults > 0:
+        available_fields.add("adults")
+    if configuration.travelers.children > 0:
+        available_fields.add("children")
+    if configuration.activity_styles:
+        available_fields.add("activity_styles")
+    if configuration.selected_modules != TripConfiguration().selected_modules:
+        available_fields.add("selected_modules")
+
+    return available_fields
+
+
+def _merge_open_questions(
+    *,
+    configuration: TripConfiguration,
+    llm_update: TripTurnUpdate,
+    missing_fields: list[str],
+) -> list[str]:
+    seen: set[str] = set()
+    merged_questions: list[str] = []
+
+    for question in [*llm_update.open_questions, *_build_default_open_questions(configuration, missing_fields)]:
+        cleaned = question.strip()
+        normalized = cleaned.lower()
+        if not cleaned or normalized in seen:
+            continue
+        seen.add(normalized)
+        merged_questions.append(cleaned)
+
+    return merged_questions[:2]
+
+
 def _derive_title(configuration: TripConfiguration) -> str:
     if configuration.to_location:
         return f"{configuration.to_location} trip"
@@ -431,19 +526,86 @@ def _derive_title(configuration: TripConfiguration) -> str:
 def _build_fallback_response(
     configuration: TripConfiguration,
     missing_fields: list[str],
+    open_questions: list[str],
+    inferred_fields: list[TripFieldKey],
 ) -> str:
     route_summary = f"{configuration.from_location or 'TBD'} to {configuration.to_location or 'TBD'}"
     if missing_fields:
+        trip_shape = _build_trip_shape_summary(configuration)
+        inferred_summary = _build_inferred_summary(inferred_fields)
+        follow_up = " ".join(question.rstrip("?") + "?" for question in open_questions[:2])
+
         return (
-            "I do not want to lock the wrong trip details from that message. "
+            f"{trip_shape} "
             f"Right now the draft still looks like {route_summary}. "
-            f"Please clarify these next: {', '.join(missing_fields)}."
+            f"{inferred_summary} "
+            f"{follow_up}".strip()
         )
 
     return (
         f"I kept the draft aligned around {route_summary}. "
-        "If you want, I can now turn that into a more concrete plan."
+        "If you want, I can now turn that into a more concrete day-by-day plan."
     )
+
+
+def _build_trip_shape_summary(configuration: TripConfiguration) -> str:
+    parts: list[str] = []
+
+    if configuration.to_location:
+        parts.append(f"a trip centered on {configuration.to_location}")
+    if configuration.activity_styles:
+        style_summary = ", ".join(configuration.activity_styles[:2])
+        parts.append(f"with a {style_summary} feel")
+
+    if not parts:
+        return "I do not want to lock the wrong trip details from that message."
+
+    return f"I can already start shaping this as {' '.join(parts)}."
+
+
+def _build_inferred_summary(inferred_fields: list[TripFieldKey]) -> str:
+    visible_fields = [_field_label(field) for field in inferred_fields[:2]]
+    if not visible_fields:
+        return "I want to keep anything uncertain soft instead of pretending it is confirmed."
+
+    if len(visible_fields) == 1:
+        return f"I am still treating {visible_fields[0]} as provisional so I do not over-commit too early."
+
+    return (
+        f"I am still treating {visible_fields[0]} and {visible_fields[1]} as provisional "
+        "so I do not over-commit too early."
+    )
+
+
+def _build_default_open_questions(
+    configuration: TripConfiguration,
+    missing_fields: list[str],
+) -> list[str]:
+    question_map: dict[str, str] = {
+        "from_location": "Where would you be flying or traveling from?",
+        "to_location": "Where do you want this trip to take place?",
+        "start_date": "What rough travel window are you thinking about?",
+        "end_date": (
+            "How long do you want to stay?"
+            if configuration.start_date
+            else "Roughly how many days or nights should I plan around?"
+        ),
+    }
+    return [question_map[field] for field in missing_fields if field in question_map]
+
+
+def _field_label(field: TripFieldKey) -> str:
+    return {
+        "from_location": "your departure point",
+        "to_location": "the destination",
+        "start_date": "the travel window",
+        "end_date": "the trip length",
+        "budget_gbp": "the budget",
+        "adults": "the adult traveler count",
+        "children": "the child traveler count",
+        "activity_styles": "the trip style",
+        "selected_modules": "the planning modules",
+    }[field]
 
 
 def _to_timeline_item(item: ProposedTimelineItem) -> TimelineItem:

@@ -21,6 +21,17 @@ ActivityStyle = Literal[
 PlanningModuleKey = Literal["flights", "weather", "activities", "hotels"]
 TimelineItemType = Literal["flight", "transfer", "hotel", "activity", "meal", "weather", "note"]
 TimelineItemStatus = Literal["draft", "confirmed"]
+TripFieldKey = Literal[
+    "from_location",
+    "to_location",
+    "start_date",
+    "end_date",
+    "budget_gbp",
+    "adults",
+    "children",
+    "activity_styles",
+    "selected_modules",
+]
 TripPlanningPhase = Literal[
     "collecting_requirements",
     "planning",
@@ -111,6 +122,9 @@ class TimelineItem(BaseModel):
 class TripDraftStatus(BaseModel):
     phase: TripPlanningPhase = "collecting_requirements"
     missing_fields: list[str] = Field(default_factory=list)
+    confirmed_fields: list[TripFieldKey] = Field(default_factory=list)
+    inferred_fields: list[TripFieldKey] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
     brochure_ready: bool = False
     last_updated_at: datetime | None = None
 

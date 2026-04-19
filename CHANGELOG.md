@@ -9,6 +9,80 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Added Planner Clarification Metadata And Softer Ambiguity Fallbacks
+
+Technical Summary:
+- Extended the trip-draft status contract with `confirmed_fields`, `inferred_fields`, and `open_questions` so the planner can persist which details are firm, which remain soft, and which follow-up questions still need answers.
+- Updated the LangGraph bootstrap node prompt and fallback reply builder so ambiguous turns now bias toward human-readable clarification questions instead of raw missing-field names, while still proposing a provisional trip direction when enough signal exists.
+- Added targeted backend verification coverage for the new clarification behavior and updated frontend mock/type contracts to match the richer trip-draft status shape.
+
+Plain-English Summary:
+- The planner now keeps better track of what it really knows versus what it is only guessing.
+- When a user is vague, Wandrix should sound more like a careful travel agent: it can start sketching the trip direction, keep uncertain details soft, and ask cleaner follow-up questions instead of dumping technical field names.
+
+Files / Areas Touched:
+- `backend/app/graph/nodes/bootstrap.py`
+- `backend/app/schemas/trip_draft.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `backend/tests/test_trip_draft_schema.py`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+
+## 2026-04-19 - Registered The Wandrix Automation In Codex's Global Automation Folder
+
+Technical Summary:
+- Copied the Wandrix automation config into `C:\\Users\\kvija\\.codex\\automations\\half-hourly-planner-improvements\\automation.toml`, matching the location already used by the working ADTPG automation.
+- This complements the repo-local automation file so the Codex app can discover the automation from its global automation registry as well.
+
+Plain-English Summary:
+- The automation is no longer only sitting inside the Wandrix repo.
+- I also registered it in the same Codex-wide automation folder that your other visible automation already uses, which gives the app a much better chance of showing it in the Automations tab.
+
+Files / Areas Touched:
+- `C:\\Users\\kvija\\.codex\\automations\\half-hourly-planner-improvements\\automation.toml`
+
+## 2026-04-19 - Added The Missing Codex Environment File For Wandrix
+
+Technical Summary:
+- Added `.codex/environments/environment.toml` so the Wandrix workspace now has the same Codex environment structure as the ADTPG project that already shows automations correctly in the app.
+- This should help the Codex app recognize Wandrix as a fully indexed local workspace instead of only seeing the automation file in isolation.
+
+Plain-English Summary:
+- I added the missing workspace metadata file that the other working project already had.
+- If the automation tab was ignoring Wandrix because the workspace did not look fully registered, this should improve that.
+
+Files / Areas Touched:
+- `.codex/environments/environment.toml`
+
+## 2026-04-19 - Aligned Wandrix Automation Metadata With Existing Codex Pattern
+
+Technical Summary:
+- Updated the Wandrix automation config to include `created_at` and `updated_at` metadata fields so its shape matches the existing Codex automation file already working in the ADTPG project.
+- This change is intended to improve automation discovery in the Codex app automation index without changing the automation behavior itself.
+
+Plain-English Summary:
+- I adjusted the Wandrix automation file to look more like the one that already shows up correctly in your other project.
+- If the Codex app was skipping it because the file looked incomplete, this should make it easier for the app to detect.
+
+Files / Areas Touched:
+- `.codex/automations/half-hourly-planner-improvements/automation.toml`
+
+## 2026-04-19 - Added The Wandrix Half-Hourly Automation Draft
+
+Technical Summary:
+- Added a built-in Codex automation config under `.codex/automations/half-hourly-planner-improvements/automation.toml`.
+- Set the automation to run every 30 minutes using a cron-style RRULE and included an explicit self-skip rule if another run is already in progress.
+- Encoded the key Wandrix constraints into the prompt: chat-first planning, no deterministic parsing, board updates from chat-driven draft state, Chrome DevTools MCP live testing, random scenario coverage, performance checks, changelog updates, and push-on-meaningful-change to `automation-runs`.
+- Pointed the automation toward the planner roadmap and `/board-preview` as the target board design direction.
+
+Plain-English Summary:
+- We now have a real Wandrix automation draft instead of just talking about it.
+- The automation is set up to wake up every 30 minutes, avoid overlapping itself, work on the planner in small safe steps, test the app live, and push meaningful progress to the `automation-runs` branch.
+- It is also explicitly told not to drift back into deterministic parsing and to keep improving the conversational travel-agent experience first.
+
+Files / Areas Touched:
+- `.codex/automations/half-hourly-planner-improvements/automation.toml`
+
 ## 2026-04-19 - Added Minimal Itinerary Scrollbars And Travel-Type Icons
 
 Technical Summary:

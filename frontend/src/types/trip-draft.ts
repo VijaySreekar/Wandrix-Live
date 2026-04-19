@@ -13,6 +13,16 @@ export type ActivityStyle =
   | "outdoors";
 
 export type PlanningModuleKey = "flights" | "weather" | "activities" | "hotels";
+export type TripFieldKey =
+  | "from_location"
+  | "to_location"
+  | "start_date"
+  | "end_date"
+  | "budget_gbp"
+  | "adults"
+  | "children"
+  | "activity_styles"
+  | "selected_modules";
 
 export type TimelineItemType =
   | "flight"
@@ -113,6 +123,9 @@ export type TimelineItem = {
 export type TripDraftStatus = {
   phase: TripPlanningPhase;
   missing_fields: string[];
+  confirmed_fields: TripFieldKey[];
+  inferred_fields: TripFieldKey[];
+  open_questions: string[];
   brochure_ready: boolean;
   last_updated_at: string | null;
 };

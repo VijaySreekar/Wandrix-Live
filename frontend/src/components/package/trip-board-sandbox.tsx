@@ -362,6 +362,9 @@ function buildSandboxWorkspace(
           status: {
             phase: "planning",
             missing_fields: ["hotels"],
+            confirmed_fields: ["from_location", "to_location", "start_date", "end_date"],
+            inferred_fields: ["activity_styles"],
+            open_questions: ["Do you want me to keep the hotel area family-friendly and walkable?"],
             brochure_ready: false,
             last_updated_at: "2026-04-19T09:00:00Z",
           },
@@ -411,6 +414,12 @@ function buildSandboxWorkspace(
           status: {
             phase: "collecting_requirements",
             missing_fields: ["from_location", "start_date", "end_date"],
+            confirmed_fields: ["to_location", "budget_gbp", "activity_styles"],
+            inferred_fields: [],
+            open_questions: [
+              "Where would you be traveling from?",
+              "What rough dates or month should I shape this around?",
+            ],
             brochure_ready: false,
             last_updated_at: "2026-04-19T09:00:00Z",
           },
@@ -668,6 +677,9 @@ function buildSandboxWorkspace(
           status: {
             phase: "planning",
             missing_fields: [],
+            confirmed_fields: ["from_location", "to_location", "start_date", "end_date", "activity_styles"],
+            inferred_fields: ["selected_modules"],
+            open_questions: [],
             brochure_ready: true,
             last_updated_at: "2026-04-19T09:00:00Z",
           },
