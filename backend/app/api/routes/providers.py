@@ -10,7 +10,7 @@ router = APIRouter(prefix="/providers", tags=["providers"])
 
 
 @router.get("/status", response_model=ProviderStatusResponse)
-async def get_provider_status_route(
+def get_provider_status_route(
     current_user: AuthenticatedUser = Depends(get_current_user),
 ) -> ProviderStatusResponse:
     return get_provider_statuses()

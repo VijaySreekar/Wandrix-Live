@@ -1,5 +1,16 @@
 # Decision Log
 
+## 2026-04-19 - Structured Conversation Memory Inside The Trip Draft
+
+Technical Summary:
+- The chat planner now treats raw LangGraph checkpoint messages and persisted structured conversation memory as separate responsibilities.
+- Raw messages stay in LangGraph checkpoint state, while the trip draft owns planner state like open questions, decision cards, field memory, mentioned options, rejected options, and turn summaries.
+- The planner lifecycle is explicitly defined as `opening`, `collecting_requirements`, `shaping_trip`, `enriching_modules`, and `reviewing`.
+
+Plain-English Summary:
+- Wandrix now has a clearer memory model for planning trips.
+- The app keeps the actual conversation history in the AI runtime, but it stores the planner’s structured understanding inside the saved trip draft so the board and brochure stay consistent.
+
 ## 2026-04-18 - FastAPI And Next.js Split
 
 Technical Summary:
@@ -40,4 +51,3 @@ Technical Summary:
 
 Plain-English Summary:
 - We will first make the final trip plan look beautiful as a web page, and only then turn it into a PDF later.
-

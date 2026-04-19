@@ -1,3 +1,8 @@
+import type {
+  ChatPlannerPhase,
+  CheckpointConversationMessage,
+} from "@/types/trip-conversation";
+
 export type PlannerProfileContext = {
   display_name?: string | null;
   first_name?: string | null;
@@ -19,10 +24,12 @@ export type TripConversationMessageRequest = {
 export type TripConversationMessageResponse = {
   trip_id: string;
   thread_id: string;
-  draft_phase:
-    | "collecting_requirements"
-    | "planning"
-    | "ready_for_review"
-    | "finalized";
+  draft_phase: ChatPlannerPhase;
   message: string;
+};
+
+export type CheckpointConversationHistoryResponse = {
+  trip_id: string;
+  thread_id: string;
+  messages: CheckpointConversationMessage[];
 };

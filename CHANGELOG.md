@@ -9,6 +9,264 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Saved A Recoverable Snapshot Of The Current Chat UI And Ignored Local Workspace Noise
+
+Technical Summary:
+- Added a dated UI snapshot folder under `docs/ui-snapshots/chat-page-2026-04-19/` to preserve the exact `/chat` implementation state for future reference.
+- Recorded the purpose and preserved-file list in a snapshot README so the saved chat layout can be traced and recovered later.
+- Updated `.gitignore` to ignore local temp logs and repo-local Codex metadata so commit history stays focused on product code rather than machine-specific noise.
+
+Plain-English Summary:
+- I saved the current chat-page version so we can always come back to this exact layout later.
+- I also stopped local temp files and Codex workspace metadata from cluttering the repo.
+
+Files / Areas Touched:
+- `.gitignore`
+- `docs/ui-snapshots/chat-page-2026-04-19/README.md`
+- `docs/ui-snapshots/chat-page-2026-04-19/files/`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Restored The Rich Live Board Layout And Split Board Cards Into A Shared File
+
+Technical Summary:
+- Reverted the temporary summary-first board experiment and restored the richer right-side board layout with the itinerary flow, flight card, weather card, hotel panel, and highlight panel.
+- Split the rich board cards into a dedicated shared frontend file so the main board component stays smaller and the premium travel modules can be reused or swapped later without bloating the core board file.
+- Kept the recent chat-side improvements in place while removing the accidental board regression the user flagged.
+
+Plain-English Summary:
+- The board is back to the fuller version with the travel cards you were using before.
+- I also pulled those cards into their own file so the main board is cleaner and easier to maintain.
+- The chat improvements stay, but the broken board experiment is gone.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+
+## 2026-04-19 - Made Chat More Conversational And Added A Visible Thinking State
+
+Technical Summary:
+- Updated the assistant chat shell to show a visible thinking state in the composer while a planner turn is running.
+- Adjusted the welcome and fallback copy in the chat shell so Wandrix feels more conversational and less like a thin transport wrapper.
+- Tightened the planner prompt and response-composition layer so fallback responses are warmer and more planner-like.
+
+Plain-English Summary:
+- Wandrix now feels more alive while it is thinking, because the chat shows a small loading state instead of leaving the input area static.
+- The assistant's tone is a little more natural and chatty.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+
+## 2026-04-19 - Made Chat More Conversational And Turned The Board Into A True Pre-Confirmation Canvas
+
+Technical Summary:
+- Updated the assistant chat shell to show a visible thinking state in the composer while a planner turn is running.
+- Adjusted the welcome and fallback copy in the chat shell so Wandrix feels more conversational and less like a thin transport wrapper.
+- Tightened the planner prompt and response-composition layer so non-LLM fallback responses are warmer and a bit more conversational.
+- Changed the right-side board behavior so it no longer shows the hero-and-itinerary layout before the trip is brochure-ready.
+- Added a dedicated pre-confirmation board state that uses the whole right pane for planning context, open questions, active goals, module status, and decision options instead of partial itinerary content.
+
+Plain-English Summary:
+- Wandrix now feels more alive while it is thinking, because the chat shows a small loading state instead of leaving the input area static.
+- The assistant’s tone is a little more natural and chatty.
+- The right side now behaves the way you described: before the trip is really confirmed, it works like a planning canvas for choices and missing information instead of pretending the itinerary is already built.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+
+## 2026-04-19 - Implemented Structured Chat Planner Memory And Lifecycle
+
+Technical Summary:
+- Added a new chat-planner source-of-truth document at `docs/chat-planner-spec.md` and linked it from the main repo docs.
+- Refactored the backend planner away from the oversized bootstrap node into smaller modules for turn understanding, draft merge, conversation-state merge, provider enrichment, response composition, and runner orchestration.
+- Added a persisted `conversation` object to `trip_drafts`, along with typed backend/frontend contracts for planner phases, open questions, decision cards, field memory, option memory, decision history, and turn summaries.
+- Updated the conversation route flow so LangGraph state now keeps raw checkpointed messages while the saved trip draft keeps structured planner memory.
+- Switched the frontend chat runtime to restore conversation history from the backend checkpoint route, and updated the right-side board to stay summary-first by reading conversation questions, goals, and decision cards from persisted state.
+- Added and successfully applied an Alembic migration for the new `trip_drafts.conversation` column, using a safer migration pattern after clearing a stale database lock.
+
+Plain-English Summary:
+- Wandrix now has a real planner memory model instead of treating the chat like a loose stream of messages.
+- The app can separately remember what the user confirmed, what is still uncertain, what choices are open, and what the next planning step should be.
+- The chat, board, and saved trip state are now aligned around the same planner structure, and the new spec is written down so we can keep building consistently.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/`
+- `backend/app/graph/nodes/bootstrap.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_draft.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/services/conversation_service.py`
+- `backend/app/services/trip_service.py`
+- `backend/app/services/providers/*.py`
+- `backend/app/models/trip_draft.py`
+- `backend/app/repositories/trip_draft_repository.py`
+- `backend/alembic/versions/1a2b3c4d5e6f_add_conversation_to_trip_drafts.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/api/conversation.ts`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/components/trips/trip-library.tsx`
+- `README.md`
+- `docs/architecture.md`
+- `docs/decision-log.md`
+- `docs/future-improvements.md`
+- `docs/chat-planner-spec.md`
+
+## 2026-04-19 - Added File Size Discipline To Project Rules
+
+Technical Summary:
+- Updated the repo-wide, backend, and frontend coding rules to explicitly discourage oversized files and require splitting modules by responsibility once they start growing too large.
+- This makes the existing “prefer small modules” guidance more concrete and applies it consistently across graph nodes, services, route files, pages, and feature components.
+
+Plain-English Summary:
+- Wandrix now has an explicit rule against stuffing too much logic into one file.
+- As the project grows, we should split large files earlier so the code stays easier to understand and maintain.
+
+Files / Areas Touched:
+- `AGENTS.md`
+- `docs/backend-coding-rules.md`
+- `docs/frontend-coding-rules.md`
+
+## 2026-04-19 - Forced Backend Config To Prefer Repo Env Values
+
+Technical Summary:
+- Updated the backend dotenv loader to use `override=True` so values from the repository root `.env` replace already-set machine or session environment variables during app startup.
+- This makes provider configuration deterministic inside Wandrix, especially for `CODEX_LB_API_KEY`, where a stray local shell key could otherwise silently override the project’s intended value.
+
+Plain-English Summary:
+- Wandrix will now use the API keys and settings from this project’s `.env` file instead of accidentally picking up a different key from your computer environment.
+- That makes debugging much clearer because the app should now use exactly the credentials you expect.
+
+Files / Areas Touched:
+- `backend/app/core/config.py`
+
+## 2026-04-19 - Extended Chat API Timeouts For Real Planner Turns
+
+Technical Summary:
+- Added per-request timeout support to the shared frontend API client instead of forcing every request through the old short timeout budget.
+- Raised the general frontend API timeout to `15s` and gave the trip conversation route a dedicated `45s` timeout so planner turns can survive LangGraph, LLM, and provider latency without the browser aborting the request.
+- This keeps a timeout safety net in place for wedged backends while matching the actual runtime cost of a conversation-first planner turn.
+
+Plain-English Summary:
+- The chat should stop failing just because the planner takes more than a few seconds to think.
+- Wandrix still won’t wait forever if the backend truly hangs, but it now gives real trip-planning turns enough time to finish.
+
+Files / Areas Touched:
+- `frontend/src/lib/api/client.ts`
+- `frontend/src/lib/api/conversation.ts`
+
+## 2026-04-19 - Removed Stale Local API Fallback And Paused Rich Board Rendering
+
+Technical Summary:
+- Simplified the shared frontend API client so it always uses the configured `NEXT_PUBLIC_API_BASE_URL` instead of retrying local calls against `http://127.0.0.1:8001` and caching the last successful local backend in session storage.
+- This removes the dev-only port failover path that was causing real `/chat` conversation requests to stick to a dead `8001` backend and surface `failed to fetch` before FastAPI or the LLM were ever reached.
+- Switched the right-side trip board into explicit placeholder mode so it no longer renders generated itinerary cards, weather cards, hotel picks, or highlight content while the chat intelligence is being stabilized.
+
+Plain-English Summary:
+- Wandrix will stop trying to talk to the wrong local backend port, which should fix the `failed to fetch` crash you were seeing from the starter prompt.
+- The trip board now stays honest and minimal for now instead of pretending it already has finalized trip details.
+
+Files / Areas Touched:
+- `frontend/src/lib/api/client.ts`
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Added Local API Failover For Wedged Dev Backends
+
+Technical Summary:
+- Updated the shared frontend API client to put a timeout around browser fetches, retry local requests against `http://127.0.0.1:8001` when the default `http://127.0.0.1:8000` dev backend is hung or refusing connections, and cache the last successful local API base in session storage so later requests do not keep hitting the dead port first.
+- This keeps `/chat` and other product surfaces from hanging indefinitely in the browser when a local Windows `uvicorn --reload` process wedges `8000`, while still preserving the configured backend base URL for normal environments.
+- Verified the fallback path with the live `/chat` session by observing successful trip list, trip hydrate, and draft hydrate calls on `8001` after failed `8000` attempts.
+
+Plain-English Summary:
+- When the normal local backend port gets stuck, Wandrix can now fall back to a second local backend port instead of leaving the app frozen forever.
+- That means the chat page can still load saved trips and the live board even if the first dev server is misbehaving.
+
+Files / Areas Touched:
+- `frontend/src/lib/api/client.ts`
+
+## 2026-04-19 - Moved Blocking Planner Routes Off The Async Event Loop
+
+Technical Summary:
+- Changed the browser-session, trip, conversation, provider-status, and package-generation endpoints from `async def` to synchronous FastAPI route handlers so Starlette runs their blocking SQLAlchemy, planner graph, and provider work in the threadpool instead of on the main event loop.
+- Kept lightweight auth and system endpoints async so cheap checks like `/health` and `/api/v1/ping` can stay responsive even while a trip bootstrap or planner turn is taking time in the background.
+- This reduces the risk that a single slow trip workspace request will freeze the whole backend process and leave the frontend stuck waiting on pending preflight or trip bootstrap calls.
+
+Plain-English Summary:
+- Wandrix should be much less likely to “lock up” when chat is creating trips, loading drafts, or running the planner.
+- Slow backend work can still be slow, but it should not take the whole API down with it, so pages and health checks have a better chance of staying responsive.
+
+Files / Areas Touched:
+- `backend/app/api/routes/browser_sessions.py`
+- `backend/app/api/routes/trips.py`
+- `backend/app/api/routes/conversation.py`
+- `backend/app/api/routes/providers.py`
+- `backend/app/api/routes/packages.py`
+
+## 2026-04-19 - Recovered Chat Bootstrap When Saved Trips Misbehave
+
+Technical Summary:
+- Updated the `/chat` workspace bootstrap so the recent-trip sidebar is populated as soon as the saved-trip list loads, instead of waiting for the active workspace hydrate to succeed first.
+- Made auto-selection of saved trips more resilient by trying the remembered or recent sessions in order and skipping broken auto-selected workspaces before falling back to a fresh trip when needed.
+- Synced the active workspace back into the recent-trip list immediately after bootstrap and draft updates so newly created or repaired trips appear in the sidebar without waiting for a later refresh.
+
+Plain-English Summary:
+- The chat page should no longer feel completely blocked just because one saved trip has a bad or incomplete workspace behind it.
+- Your recent sessions can keep showing up, and Wandrix has a better chance of opening a working trip or starting a fresh one instead of leaving the chat stranded in a shell state.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+
+## 2026-04-19 - Made Planner Merges More Careful Around Confirmed Facts
+
+Technical Summary:
+- Updated the graph merge logic so inferred LLM updates only fill open gaps or reaffirm existing values, instead of overwriting already-established trip facts.
+- Kept confirmed LLM updates able to replace earlier values when the user clearly changes direction.
+- Tightened the extraction prompt so traveler counts are no longer inferred from social phrasing alone, and profile context is treated strictly as soft guidance rather than override material.
+- Added planner tests covering inferred-vs-confirmed destination updates, although `pytest` could not be executed locally because it is not installed in the backend virtual environment.
+
+Plain-English Summary:
+- Wandrix should now be more careful when the user is still exploring options.
+- Soft guesses can help fill blanks, but they should not bulldoze over details the user already made clear.
+- If the user clearly changes something, the planner can still update it.
+
+Files / Areas Touched:
+- `backend/app/graph/nodes/bootstrap.py`
+- `backend/tests/test_planner_bootstrap.py`
+
+## 2026-04-19 - Persisted Flexible Trip Timing Across Chat, Board, And Brochure
+
+Technical Summary:
+- Extended the shared trip-draft contract with `travel_window` and `trip_length` so the planner can persist rough timing like "late September" or "4 or 5 nights" without converting it into fake exact dates.
+- Updated the LangGraph bootstrap turn schema and merge logic so flexible timing counts as valid structured timing signal, clears stale exact dates when the user switches back to rough timing, and stops marking the timing fields as missing when that softer signal is already present.
+- Wired the saved draft timing through the trip list response and the main timing read surfaces in `/chat`, the trip library, module reference views, the live board, the brochure, and the board sandbox so the UI reflects the persisted draft consistently.
+
+Plain-English Summary:
+- Wandrix can now keep rough date clues like "late April" and "3 or 4 nights" in the saved trip instead of dropping them or pretending they are exact travel dates.
+- That means the chat, right-hand board, brochure, and saved-trip summaries should all stay closer to what the traveler actually said, especially early in planning when the timing is still flexible.
+
+Files / Areas Touched:
+- `backend/app/graph/nodes/bootstrap.py`
+- `backend/app/schemas/trip.py`
+- `backend/app/schemas/trip_draft.py`
+- `backend/app/services/trip_service.py`
+- `frontend/src/components/brochure/trip-brochure.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/modules/trip-module-workspace.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/components/trips/trip-library.tsx`
+- `frontend/src/lib/trip-timing.ts`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/trip.ts`
+
 ## 2026-04-19 - Persisted Planner Decision Cards On The Live Board
 
 Technical Summary:

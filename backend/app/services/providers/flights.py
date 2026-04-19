@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from app.integrations.amadeus.client import create_amadeus_client
-from app.schemas.trip_draft import FlightDetail, TripConfiguration
+from app.schemas.trip_planning import FlightDetail, TripConfiguration
 
 
 def enrich_flights_from_amadeus(configuration: TripConfiguration) -> list[FlightDetail]:
@@ -14,8 +14,8 @@ def enrich_flights_from_amadeus(configuration: TripConfiguration) -> list[Flight
     if not origin_code or not destination_code:
         return []
 
-    adults = max(configuration.travelers.adults, 1)
-    children = max(configuration.travelers.children, 0)
+    adults = max(configuration.travelers.adults or 1, 1)
+    children = max(configuration.travelers.children or 0, 0)
 
     with create_amadeus_client() as client:
         params = {

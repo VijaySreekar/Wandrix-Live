@@ -1,7 +1,7 @@
 from app.core.config import get_settings
 from app.integrations.mapbox.client import create_mapbox_client
 from app.integrations.open_meteo.client import create_open_meteo_client
-from app.schemas.trip_draft import TripConfiguration, WeatherDetail
+from app.schemas.trip_planning import TripConfiguration, WeatherDetail
 
 
 WMO_WEATHER_LABELS = {

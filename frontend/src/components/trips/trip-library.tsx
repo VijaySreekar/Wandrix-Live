@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { listTrips } from "@/lib/api/trips";
+import { formatTripWindowDisplay } from "@/lib/trip-timing";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TripListItemResponse } from "@/types/trip";
 
@@ -77,7 +78,7 @@ export function TripLibrary() {
         }
 
         if (filter === "review") {
-          return (trip.phase ?? trip.trip_status) === "ready_for_review";
+          return (trip.phase ?? trip.trip_status) === "reviewing";
         }
 
         if (filter === "brochure") {
@@ -262,11 +263,15 @@ function formatRoute(trip: TripListItemResponse) {
 }
 
 function formatTripWindow(trip: TripListItemResponse) {
-  if (trip.start_date || trip.end_date) {
-    return `${trip.start_date ?? "TBD"} through ${trip.end_date ?? "TBD"}`;
-  }
-
-  return "Travel dates still open";
+  return formatTripWindowDisplay(
+    {
+      start_date: trip.start_date,
+      end_date: trip.end_date,
+      travel_window: trip.travel_window,
+      trip_length: trip.trip_length,
+    },
+    { emptyLabel: "Travel dates still open" },
+  );
 }
 
 function formatDate(value: string) {

@@ -141,6 +141,9 @@ If the project moves away from a documented pattern, record that decision.
 5. Do not reintroduce heuristic parsing into the planner.
 If planner intelligence needs improvement, strengthen the structured LLM flow and clarification behavior instead of adding brittle parsing rules.
 
+6. Do not let files grow without bound.
+If a file starts becoming too large, split it by responsibility instead of continuing to append more logic to the same module.
+
 ## Testing and Verification
 
 1. Backend changes should at minimum pass import/compile checks.

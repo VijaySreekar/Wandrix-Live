@@ -1,3 +1,5 @@
+import type { ChatPlannerPhase } from "@/types/trip-conversation";
+
 export type TripCreateRequest = {
   browser_session_id: string;
   title?: string;
@@ -15,12 +17,14 @@ export type TripCreateResponse = {
 
 export type TripListItemResponse = TripCreateResponse & {
   updated_at: string;
-  phase: string | null;
+  phase: ChatPlannerPhase | null;
   brochure_ready: boolean;
   from_location: string | null;
   to_location: string | null;
   start_date: string | null;
   end_date: string | null;
+  travel_window: string | null;
+  trip_length: string | null;
   selected_modules: string[];
   timeline_item_count: number;
 };

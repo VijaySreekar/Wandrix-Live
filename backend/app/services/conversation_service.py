@@ -9,6 +9,7 @@ from app.repositories.trip_draft_repository import (
 )
 from app.repositories.trip_repository import get_trip_for_user
 from app.schemas.conversation import (
+    CheckpointConversationHistoryResponse,
     TripConversationMessageRequest,
     TripConversationMessageResponse,
 )
@@ -54,6 +55,7 @@ def send_trip_message(
                 "timeline": draft.timeline,
                 "module_outputs": draft.module_outputs,
                 "status": draft.status,
+                "conversation": draft.conversation,
             },
             "metadata": {"user_id": user_id},
         },
@@ -79,10 +81,11 @@ def send_trip_message(
         timeline=updated_draft.get("timeline") or draft.timeline,
         module_outputs=updated_draft.get("module_outputs") or draft.module_outputs,
         status=updated_draft.get("status") or draft.status,
+        conversation=updated_draft.get("conversation") or draft.conversation,
     )
     phase = cast(
         TripPlanningPhase,
-        persisted_draft.status.get("phase") or "collecting_requirements",
+        persisted_draft.status.get("phase") or "opening",
     )
     assistant_response = cast(
         str,
@@ -95,4 +98,38 @@ def send_trip_message(
         thread_id=trip.thread_id,
         draft_phase=phase,
         message=assistant_response,
+    )
+
+
+def get_trip_conversation_history(
+    graph,
+    db: Session,
+    *,
+    trip_id: str,
+    user_id: str,
+) -> CheckpointConversationHistoryResponse:
+    trip = get_trip_for_user(db, trip_id, user_id)
+
+    if trip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip was not found.",
+        )
+
+    snapshot = graph.get_state(
+        {
+            "configurable": {
+                "thread_id": trip.thread_id,
+            }
+        }
+    )
+    values = getattr(snapshot, "values", {}) or {}
+    raw_messages = values.get("raw_messages", [])
+
+    return CheckpointConversationHistoryResponse.model_validate(
+        {
+            "trip_id": trip.id,
+            "thread_id": trip.thread_id,
+            "messages": raw_messages,
+        }
     )

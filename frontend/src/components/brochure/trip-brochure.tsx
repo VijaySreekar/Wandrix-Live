@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { getTrip, getTripDraft } from "@/lib/api/trips";
+import { formatTripWindowDisplay } from "@/lib/trip-timing";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TimelineItem, TripDraft } from "@/types/trip-draft";
 import type { TripCreateResponse } from "@/types/trip";
@@ -103,7 +104,18 @@ export function TripBrochure({ tripId }: TripBrochureProps) {
             </h1>
             <p className="mt-3 max-w-3xl text-base leading-8 text-foreground/72">
               {formatRoute(configuration.from_location, configuration.to_location)} |{" "}
-              {formatDateWindow(configuration.start_date, configuration.end_date)}
+              {formatTripWindowDisplay(
+                {
+                  start_date: configuration.start_date,
+                  end_date: configuration.end_date,
+                  travel_window: configuration.travel_window,
+                  trip_length: configuration.trip_length,
+                },
+                {
+                  emptyLabel: "Travel dates still open",
+                  includeYear: true,
+                },
+              )}
             </p>
           </div>
 
@@ -449,16 +461,6 @@ function formatRoute(fromLocation: string | null, toLocation: string | null) {
   }
 
   return "Route still being shaped";
-}
-
-function formatDateWindow(startDate: string | null, endDate: string | null) {
-  if (startDate || endDate) {
-    const start = formatDateTime(startDate, { includeTime: false });
-    const end = formatDateTime(endDate, { includeTime: false });
-    return `${start} through ${end}`;
-  }
-
-  return "Travel dates still open";
 }
 
 function formatTimelineTiming(item: TimelineItem) {

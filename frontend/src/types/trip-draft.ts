@@ -1,4 +1,8 @@
-import type { TravelerDetails } from "@/types/package";
+import type {
+  ChatPlannerPhase,
+  TripConversationState,
+  TripFieldKey,
+} from "@/types/trip-conversation";
 
 
 export type ActivityStyle =
@@ -13,17 +17,6 @@ export type ActivityStyle =
   | "outdoors";
 
 export type PlanningModuleKey = "flights" | "weather" | "activities" | "hotels";
-export type TripFieldKey =
-  | "from_location"
-  | "to_location"
-  | "start_date"
-  | "end_date"
-  | "budget_gbp"
-  | "adults"
-  | "children"
-  | "activity_styles"
-  | "selected_modules";
-
 export type TimelineItemType =
   | "flight"
   | "transfer"
@@ -35,11 +28,12 @@ export type TimelineItemType =
 
 export type TimelineItemStatus = "draft" | "confirmed";
 
-export type TripPlanningPhase =
-  | "collecting_requirements"
-  | "planning"
-  | "ready_for_review"
-  | "finalized";
+export type TripPlanningPhase = ChatPlannerPhase;
+
+export type PlannerTravelerDetails = {
+  adults: number | null;
+  children: number | null;
+};
 
 export type TripModuleSelection = {
   flights: boolean;
@@ -53,7 +47,9 @@ export type TripConfiguration = {
   to_location: string | null;
   start_date: string | null;
   end_date: string | null;
-  travelers: TravelerDetails;
+  travel_window: string | null;
+  trip_length: string | null;
+  travelers: PlannerTravelerDetails;
   budget_gbp: number | null;
   selected_modules: TripModuleSelection;
   activity_styles: ActivityStyle[];
@@ -120,19 +116,11 @@ export type TimelineItem = {
   status: TimelineItemStatus;
 };
 
-export type PlannerDecisionCard = {
-  title: string;
-  description: string;
-  options: string[];
-};
-
 export type TripDraftStatus = {
   phase: TripPlanningPhase;
   missing_fields: string[];
   confirmed_fields: TripFieldKey[];
   inferred_fields: TripFieldKey[];
-  open_questions: string[];
-  decision_cards: PlannerDecisionCard[];
   brochure_ready: boolean;
   last_updated_at: string | null;
 };
@@ -145,6 +133,7 @@ export type TripDraft = {
   timeline: TimelineItem[];
   module_outputs: TripModuleOutputs;
   status: TripDraftStatus;
+  conversation: TripConversationState;
 };
 
 export type TripDraftUpsertRequest = Omit<TripDraft, "trip_id" | "thread_id">;

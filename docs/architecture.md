@@ -73,7 +73,21 @@ The trip draft is the canonical source of truth for:
 - timeline items
 - selected modules
 - trip configuration
+- conversation memory and planner questions
 - brochure readiness
+
+### Conversation Memory
+
+Raw chat messages are owned by LangGraph checkpoint state.
+
+Structured conversation memory is owned by the persisted trip draft and should capture:
+- open questions
+- decision cards
+- confirmed vs inferred facts
+- mentioned and rejected options
+- recent turn summaries
+
+This split keeps the agent resumable without turning raw chat text into the product source of truth.
 
 ### Brochure
 
@@ -106,4 +120,3 @@ The product should converge toward:
 - final route/view: brochure
 
 The UI should feel like a premium travel-planning experience, not a generic dashboard.
-

@@ -1,7 +1,7 @@
 from app.core.config import get_settings
 from app.integrations.geoapify.client import create_geoapify_client
 from app.integrations.mapbox.client import create_mapbox_client
-from app.schemas.trip_draft import ActivityDetail, TripConfiguration
+from app.schemas.trip_planning import ActivityDetail, TripConfiguration
 
 
 STYLE_CATEGORY_MAP = {

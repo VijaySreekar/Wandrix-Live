@@ -45,13 +45,16 @@ Avoid generic dashboard filler and keep each screen tied to a clear user task.
 2. Prefer composition over giant components.
 Break pages into sections like form, results, itinerary cards, pricing panels, and recommendation lists.
 
-3. Keep forms predictable.
+3. Do not let frontend files become oversized.
+If a page or component keeps growing, split it into subcomponents, hooks, helpers, or typed view models before adding more UI logic.
+
+4. Keep forms predictable.
 Trip-input forms should normalize values before submission and surface useful validation feedback.
 
-4. Maintain accessibility.
+5. Maintain accessibility.
 Use semantic elements, labels, focus states, readable contrast, and keyboard-friendly interactions.
 
-5. Reuse visual primitives.
+6. Reuse visual primitives.
 If the same card, badge, or panel pattern appears twice, consider moving it into `components/ui/`.
 
 ## Data and State Rules

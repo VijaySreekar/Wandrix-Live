@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { getProviderStatuses } from "@/lib/api/providers";
 import { getTripDraft, listTrips } from "@/lib/api/trips";
+import { formatTripWindowDisplay } from "@/lib/trip-timing";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type {
   ActivityDetail,
@@ -534,11 +535,15 @@ function formatRoute(trip: TripListItemResponse) {
 }
 
 function formatDateWindow(trip: TripListItemResponse) {
-  if (trip.start_date || trip.end_date) {
-    return `${trip.start_date ?? "TBD"} through ${trip.end_date ?? "TBD"}`;
-  }
-
-  return "Travel dates still open";
+  return formatTripWindowDisplay(
+    {
+      start_date: trip.start_date,
+      end_date: trip.end_date,
+      travel_window: trip.travel_window,
+      trip_length: trip.trip_length,
+    },
+    { emptyLabel: "Travel dates still open" },
+  );
 }
 
 function formatPhase(value: string) {

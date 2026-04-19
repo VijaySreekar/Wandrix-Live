@@ -1,0 +1,314 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --border: rgba(15, 23, 42, 0.12);
+  --muted-foreground: #6b7280;
+  --shell: rgba(255, 255, 255, 0.84);
+  --shell-border: rgba(15, 23, 42, 0.08);
+  --panel: rgba(255, 255, 255, 0.76);
+  --panel-border: rgba(15, 23, 42, 0.08);
+  --panel-strong: #ffffff;
+  --muted: #6b7280;
+  --accent: #1d4ed8;
+  --accent2: #f4b400;
+  --accent-foreground: #ffffff;
+  --accent-strong: #1e40af;
+  --accent-soft: rgba(29, 78, 216, 0.1);
+  --brand-ocean: #1d4ed8;
+  --brand-sun: #f4b400;
+  --glass-panel: rgba(255, 255, 255, 0.8);
+  --glass-panel-strong: rgba(255, 255, 255, 0.9);
+  --glass-border: rgba(15, 23, 42, 0.08);
+  --glass-shadow: 0 24px 80px rgba(15, 23, 42, 0.08);
+  --sidebar-shell-bg: #f3f4ee;
+  --sidebar-shell-border: rgba(15, 23, 42, 0.08);
+  --sidebar-surface: #fbfbf8;
+  --sidebar-surface-strong: #ffffff;
+  --sidebar-hover: #ffffff;
+  --sidebar-text: #111827;
+  --sidebar-muted-text: #5b6472;
+  --sidebar-active-bg: #ffffff;
+  --sidebar-icon-active-bg: rgba(29, 78, 216, 0.1);
+  --chat-size-body: 1.0625rem;
+  --chat-size-meta: 0.975rem;
+  --chat-line-body: 1.7;
+  --chat-rail-border: rgba(15, 23, 42, 0.08);
+  --chat-rail-border-strong: rgba(15, 23, 42, 0.14);
+  --chat-rail-surface: #fbfbf8;
+  --chat-rail-surface-strong: #ffffff;
+  --chat-rail-control-bg: #f4f5f1;
+  --chat-pane-bg: rgba(250, 250, 247, 0.96);
+  --chat-shadow-soft: 0 10px 24px -20px rgba(15, 23, 42, 0.2);
+  --chat-shadow-card: 0 8px 18px -16px rgba(15, 23, 42, 0.18);
+  --nav-surface: color-mix(in srgb, var(--background) 94%, var(--accent) 6%);
+  --nav-surface-strong: color-mix(
+    in srgb,
+    var(--background) 91%,
+    var(--accent) 9%
+  );
+  --nav-height: 4.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-border: var(--border);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-shell: var(--shell);
+  --color-shell-border: var(--shell-border);
+  --color-panel: var(--panel);
+  --color-panel-border: var(--panel-border);
+  --color-panel-strong: var(--panel-strong);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent2: var(--accent2);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-brand-ocean: var(--brand-ocean);
+  --color-brand-sun: var(--brand-sun);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-geist-mono);
+}
+
+.dark {
+  --background: #171717;
+  --foreground: #fafafa;
+  --border: rgba(255, 255, 255, 0.1);
+  --muted-foreground: #a1a1aa;
+  --shell: rgba(24, 24, 27, 0.9);
+  --shell-border: rgba(255, 255, 255, 0.1);
+  --panel: rgba(24, 24, 27, 0.78);
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --panel-strong: rgba(39, 39, 42, 0.95);
+  --muted: #a1a1aa;
+  --accent: #1d4ed8;
+  --accent2: #f4b400;
+  --accent-foreground: #ffffff;
+  --accent-strong: #60a5fa;
+  --accent-soft: rgba(29, 78, 216, 0.18);
+  --brand-ocean: #1d4ed8;
+  --brand-sun: #f4b400;
+  --glass-panel: rgba(24, 24, 27, 0.8);
+  --glass-panel-strong: rgba(24, 24, 27, 0.9);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+  --sidebar-shell-bg: #080808;
+  --sidebar-shell-border: rgba(255, 255, 255, 0.08);
+  --sidebar-surface: #111111;
+  --sidebar-surface-strong: #151515;
+  --sidebar-hover: #171717;
+  --sidebar-text: #f4f4f5;
+  --sidebar-muted-text: #a1a1aa;
+  --sidebar-active-bg: #171717;
+  --sidebar-icon-active-bg: rgba(29, 78, 216, 0.16);
+  --chat-size-body: 1.0625rem;
+  --chat-size-meta: 0.975rem;
+  --chat-line-body: 1.7;
+  --chat-rail-border: rgba(255, 255, 255, 0.08);
+  --chat-rail-border-strong: rgba(255, 255, 255, 0.14);
+  --chat-rail-surface: #111111;
+  --chat-rail-surface-strong: #151515;
+  --chat-rail-control-bg: #111111;
+  --chat-pane-bg: #090909;
+  --chat-shadow-soft: 0 12px 28px -24px rgba(0, 0, 0, 0.45);
+  --chat-shadow-card: 0 8px 18px -16px rgba(0, 0, 0, 0.45);
+  --nav-surface: color-mix(in srgb, var(--background) 95%, var(--accent) 5%);
+  --nav-surface-strong: color-mix(
+    in srgb,
+    var(--background) 90%,
+    var(--accent) 10%
+  );
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, white);
+}
+
+.brand-gradient-text {
+  background-image: linear-gradient(
+    135deg,
+    var(--brand-ocean),
+    color-mix(in srgb, var(--brand-ocean) 62%, white)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.glass-panel {
+  background: var(--glass-panel);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.glass-panel-strong {
+  background: var(--glass-panel-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(20px);
+}
+
+.chat-workspace-shell {
+  background:
+    radial-gradient(circle at top left, color-mix(in oklab, var(--accent) 10%, transparent) 0%, transparent 28%),
+    radial-gradient(circle at bottom right, color-mix(in oklab, var(--accent2) 8%, transparent) 0%, transparent 20%),
+    linear-gradient(180deg, var(--background) 0%, color-mix(in srgb, var(--background) 94%, black) 100%);
+}
+
+.chat-workspace-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 14%, transparent) transparent;
+}
+
+.chat-workspace-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.chat-workspace-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-workspace-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 14%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.itinerary-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 10%, transparent)
+    transparent;
+}
+
+.itinerary-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.itinerary-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.itinerary-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+
+.hero-atmosphere {
+  background:
+    radial-gradient(
+      circle at 12% 18%,
+      color-mix(in srgb, var(--brand-ocean) 14%, transparent) 0%,
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 84% 14%,
+      color-mix(in srgb, var(--brand-ocean) 10%, transparent) 0%,
+      transparent 28%
+    ),
+    radial-gradient(
+      circle at 50% 100%,
+      color-mix(in srgb, var(--brand-ocean) 8%, transparent) 0%,
+      transparent 40%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background) 96%, white) 0%,
+      var(--background) 100%
+    );
+}
+
+.beam-column {
+  position: absolute;
+  top: -4rem;
+  width: 1px;
+  border-radius: 9999px;
+  opacity: 0.7;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--brand-ocean) 92%, white),
+    color-mix(in srgb, var(--brand-ocean) 58%, white),
+    transparent
+  );
+  filter: blur(0.2px);
+  animation: beam-fall linear infinite;
+}
+
+.beam-flare {
+  position: absolute;
+  width: 9rem;
+  height: 0.7rem;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, white 82%, var(--brand-ocean)),
+    transparent
+  );
+  filter: blur(6px);
+  animation: flare-pulse ease-in-out infinite;
+}
+
+@keyframes beam-fall {
+  0% {
+    transform: translateY(-10%) scaleY(0.92);
+    opacity: 0;
+  }
+
+  12% {
+    opacity: 0.72;
+  }
+
+  100% {
+    transform: translateY(120vh) scaleY(1.08);
+    opacity: 0;
+  }
+}
+
+@keyframes flare-pulse {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.82);
+  }
+
+  20%,
+  70% {
+    opacity: 0.82;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 26px) scale(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .beam-column,
+  .beam-flare {
+    animation: none;
+  }
+}

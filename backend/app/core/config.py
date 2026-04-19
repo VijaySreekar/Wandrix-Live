@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
-load_dotenv(ROOT_ENV_PATH)
+load_dotenv(ROOT_ENV_PATH, override=True)
 
 
 @dataclass(frozen=True)

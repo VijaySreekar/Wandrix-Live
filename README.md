@@ -108,6 +108,7 @@ Set these before wiring real AI logic:
 - [Backend coding rules](docs/backend-coding-rules.md)
 - [Frontend coding rules](docs/frontend-coding-rules.md)
 - [Architecture](docs/architecture.md)
+- [Chat planner spec](docs/chat-planner-spec.md)
 - [Decision log](docs/decision-log.md)
 - [Future improvements](docs/future-improvements.md)
 - [Planner improvement plan](docs/planner-improvement-plan.md)

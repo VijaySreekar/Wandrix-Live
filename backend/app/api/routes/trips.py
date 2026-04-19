@@ -19,7 +19,7 @@ router = APIRouter(prefix="/trips", tags=["trips"])
 
 
 @router.post("", response_model=TripCreateResponse)
-async def create_trip_route(
+def create_trip_route(
     payload: TripCreateRequest,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -28,7 +28,7 @@ async def create_trip_route(
 
 
 @router.get("", response_model=TripListResponse)
-async def list_trips_route(
+def list_trips_route(
     limit: int = Query(default=12, ge=1, le=50),
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -37,7 +37,7 @@ async def list_trips_route(
 
 
 @router.get("/{trip_id}", response_model=TripCreateResponse)
-async def get_trip_route(
+def get_trip_route(
     trip_id: str,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -46,7 +46,7 @@ async def get_trip_route(
 
 
 @router.get("/{trip_id}/draft", response_model=TripDraft)
-async def get_trip_draft_route(
+def get_trip_draft_route(
     trip_id: str,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -55,7 +55,7 @@ async def get_trip_draft_route(
 
 
 @router.put("/{trip_id}/draft", response_model=TripDraft)
-async def save_trip_draft_route(
+def save_trip_draft_route(
     trip_id: str,
     payload: TripDraftUpsertRequest,
     current_user: AuthenticatedUser = Depends(get_current_user),

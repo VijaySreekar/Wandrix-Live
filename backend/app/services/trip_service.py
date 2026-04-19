@@ -19,6 +19,7 @@ from app.schemas.trip import (
     TripListItemResponse,
     TripListResponse,
 )
+from app.schemas.trip_conversation import TripConversationState
 from app.schemas.trip_draft import TripDraft, TripDraftStatus, TripDraftUpsertRequest
 
 
@@ -63,6 +64,7 @@ def create_trip(
         timeline=[],
         module_outputs={},
         status=TripDraftStatus().model_dump(mode="json"),
+        conversation=TripConversationState().model_dump(mode="json"),
     )
 
     return _build_trip_response(trip)
@@ -96,6 +98,8 @@ def list_trips(
                 to_location=_extract_configuration_value(trip, "to_location"),
                 start_date=_extract_configuration_value(trip, "start_date"),
                 end_date=_extract_configuration_value(trip, "end_date"),
+                travel_window=_extract_configuration_value(trip, "travel_window"),
+                trip_length=_extract_configuration_value(trip, "trip_length"),
                 selected_modules=_extract_selected_modules(trip),
                 timeline_item_count=_extract_timeline_item_count(trip),
             )
@@ -139,6 +143,7 @@ def save_trip_draft(
         timeline=[item.model_dump(mode="json") for item in payload.timeline],
         module_outputs=payload.module_outputs.model_dump(mode="json"),
         status=payload.status.model_dump(mode="json"),
+        conversation=payload.conversation.model_dump(mode="json"),
     )
 
     return _build_trip_draft_response(trip.id, draft)
@@ -178,6 +183,7 @@ def _build_trip_draft_response(trip_id: str, draft) -> TripDraft:
             "timeline": draft.timeline,
             "module_outputs": draft.module_outputs,
             "status": draft.status,
+            "conversation": draft.conversation,
         }
     )
 

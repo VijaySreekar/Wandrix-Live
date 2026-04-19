@@ -1,6 +1,9 @@
 from pydantic import BaseModel, Field
 
-from app.schemas.trip_draft import TripPlanningPhase
+from app.schemas.trip_conversation import (
+    CheckpointConversationMessage,
+    ChatPlannerPhase,
+)
 
 
 class PlannerProfileContext(BaseModel):
@@ -24,5 +27,11 @@ class TripConversationMessageRequest(BaseModel):
 class TripConversationMessageResponse(BaseModel):
     trip_id: str
     thread_id: str
-    draft_phase: TripPlanningPhase
+    draft_phase: ChatPlannerPhase
     message: str
+
+
+class CheckpointConversationHistoryResponse(BaseModel):
+    trip_id: str
+    thread_id: str
+    messages: list[CheckpointConversationMessage] = Field(default_factory=list)

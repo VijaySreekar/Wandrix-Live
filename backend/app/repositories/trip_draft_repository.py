@@ -13,6 +13,7 @@ def create_trip_draft(
     timeline: list,
     module_outputs: dict,
     status: dict,
+    conversation: dict,
 ) -> TripDraftModel:
     draft = TripDraftModel(
         trip_id=trip_id,
@@ -22,6 +23,7 @@ def create_trip_draft(
         timeline=timeline,
         module_outputs=module_outputs,
         status=status,
+        conversation=conversation,
     )
     db.add(draft)
     db.commit()
@@ -43,6 +45,7 @@ def upsert_trip_draft(
     timeline: list,
     module_outputs: dict,
     status: dict,
+    conversation: dict,
 ) -> TripDraftModel:
     draft = get_trip_draft(db, trip_id)
 
@@ -56,6 +59,7 @@ def upsert_trip_draft(
             timeline=timeline,
             module_outputs=module_outputs,
             status=status,
+            conversation=conversation,
         )
 
     draft.thread_id = thread_id
@@ -64,6 +68,7 @@ def upsert_trip_draft(
     draft.timeline = timeline
     draft.module_outputs = module_outputs
     draft.status = status
+    draft.conversation = conversation
 
     db.add(draft)
     db.commit()

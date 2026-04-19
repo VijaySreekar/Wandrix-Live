@@ -21,6 +21,7 @@ class TripDraftModel(Base):
     timeline: Mapped[list] = mapped_column(JSONB, nullable=False)
     module_outputs: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    conversation: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

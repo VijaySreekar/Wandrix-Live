@@ -9,6 +9,9 @@ It is intentionally practical:
 
 Use this as the continuity document when restarting chat sessions.
 
+For the current target planner structure, use:
+- `docs/chat-planner-spec.md`
+
 ## Current Baseline
 
 As of `2026-04-18`, Wandrix already has:
@@ -38,12 +41,11 @@ These are the most valuable next improvements.
 The chat loop works, but the planner still needs deeper travel intelligence.
 
 Improve:
-- move trip understanding toward LLM-first structured parsing
-- better extraction of dates, traveler counts, budgets, and styles
-- better follow-up questions when information is missing
-- stronger structured timeline generation per day
-- better use of weather and activity data inside the assistant response
-- clearer distinction between "collected", "suggested", and "confirmed" trip details
+- follow the `docs/chat-planner-spec.md` lifecycle and memory model
+- make turn understanding more reliable without reverting to deterministic parsing
+- improve follow-up questions, decision cards, and confirmation semantics
+- strengthen provider activation discipline and summary-first board behavior
+- improve how the assistant uses profile context softly in the opening phase
 
 Why:
 - this is the core product value

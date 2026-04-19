@@ -31,6 +31,8 @@ class TripListItemResponse(TripCreateResponse):
     to_location: str | None = None
     start_date: str | None = None
     end_date: str | None = None
+    travel_window: str | None = None
+    trip_length: str | None = None
     selected_modules: list[str] = Field(default_factory=list)
     timeline_item_count: int = 0
 
