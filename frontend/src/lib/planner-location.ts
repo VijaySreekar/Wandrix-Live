@@ -1,18 +1,26 @@
 "use client";
 
-import type { PlannerLocationContext, PlannerProfileContext } from "@/types/conversation";
+import type {
+  PlannerLocationContext,
+  PlannerProfileContext,
+} from "@/types/conversation";
 import type { TripDraft } from "@/types/trip-draft";
 
-type StoredPlannerLocation =
-  | {
-      status: "resolved";
-      value: PlannerLocationContext;
-    }
-  | {
-      status: "unavailable";
-    };
+type ResolvedPlannerLocation = {
+  status: "resolved";
+  value: PlannerLocationContext;
+};
+
+type BlockedPlannerLocation = {
+  status: "blocked";
+  reason: "permission_denied" | "unsupported";
+};
+
+type StoredPlannerLocation = ResolvedPlannerLocation | BlockedPlannerLocation;
 
 const LOCATION_STORAGE_PREFIX = "wandrix:planner-location:";
+const GEOLOCATION_TIMEOUT_MS = 15000;
+const GEOLOCATION_MAX_AGE_MS = 1000 * 60 * 30;
 
 export async function resolvePlannerLocationForTurn({
   tripId,
@@ -45,12 +53,15 @@ export async function resolvePlannerLocationForTurn({
     return cached.value;
   }
 
-  if (cached?.status === "unavailable") {
+  if (cached?.status === "blocked") {
     return null;
   }
 
   if (!("geolocation" in navigator)) {
-    writeStoredPlannerLocation(tripId, { status: "unavailable" });
+    writeStoredPlannerLocation(tripId, {
+      status: "blocked",
+      reason: "unsupported",
+    });
     return null;
   }
 
@@ -68,25 +79,42 @@ export async function resolvePlannerLocationForTurn({
     });
 
     return value;
-  } catch {
-    writeStoredPlannerLocation(tripId, { status: "unavailable" });
+  } catch (error) {
+    if (isPermissionDenied(error)) {
+      writeStoredPlannerLocation(tripId, {
+        status: "blocked",
+        reason: "permission_denied",
+      });
+    }
+
     return null;
   }
 }
 
 function readStoredPlannerLocation(tripId: string): StoredPlannerLocation | null {
   try {
-    const raw = window.sessionStorage.getItem(`${LOCATION_STORAGE_PREFIX}${tripId}`);
+    const raw = window.sessionStorage.getItem(
+      `${LOCATION_STORAGE_PREFIX}${tripId}`,
+    );
     if (!raw) {
       return null;
     }
 
-    const parsed = JSON.parse(raw) as StoredPlannerLocation;
-    if (!parsed || typeof parsed !== "object" || !("status" in parsed)) {
+    const parsed = JSON.parse(raw) as { status?: string };
+    if (!parsed || typeof parsed !== "object") {
       return null;
     }
 
-    return parsed;
+    if (parsed.status === "resolved") {
+      return parsed as ResolvedPlannerLocation;
+    }
+
+    if (parsed.status === "blocked") {
+      return parsed as BlockedPlannerLocation;
+    }
+
+    window.sessionStorage.removeItem(`${LOCATION_STORAGE_PREFIX}${tripId}`);
+    return null;
   } catch {
     return null;
   }
@@ -107,8 +135,17 @@ function readBrowserPosition(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, {
       enableHighAccuracy: false,
-      timeout: 4500,
-      maximumAge: 1000 * 60 * 30,
+      timeout: GEOLOCATION_TIMEOUT_MS,
+      maximumAge: GEOLOCATION_MAX_AGE_MS,
     });
   });
+}
+
+function isPermissionDenied(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    Number((error as { code?: unknown }).code) === 1
+  );
 }

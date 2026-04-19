@@ -18,7 +18,7 @@ def build_assistant_response(
     greeting_name = _get_greeting_name(profile)
 
     if fallback_text and fallback_text.strip():
-        return fallback_text.strip()
+        return _sanitize_assistant_text(fallback_text)
 
     if (
         conversation.suggestion_board.mode == "destination_suggestions"
@@ -33,9 +33,15 @@ def build_assistant_response(
             if conversation.suggestion_board.source_context
             else ""
         )
+        correction_line = (
+            "If you're not actually leaving from around there, tell me your real departure point and I'll switch the shortlist. "
+            if conversation.suggestion_board.source_context
+            else ""
+        )
         return (
             f"{greeting_prefix}{source_line}"
             f"Here are four destination directions that fit what you asked for: {destination_names}. "
+            f"{correction_line}"
             "Pick one on the board if one stands out, or tell me the destination you already have in mind."
         )
 
@@ -56,29 +62,46 @@ def build_assistant_response(
 
     if conversation.phase == "opening":
         greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
-        return (
+        return _sanitize_assistant_text(
+            (
             f"{greeting_prefix}I'm ready to shape this with you. "
             "Tell me where you want to go, roughly when, and where you'd leave from, "
             "and I'll keep the early draft soft until the trip direction is clear."
+            )
         )
 
     if conversation.phase in {"collecting_requirements", "shaping_trip"}:
         summary = _build_trip_shape_summary(configuration)
         inferred_summary = _build_inferred_summary(inferred_fields)
         follow_up = " ".join(f"{question}?" for question in open_questions[:2])
-        return f"{summary} {inferred_summary} {follow_up}".strip()
+        return _sanitize_assistant_text(f"{summary} {inferred_summary} {follow_up}")
 
     if conversation.phase == "enriching_modules":
-        return (
+        return _sanitize_assistant_text(
+            (
             f"I've got enough shape to start planning around {route_summary}. "
             "I'll keep using soft assumptions where needed, pull in the relevant modules carefully, "
             "and call out anything that still needs a decision."
+            )
         )
 
-    return (
+    return _sanitize_assistant_text(
+        (
         f"The trip is now coherent enough to review around {route_summary}. "
         "I can keep refining the choices with you or turn this into a clearer trip summary next."
     )
+    )
+
+
+def _sanitize_assistant_text(text: str) -> str:
+    sanitized = (
+        text.replace("**", "")
+        .replace("__", "")
+        .replace("`", "")
+        .replace("###", "")
+        .replace("##", "")
+    )
+    return " ".join(sanitized.split())
 
 
 def _get_greeting_name(profile: PlannerProfileContext) -> str | None:

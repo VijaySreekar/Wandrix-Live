@@ -9,6 +9,39 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Removed Markdown Emphasis Markers From Assistant Chat Replies
+
+Technical Summary:
+- Updated the planner prompt so `assistant_response` should stay plain prose instead of returning markdown styling like bold markers or headings.
+- Added backend assistant-text sanitization in the response builder so markdown emphasis markers such as `**bold**`, `__underline__`, backticks, and heading markers are stripped before the chat UI receives the message.
+- Kept the existing plain-text chat rendering path intact instead of adding markdown rendering to the assistant surface.
+
+Plain-English Summary:
+- The assistant was sending markdown-style formatting into a chat view that only shows plain text, which is why stray `**` markers were appearing in the conversation.
+- Wandrix now cleans that up before the message reaches the UI, so the chat should look much cleaner without changing how the chat component works.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/response_builder.py`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Fixed Browser-Location Suggestions Getting Stuck In Helper Mode
+
+Technical Summary:
+- Reworked the chat-side planner location helper so browser geolocation gets a longer window to resolve and only permanent blockers like permission denial or unsupported geolocation are cached.
+- Stopped transient geolocation failures from poisoning a trip with a forever-unavailable location state, including cleanup for legacy cached values.
+- Tightened the planner prompt and response copy so broad asks with browser location available should produce destination suggestions first, while still inviting the user to correct the detected departure point when needed.
+
+Plain-English Summary:
+- Wandrix was asking for a departure city even when browser location was available because the location lookup could fail too quickly and then get stuck in a bad cached state.
+- The planner now gives browser location more time, retries better, and is more direct about using the detected location as a starting point while still letting the user correct it.
+
+Files / Areas Touched:
+- `frontend/src/lib/planner-location.ts`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/response_builder.py`
+- `CHANGELOG.md`
+
 ## 2026-04-19 - Fixed Recent Sidebar Title Drift After Reload
 
 Technical Summary:
