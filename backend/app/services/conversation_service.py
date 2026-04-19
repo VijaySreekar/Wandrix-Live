@@ -45,6 +45,9 @@ def send_trip_message(
             "trip_id": trip.id,
             "thread_id": trip.thread_id,
             "user_input": payload.message,
+            "profile_context": payload.profile_context.model_dump(mode="json")
+            if payload.profile_context
+            else {},
             "trip_draft": {
                 "title": draft.title,
                 "configuration": draft.configuration,

@@ -84,6 +84,7 @@ Set these before wiring real AI logic:
 
 - `/profile` - detailed account profile and travel-defaults editing
 - `/chat` - conversation-first planner workspace with sidebar, assistant, and live trip board
+- `/board-preview` - sample trip-board sandbox for visual iteration
 - `/flights` - saved-trip flight reference view
 - `/hotels` - saved-trip hotel reference view
 - `/activities` - saved-trip activities and highlights reference view
@@ -109,5 +110,6 @@ Set these before wiring real AI logic:
 - [Architecture](docs/architecture.md)
 - [Decision log](docs/decision-log.md)
 - [Future improvements](docs/future-improvements.md)
+- [Planner improvement plan](docs/planner-improvement-plan.md)
 - [UI rules](docs/ui-rules.md)
 - [Changelog](CHANGELOG.md)

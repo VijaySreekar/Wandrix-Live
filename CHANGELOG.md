@@ -9,6 +9,293 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Added Minimal Itinerary Scrollbars And Travel-Type Icons
+
+Technical Summary:
+- Added a dedicated minimal scrollbar style for the itinerary panel so the internal scroll feels lighter and less intrusive than the default workspace scroll.
+- Introduced small timeline item icons for flights, hotels, meals, weather, transfers, and activities directly inside each itinerary row.
+- Kept the itinerary structure compact so the live board reads more like a styled travel plan than a generic card list.
+
+Plain-English Summary:
+- The itinerary should feel cleaner now because its scrollbar is much less noticeable.
+- Each itinerary item also has a small travel icon, so flights and other trip moments are easier to scan quickly.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/app/globals.css`
+
+## 2026-04-19 - Replaced The Old Right Rail With Travel Modules And A Scrollable Itinerary
+
+Technical Summary:
+- Removed the leftover right-rail panels for trip status, recent changes, and trip snapshot.
+- Kept the board focused on travel-specific content by dedicating the right support column to flights, weather, stay details, and highlights.
+- Reworked the itinerary into a scrollable day-grouped layout instead of page expansion, closer to an editorial travel timeline.
+
+Plain-English Summary:
+- The old dashboard-style side panels are gone.
+- The board now uses that space for actual trip planning content, and the itinerary scrolls inside its own section instead of stretching the whole page.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+
+## 2026-04-19 - Rebuilt The Itinerary Section Into A Planner Split Layout
+
+Technical Summary:
+- Reworked the board view under the hero into a two-column planning layout with itinerary flow on the left and live support modules on the right.
+- Added an expand/collapse control for the itinerary so longer trip flows can be revealed without forcing the board into a permanently long stack.
+- Moved flights, weather, stay details, and highlights into a dedicated right-side support column beside the itinerary flow.
+
+Plain-English Summary:
+- The itinerary area should make more sense now.
+- The trip flow lives on the left, and the supporting travel details like flights and weather sit on the right where they are easier to scan.
+- You can also expand the itinerary when the planner has more items to show.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Removed The Hero Tags And Simplified The Remaining Details
+
+Technical Summary:
+- Removed the remaining style tags from the hero summary area.
+- Replaced the larger boxed date and party cards with a simpler inline detail treatment so they occupy less space and feel less congested.
+- Removed the unused hero styles prop after simplifying the summary block.
+
+Plain-English Summary:
+- The top-right hero details are cleaner now.
+- The tags are gone, and the date and party info no longer sit inside oversized boxes that made the area feel cramped.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Removed The Trip Tone Card From The Hero
+
+Technical Summary:
+- Removed the trip-tone detail card from the hero summary block while leaving the lighter supporting style chips underneath.
+- Kept the route and party details as the main structured summary items beside the destination image.
+
+Plain-English Summary:
+- The hero summary is cleaner now because the extra trip-tone card is gone.
+- The top of the board should feel less busy while still keeping the style tags available lower down.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Simplified The Hero Summary Block
+
+Technical Summary:
+- Reduced the hero height so the board starts with a lighter visual footprint.
+- Removed helper text from the hero detail area, dropped the budget card entirely, and switched the travel window to a shorter date-range format.
+- Kept the route, party, and trip-tone details, but made the summary block more compact so it supports the board instead of dominating it.
+
+Plain-English Summary:
+- The hero is smaller now and the details beside it are much simpler.
+- Dates are shown in a short format, the party section is cleaner, and the budget is gone so the top of the board feels less crowded.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Removed The Inner Board Container To Free More Width
+
+Technical Summary:
+- Removed the centered max-width wrapper from the live trip board content area.
+- Reduced the outer board padding slightly so the hero and supporting sections can use more of the available workspace width.
+
+Plain-English Summary:
+- The board was still sitting inside an extra container, which made it feel narrower than it needed to be.
+- I removed that extra limit so the hero and the rest of the board can stretch out more naturally.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Increased The Board Share After The Hero Detail Pass
+
+Technical Summary:
+- Rebalanced the `/chat` and `/board-preview` workspace grids so the right-side board regains more horizontal share.
+- Increased the board column both in the normal desktop layout and in the collapsed-sidebar layout, keeping the chat column slimmer so the board stays visually dominant.
+
+Plain-English Summary:
+- The board got too small in the last pass, so I gave it more space again.
+- This keeps the cleaner hero details while making the overall board feel larger and more important in the layout.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+
+## 2026-04-19 - Refined The Hero Trip Details Into A Real Summary Block
+
+Technical Summary:
+- Reworked the detail area beside the board hero so it no longer uses four equal stat tiles.
+- Added a stronger route summary card, then grouped the supporting details into smaller icon-led cards for dates, party size, trip tone, and budget.
+- Moved the trip styles into supporting chips so the panel reads more like one travel summary and less like a generic dashboard stat grid.
+
+Plain-English Summary:
+- The information beside the destination image should feel more polished now.
+- Instead of looking like four random boxes, it now reads as a proper trip summary with the route first and the rest of the trip details supporting it.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Added A Collapsible Chat Sidebar
+
+Technical Summary:
+- Added a collapsible state to the shared chat sidebar and reused it in both the real `/chat` workspace and the `/board-preview` sandbox.
+- Persisted the sidebar state in local storage so collapsing it during review or planning stays sticky between pages.
+- Introduced a compact collapsed sidebar mode with icon actions and trip monograms, and widened the board share of the layout when the sidebar is collapsed.
+
+Plain-English Summary:
+- You can now collapse the left sidebar while chatting to give the board more space.
+- The collapsed state carries over between the real chat page and the preview page, so it feels like one consistent workspace instead of a one-off trick.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+
+## 2026-04-19 - Relaxed The Board Layout And Quieted The Preview Shell
+
+Technical Summary:
+- Reduced the chat-column share again in both the real `/chat` workspace and the `/board-preview` shell so the board can take more visual priority.
+- Rebuilt the preview shell header into a compact scenario switcher and simplified the mocked conversation blocks so the board is not competing with a large fake chat layout during design review.
+- Relaxed the board internals by using a later breakpoint for split module layouts and the right-side rail, lowering heading intensity, and replacing heavier panel treatments with calmer bordered surfaces.
+
+Plain-English Summary:
+- The board should feel more open now instead of squeezed between too many competing sections.
+- I also made the preview page quieter, so it is easier to judge the board itself rather than being distracted by an overly busy fake chat area.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Slimmed The Chat Column To Give The Board More Room
+
+Technical Summary:
+- Reduced the middle chat-column share in both the real `/chat` workspace grid and the `/board-preview` shell so the right-side board gets more horizontal room.
+- Tightened the assistant message container widths in the real chat surface and in the preview shell so the center column feels visually slimmer instead of only changing the parent grid math.
+- Kept the sidebar width unchanged, so the adjustment is focused on the relationship between the conversation column and the live board.
+
+Plain-English Summary:
+- The chat area is a bit smaller now, and the board has more room to breathe.
+- This should make the right side feel less cramped and help the board look more intentional instead of squeezed beside an oversized chat column.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+
+## 2026-04-19 - Board Preview Now Shows Sidebar And Chat Context
+
+Technical Summary:
+- Reworked the `/board-preview` sandbox so it no longer shows the board in isolation.
+- Wrapped the sample board in the real three-column product proportions: the shared chat sidebar on the left, a mocked middle conversation column, and the live board on the right.
+- Added sample recent trips and a lightweight mocked conversation so the board can be judged against the actual chat-shell width and layout constraints.
+
+Plain-English Summary:
+- The preview page should make a lot more sense now because you can see the board with the sidebar and chat around it.
+- This gives a much more honest view of how wide the board really is inside the product and makes it easier to judge whether the hero and layout feel right.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+
+## 2026-04-19 - Board Hero Made Smaller And Swapped To Live Destination Imagery
+
+Technical Summary:
+- Reworked the trip-board hero section so it fits the narrower chat-side board better, using a more compact split layout instead of the previous oversized full-bleed banner treatment.
+- Replaced the washed visual treatment with a visible live destination image source and simplified the hero typography so it reads more clearly during design review.
+- Kept the supporting trip stats in the hero, but tightened them into a smaller card grid that is easier to judge in the actual `/chat` layout.
+
+Plain-English Summary:
+- The top of the board should make more sense now.
+- It is smaller, clearer, and uses a real visible destination image so you can judge the direction properly instead of trying to imagine it through a tinted background.
+- I also toned down the hero typography so it does not feel as overdesigned while we keep refining the board.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Board Restyled Toward Editorial Travel Layout
+
+Technical Summary:
+- Rebuilt the live trip board component around an editorial layout inspired by the Stitch travel-board reference instead of the earlier stacked inspection panel.
+- Added a wide hero destination banner, a left-led itinerary flow, compact logistics modules, and a cleaner right-side rail for trip status, recent changes, and trip snapshot details.
+- Kept the board/selections split, but reframed it visually so the itinerary view feels like the main artifact and the choices view feels like a supporting planning surface.
+
+Plain-English Summary:
+- The board should feel much more like a polished travel planner now and much less like a debug panel.
+- It now has a stronger visual hierarchy: big destination at the top, itinerary flow as the main story, and smaller side modules for status and supporting trip details.
+- The goal was not to copy the Stitch design exactly, but to get much closer to that level of visual quality and structure.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+
+## 2026-04-19 - Added A Dedicated Planner Improvement Plan
+
+Technical Summary:
+- Added a new planning document that organizes Wandrix improvements into clear phases before recurring Codex automation is introduced.
+- Separated safe automation work from higher-risk work that still needs human judgment.
+- Defined the recommended first automation backlog around planner intelligence, then personalization, then structured planning polish.
+- Linked the new planning document from the README so it becomes part of the repo's working documentation set.
+
+Plain-English Summary:
+- We now have a proper improvement roadmap for Wandrix instead of a loose list of ideas.
+- This gives future automation a clear mission and keeps it focused on the right things in the right order.
+- The plan says we should make the planner smarter first, then more personal, and only after that spend more time on polish and export work.
+
+Files / Areas Touched:
+- `docs/planner-improvement-plan.md`
+- `README.md`
+
+## 2026-04-19 - Board Preview Lab And Per-Trip Chat History Restore
+
+Technical Summary:
+- Added a new authenticated `/board-preview` route with a client-side sandbox that renders the live trip board against several realistic sample trip drafts for fast visual iteration.
+- Introduced per-trip local chat history persistence in the assistant-ui layer by seeding `useLocalRuntime` with saved thread messages and syncing the current thread back into local storage as the conversation changes.
+- Added a small restoration state so switching back into an existing trip no longer mounts the chat runtime before its saved message history is ready.
+- Updated route documentation to include the new board-preview lab page.
+
+Plain-English Summary:
+- There is now a dedicated page where you can review the right-side trip board with sample travel scenarios, without needing to talk to the planner first.
+- I also fixed the main reason saved chats looked empty: the chat thread now restores the most recent local message history for each trip when you reopen it.
+- This makes it much easier to iterate on the board design and to come back to an in-progress trip without the chat looking blank.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/app/board-preview/page.tsx`
+- `README.md`
+
+## 2026-04-19 - Locked The Repo Against Deterministic Planner Parsing
+
+Technical Summary:
+- Removed the last regex-based parsing utility from the backend flight provider adapter and replaced it with straightforward format handling that does not depend on planner-side regex extraction.
+- Updated the repo agent rules and backend coding rules so deterministic planner parsing is no longer described as an acceptable temporary fallback.
+- Updated the future-improvements roadmap so planner intelligence work now points only toward stronger structured LLM behavior and clarification flows instead of any return to regex or keyword parsing.
+
+Plain-English Summary:
+- Wandrix is now more consistent about this rule: it should not go back to guessing trip details with regex or keyword parsing.
+- I also updated the written project rules so future work does not quietly bring that behavior back.
+
+Files / Areas Touched:
+- `backend/app/services/providers/flights.py`
+- `AGENTS.md`
+- `docs/backend-coding-rules.md`
+- `docs/future-improvements.md`
+
+## 2026-04-19 - Removed Generated Planner Placeholder Module Data
+
+Technical Summary:
+- Removed the bootstrap node's generated placeholder outputs for flights, hotels, weather, and activities.
+- Updated module-output building so those sections now rely on live provider enrichment or previously saved structured data instead of backend-invented filler content.
+- Removed unused helper functions that only existed to support fabricated itinerary blocks and placeholder scheduling.
+
+Plain-English Summary:
+- The planner is now more honest about what it really knows.
+- Instead of inventing fake flight blocks, hotel stays, weather cards, or activity ideas just to fill the board, Wandrix now shows real provider data when available and otherwise leaves those sections open until better information exists.
+
+Files / Areas Touched:
+- `backend/app/graph/nodes/bootstrap.py`
+
 ## 2026-04-19 - Profile Page and Dialog-Based Onboarding
 
 Technical Summary:
@@ -53,6 +340,42 @@ Files / Areas Touched:
 - `frontend/package.json`
 - `frontend/package-lock.json`
 - `README.md`
+
+## 2026-04-19 - Chat Board Redesigned Into Live Board And Selections Views
+
+Technical Summary:
+- Rebuilt the right-side chat board into a fuller visual planning surface with a destination hero, form-like trip setup fields, a grouped timeline, flight and hotel panels, activity highlights, and weather cards.
+- Added a second board tab for `Selections`, using current draft state and missing fields to present pending user decisions and active planning signals in a clearer UI.
+- Removed the old bottom `Prompt the board directly` panel from the chat workspace so the live board can use the full height and act as the main right-hand planning surface.
+
+Plain-English Summary:
+- The right side of chat should now feel much more like a real trip board instead of a debug panel.
+- It has a proper trip overview, timeline-style flow, travel details, and a separate place for choices the agent may need from the user.
+- I also removed the old extra prompt panel at the bottom so the board has room to breathe.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+
+## 2026-04-19 - Chat Now Reads Saved Profile Context
+
+Technical Summary:
+- Extended the conversation request contract so the frontend can send saved profile/default context into the backend turn processor.
+- Added profile context to the LangGraph state and prompt construction so the planner can treat saved defaults as soft guidance during extraction and reply generation.
+- Updated the assistant welcome state to read saved profile values from local storage and use them for a more personal greeting and smarter starter suggestions.
+
+Plain-English Summary:
+- The chat now knows more about the user before the first message.
+- Wandrix can greet the traveler more personally and start from saved defaults like home airport or currency instead of acting like every conversation is completely blank.
+- Those defaults are still soft context only, not hard rules for the trip.
+
+Files / Areas Touched:
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/state.py`
+- `backend/app/graph/nodes/bootstrap.py`
+- `backend/app/services/conversation_service.py`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
 
 ## 2026-04-19 - Profile Page Expanded Into Full Inline Settings Form
 
@@ -115,6 +438,21 @@ Plain-English Summary:
 Files / Areas Touched:
 - `frontend/src/app/globals.css`
 - `frontend/src/components/auth/user-account-popover.tsx`
+
+## 2026-04-19 - Removed Heuristic Trip Extraction From The Planner Path
+
+Technical Summary:
+- Removed the deterministic regex and keyword extraction branch from the LangGraph bootstrap node so trip understanding now flows through structured LLM output instead of mixed parsing strategies.
+- Simplified the turn bootstrap so it starts from the persisted trip configuration, applies validated model updates, and no longer mutates trip fields through local regex matches.
+- Rewrote the non-LLM fallback response so Wandrix now asks for clarification instead of pretending it safely updated fields from an ambiguous message.
+
+Plain-English Summary:
+- The planner is no longer using hidden text-matching rules to guess route, budget, traveler counts, or modules.
+- That means Wandrix should be less brittle and less likely to silently lock the wrong details just because a message happened to match a pattern.
+- If the model cannot confidently move the trip forward, the assistant will now ask for clearer detail instead of acting like it understood more than it did.
+
+Files / Areas Touched:
+- `backend/app/graph/nodes/bootstrap.py`
 
 ## 2026-04-19 - Account Menu Positioning And Hover Polish
 

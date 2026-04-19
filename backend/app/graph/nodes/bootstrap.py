@@ -1,5 +1,4 @@
-from datetime import date, datetime, time, timedelta, timezone
-import re
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -22,38 +21,6 @@ from app.schemas.trip_draft import (
 from app.services.providers.activities import enrich_activities_from_geoapify
 from app.services.providers.flights import enrich_flights_from_amadeus
 from app.services.providers.weather import enrich_weather_from_open_meteo
-
-
-ACTIVITY_STYLE_KEYWORDS = {
-    "relaxed": ["relaxed", "slow", "easygoing", "chill"],
-    "adventure": ["adventure", "hiking", "surf", "trek", "outdoors"],
-    "luxury": ["luxury", "premium", "five-star", "5-star"],
-    "family": ["family", "kids", "children"],
-    "culture": ["culture", "museum", "history", "heritage"],
-    "nightlife": ["nightlife", "bars", "clubs", "late-night"],
-    "romantic": ["romantic", "honeymoon", "couple"],
-    "food": ["food", "restaurants", "culinary", "dining"],
-    "outdoors": ["outdoors", "nature", "parks", "scenic"],
-}
-
-MODULE_KEYWORDS = {
-    "flights": ["flight", "flights", "plane", "airfare"],
-    "hotels": ["hotel", "hotels", "stay", "stays", "accommodation"],
-    "weather": ["weather", "temperature", "forecast", "rain"],
-    "activities": ["activity", "activities", "things to do", "sightseeing"],
-}
-
-ACTIVITY_STYLE_TEMPLATES = {
-    "food": ("Market lunch crawl", "Sample local specialties in the city's best food pockets."),
-    "culture": ("Museum and old quarter walk", "Anchor the day around heritage streets and one cultural highlight."),
-    "relaxed": ("Slow afternoon cafe stretch", "Leave breathing room for coffee, people-watching, and a light stroll."),
-    "adventure": ("Outdoor viewpoint run", "Balance the itinerary with a more active scenic outing."),
-    "luxury": ("Signature dinner reservation", "Hold space for a premium evening experience."),
-    "family": ("Family-friendly city stop", "Keep the pace easy and child-friendly for this block."),
-    "nightlife": ("Late evening district wander", "Reserve the evening for bars, music, or a livelier neighborhood."),
-    "romantic": ("Golden-hour riverfront walk", "Shape the evening around a slower scenic moment."),
-    "outdoors": ("Park and lookout loop", "Use open-air time to break up the denser city schedule."),
-}
 
 
 class TripModuleSelectionUpdate(BaseModel):
@@ -92,10 +59,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
     trip_draft = {
         **state.get("trip_draft", {}),
     }
-    configuration = _apply_heuristic_updates(
-        TripConfiguration.model_validate(trip_draft.get("configuration", {})),
-        state.get("user_input", ""),
-    )
+    configuration = TripConfiguration.model_validate(trip_draft.get("configuration", {}))
     status = TripDraftStatus.model_validate(trip_draft.get("status", {}))
     existing_module_outputs = TripModuleOutputs.model_validate(
         trip_draft.get("module_outputs", {})
@@ -106,6 +70,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         configuration=configuration,
         title=trip_draft.get("title") or "Trip planner",
         status=status,
+        profile_context=state.get("profile_context", {}),
     )
 
     configuration = _merge_llm_update_into_configuration(configuration, llm_update)
@@ -144,53 +109,9 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
             **state.get("metadata", {}),
             "graph_bootstrapped": True,
             "turn_processed": True,
-            "used_llm_extraction": llm_update.assistant_response != "",
+            "used_llm_extraction": True,
         },
     }
-
-
-def _apply_heuristic_updates(
-    configuration: TripConfiguration,
-    user_input: str,
-) -> TripConfiguration:
-    lowered_input = user_input.lower()
-
-    route_match = re.search(
-        r"\bfrom\s+([a-zA-Z][a-zA-Z .'-]{1,80}?)\s+to\s+([a-zA-Z][a-zA-Z .'-]{1,80})\b",
-        user_input,
-        flags=re.IGNORECASE,
-    )
-    if route_match:
-        configuration.from_location = route_match.group(1).strip().title()
-        configuration.to_location = route_match.group(2).strip().title()
-
-    budget_match = re.search(
-        r"\b(?:budget|around|under|roughly)\s*[£$€]?\s*([0-9][0-9,]{2,})\b",
-        user_input,
-        flags=re.IGNORECASE,
-    )
-    if budget_match:
-        configuration.budget_gbp = float(budget_match.group(1).replace(",", ""))
-
-    adults_match = re.search(r"\b(\d+)\s+adults?\b", lowered_input)
-    if adults_match:
-        configuration.travelers.adults = int(adults_match.group(1))
-
-    children_match = re.search(r"\b(\d+)\s+children?\b", lowered_input)
-    if children_match:
-        configuration.travelers.children = int(children_match.group(1))
-
-    for style, keywords in ACTIVITY_STYLE_KEYWORDS.items():
-        if style in configuration.activity_styles:
-            continue
-        if any(keyword in lowered_input for keyword in keywords):
-            configuration.activity_styles.append(style)
-
-    for module_name, keywords in MODULE_KEYWORDS.items():
-        if any(keyword in lowered_input for keyword in keywords):
-            setattr(configuration.selected_modules, module_name, True)
-
-    return configuration
 
 
 def _generate_llm_trip_update(
@@ -199,6 +120,7 @@ def _generate_llm_trip_update(
     configuration: TripConfiguration,
     title: str,
     status: TripDraftStatus,
+    profile_context: dict,
 ) -> TripTurnUpdate:
     if not user_input.strip():
         return TripTurnUpdate(assistant_response="")
@@ -222,6 +144,9 @@ Current configuration:
 
 Current status:
 {status.model_dump(mode="json")}
+
+Saved profile context:
+{profile_context}
 
 Latest user message:
 {user_input}
@@ -302,42 +227,7 @@ def _build_flight_outputs(
     if live_flights:
         return live_flights
 
-    flights = [
-        FlightDetail(
-            id="flight_outbound",
-            direction="outbound",
-            carrier="Routing placeholder",
-            flight_number=None,
-            departure_airport=configuration.from_location,
-            arrival_airport=configuration.to_location,
-            departure_time=_combine_date_and_hour(configuration.start_date, 8),
-            arrival_time=_combine_date_and_hour(configuration.start_date, 13),
-            duration_text="Approx 5h block",
-            notes=[
-                "Fallback route placeholder because live flight search did not return a usable offer yet.",
-            ],
-        )
-    ]
-
-    if configuration.end_date:
-        flights.append(
-            FlightDetail(
-                id="flight_return",
-                direction="return",
-                carrier="Routing placeholder",
-                flight_number=None,
-                departure_airport=configuration.to_location,
-                arrival_airport=configuration.from_location,
-                departure_time=_combine_date_and_hour(configuration.end_date, 16),
-                arrival_time=_combine_date_and_hour(configuration.end_date, 21),
-                duration_text="Approx 5h block",
-                notes=[
-                    "Fallback return leg placeholder derived from the current travel window.",
-                ],
-            )
-        )
-
-    return flights
+    return existing_module_outputs.flights
 
 
 def _try_live_flight_enrichment(
@@ -356,21 +246,7 @@ def _build_hotel_outputs(
     if not configuration.selected_modules.hotels:
         return []
 
-    if not configuration.to_location:
-        return existing_module_outputs.hotels
-
-    return [
-        HotelStayDetail(
-            id="hotel_primary",
-            hotel_name=f"{configuration.to_location} stay shortlist",
-            area=f"Central {configuration.to_location}",
-            check_in=_combine_date_and_hour(configuration.start_date, 15),
-            check_out=_combine_date_and_hour(configuration.end_date, 11),
-            notes=[
-                "Primary stay placeholder until hotel discovery fills in actual options.",
-            ],
-        )
-    ]
+    return existing_module_outputs.hotels
 
 
 def _build_weather_outputs(
@@ -384,26 +260,7 @@ def _build_weather_outputs(
     if live_weather:
         return live_weather
 
-    travel_dates = _get_travel_dates(configuration)
-    if not travel_dates:
-        return existing_module_outputs.weather
-
-    weather_items: list[WeatherDetail] = []
-    for index, travel_date in enumerate(travel_dates[:4], start=1):
-        weather_items.append(
-            WeatherDetail(
-                id=f"weather_{index}",
-                day_label=f"Day {index}",
-                summary="Forecast placeholder for pacing activities and transfers.",
-                high_c=24,
-                low_c=17,
-                notes=[
-                    "Weather will become more specific once provider-backed forecasts are connected.",
-                ],
-            )
-        )
-
-    return weather_items
+    return existing_module_outputs.weather
 
 
 def _try_live_weather_enrichment(
@@ -429,33 +286,7 @@ def _build_activity_outputs(
     if live_activities:
         return live_activities
 
-    travel_dates = _get_travel_dates(configuration)
-    if not travel_dates:
-        travel_dates = [None]
-
-    preferred_styles = configuration.activity_styles or ["culture", "food", "relaxed"]
-    activity_items: list[ActivityDetail] = []
-
-    for index, style in enumerate(preferred_styles[:3], start=1):
-        title, note = ACTIVITY_STYLE_TEMPLATES.get(
-            style,
-            ("City discovery block", "Use this as a flexible planning block."),
-        )
-        activity_items.append(
-            ActivityDetail(
-                id=f"activity_{index}",
-                title=title,
-                category=style,
-                day_label=f"Day {min(index, len(travel_dates))}",
-                time_label=_time_label_for_index(index),
-                notes=[
-                    note,
-                    f"Focus the experience around {configuration.to_location}.",
-                ],
-            )
-        )
-
-    return activity_items
+    return existing_module_outputs.activities
 
 
 def _try_live_activity_enrichment(
@@ -604,14 +435,14 @@ def _build_fallback_response(
     route_summary = f"{configuration.from_location or 'TBD'} to {configuration.to_location or 'TBD'}"
     if missing_fields:
         return (
-            f"I've updated the draft with what I could from your message. "
-            f"The route currently looks like {route_summary}. "
-            f"I still need: {', '.join(missing_fields)}."
+            "I do not want to lock the wrong trip details from that message. "
+            f"Right now the draft still looks like {route_summary}. "
+            f"Please clarify these next: {', '.join(missing_fields)}."
         )
 
     return (
-        f"I've updated the draft for {route_summary}. "
-        "The trip has enough core information to move into planning."
+        f"I kept the draft aligned around {route_summary}. "
+        "If you want, I can now turn that into a more concrete plan."
     )
 
 
@@ -627,29 +458,6 @@ def _to_timeline_item(item: ProposedTimelineItem) -> TimelineItem:
         source_module=item.source_module,
     )
 
-
-def _get_travel_dates(configuration: TripConfiguration) -> list[date]:
-    if not configuration.start_date:
-        return []
-
-    end_date = configuration.end_date or configuration.start_date
-    travel_dates: list[date] = []
-    current_date = configuration.start_date
-
-    while current_date <= end_date and len(travel_dates) < 7:
-        travel_dates.append(current_date)
-        current_date += timedelta(days=1)
-
-    return travel_dates
-
-
-def _combine_date_and_hour(value: date | None, hour: int) -> datetime | None:
-    if value is None:
-        return None
-
-    return datetime.combine(value, time(hour=hour, minute=0), tzinfo=timezone.utc)
-
-
 def _day_label_for_datetime(
     value: datetime | None,
     configuration: TripConfiguration,
@@ -659,12 +467,3 @@ def _day_label_for_datetime(
 
     offset = (value.date() - configuration.start_date).days + 1
     return f"Day {max(offset, 1)}"
-
-
-def _time_label_for_index(index: int) -> str:
-    labels = {
-        1: "Morning",
-        2: "Afternoon",
-        3: "Evening",
-    }
-    return labels.get(index, "Flexible")

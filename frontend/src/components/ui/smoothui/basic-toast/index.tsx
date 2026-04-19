@@ -40,35 +40,24 @@ export default function BasicToast({
   isVisible = true,
   className = "",
 }: ToastProps) {
-  const [visible, setVisible] = useState(isVisible);
-  const [mounted, setMounted] = useState(false);
   const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    setVisible(isVisible);
-  }, [isVisible]);
-
-  useEffect(() => {
-    if (visible && duration > 0) {
+    if (isVisible && duration > 0) {
       const timer = setTimeout(() => {
-        setVisible(false);
         onClose?.();
       }, duration);
       return () => clearTimeout(timer);
     }
-  }, [visible, duration, onClose]);
+  }, [isVisible, duration, onClose]);
 
-  if (!mounted) {
+  if (typeof document === "undefined") {
     return null;
   }
 
   const toastContent = (
     <AnimatePresence>
-      {visible && (
+      {isVisible && (
         <motion.div
           animate={
             shouldReduceMotion ? { opacity: 1 } : { opacity: 1, x: 0, scale: 1 }
@@ -100,7 +89,6 @@ export default function BasicToast({
           <button
             className="flex-shrink-0 rounded-full p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10"
             onClick={() => {
-              setVisible(false);
               onClose?.();
             }}
             type="button"

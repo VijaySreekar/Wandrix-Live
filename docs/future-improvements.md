@@ -38,7 +38,6 @@ These are the most valuable next improvements.
 The chat loop works, but the planner still needs deeper travel intelligence.
 
 Improve:
-- remove or shrink deterministic extraction over time
 - move trip understanding toward LLM-first structured parsing
 - better extraction of dates, traveler counts, budgets, and styles
 - better follow-up questions when information is missing
@@ -51,8 +50,8 @@ Why:
 - better reasoning improves every surface: chat, board, modules, and brochure
 
 Rule:
-- do not expand heuristic parsing as the long-term solution
-- treat current deterministic extraction as temporary fallback logic that should be reduced
+- do not introduce deterministic extraction back into the planner
+- improve the structured LLM flow instead of adding regex or keyword parsing
 
 ### 2. Finish Live Flights
 

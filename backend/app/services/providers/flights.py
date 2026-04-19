@@ -1,5 +1,4 @@
 from datetime import datetime
-import re
 
 from app.integrations.amadeus.client import create_amadeus_client
 from app.schemas.trip_draft import FlightDetail, TripConfiguration
@@ -54,8 +53,7 @@ def _resolve_location_iata(keyword: str) -> str | None:
         return None
 
     cleaned_keyword = keyword.strip()
-    direct_iata_match = re.fullmatch(r"[A-Za-z]{3}", cleaned_keyword)
-    if direct_iata_match:
+    if len(cleaned_keyword) == 3 and cleaned_keyword.isalpha():
         return cleaned_keyword.upper()
 
     with create_amadeus_client() as client:
@@ -154,12 +152,30 @@ def _format_duration(value: str | None) -> str | None:
     if not value:
         return None
 
-    match = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?", value)
-    if not match:
+    if not value.startswith("PT"):
         return value
 
-    hours = int(match.group(1) or 0)
-    minutes = int(match.group(2) or 0)
+    hours = 0
+    minutes = 0
+    number_buffer = ""
+
+    for char in value[2:]:
+        if char.isdigit():
+            number_buffer += char
+            continue
+
+        if char == "H" and number_buffer:
+            hours = int(number_buffer)
+            number_buffer = ""
+            continue
+
+        if char == "M" and number_buffer:
+            minutes = int(number_buffer)
+            number_buffer = ""
+            continue
+
+        return value
+
     parts: list[str] = []
     if hours:
         parts.append(f"{hours}h")

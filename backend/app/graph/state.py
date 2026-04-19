@@ -8,6 +8,7 @@ class PlanningGraphState(TypedDict, total=False):
     trip_id: str
     thread_id: str
     user_input: str
+    profile_context: dict[str, Any]
     trip_draft: dict[str, Any]
     assistant_response: str
     metadata: dict[str, Any]

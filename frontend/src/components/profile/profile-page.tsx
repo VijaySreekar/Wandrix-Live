@@ -704,25 +704,3 @@ function splitInitialName(name: string) {
 function formatDisplayName(firstName: string, lastName: string) {
   return [firstName.trim(), lastName.trim()].filter(Boolean).join(" ").trim();
 }
-
-function getMissingCoreFields(profile: ProfileDefaults) {
-  const missing: string[] = [];
-
-  if (!profile.firstName.trim()) {
-    missing.push("first name");
-  }
-  if (!profile.lastName.trim()) {
-    missing.push("last name");
-  }
-  if (!profile.homeAirport.trim()) {
-    missing.push("home airport");
-  }
-  if (!profile.homeCountry.trim()) {
-    missing.push("home country");
-  }
-  if (!profile.locationDecisionMade) {
-    missing.push("location choice");
-  }
-
-  return missing;
-}

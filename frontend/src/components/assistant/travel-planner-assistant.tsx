@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUp,
   Bot,
@@ -13,6 +13,7 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useThread,
   useLocalRuntime,
   type ChatModelAdapter,
 } from "@assistant-ui/react";
@@ -21,6 +22,7 @@ import { sendTripConversationMessage } from "@/lib/api/conversation";
 import { getTripDraft } from "@/lib/api/trips";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
+import type { PlannerProfileContext } from "@/types/conversation";
 import type { TripDraft } from "@/types/trip-draft";
 
 type TravelPlannerAssistantProps = {
@@ -30,12 +32,176 @@ type TravelPlannerAssistantProps = {
   onDraftUpdated: (tripDraft: TripDraft) => void;
 };
 
+type PersistedThreadMessage = {
+  id?: string;
+  role: "assistant" | "user" | "system";
+  createdAt?: string;
+  content: string;
+};
+
+const CHAT_HISTORY_STORAGE_PREFIX = "wandrix:chat-history:";
+
 export function TravelPlannerAssistant({
   workspace,
   isBootstrapping,
   workspaceError,
   onDraftUpdated,
 }: TravelPlannerAssistantProps) {
+  const [profileContext, setProfileContext] = useState<PlannerProfileContext | null>(
+    null,
+  );
+  const [savedMessages, setSavedMessages] = useState<PersistedThreadMessage[] | null>(
+    null,
+  );
+
+  const tripId = workspace?.trip.trip_id ?? null;
+
+  useEffect(() => {
+    async function loadSavedMessages() {
+      if (!tripId) {
+        setSavedMessages([]);
+        return;
+      }
+
+      try {
+        const rawValue = window.localStorage.getItem(
+          `${CHAT_HISTORY_STORAGE_PREFIX}${tripId}`,
+        );
+
+        if (!rawValue) {
+          setSavedMessages([]);
+          return;
+        }
+
+        const parsed = JSON.parse(rawValue);
+
+        if (!Array.isArray(parsed)) {
+          setSavedMessages([]);
+          return;
+        }
+
+        setSavedMessages(
+          parsed.flatMap((entry) => {
+            if (
+              !entry ||
+              typeof entry !== "object" ||
+              !("role" in entry) ||
+              !("content" in entry)
+            ) {
+              return [];
+            }
+
+            const candidate = entry as Record<string, unknown>;
+            const role = candidate.role;
+            const content = candidate.content;
+
+            if (
+              (role !== "assistant" && role !== "user" && role !== "system") ||
+              typeof content !== "string"
+            ) {
+              return [];
+            }
+
+            return [
+              {
+                id: typeof candidate.id === "string" ? candidate.id : undefined,
+                role,
+                content,
+                createdAt:
+                  typeof candidate.createdAt === "string"
+                    ? candidate.createdAt
+                    : undefined,
+              } satisfies PersistedThreadMessage,
+            ];
+          }),
+        );
+      } catch {
+        setSavedMessages([]);
+      }
+    }
+
+    void loadSavedMessages();
+  }, [tripId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProfileContext() {
+      const supabase = createSupabaseBrowserClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const userId = session?.user?.id;
+      const userMetadata =
+        session?.user?.user_metadata && typeof session.user.user_metadata === "object"
+          ? (session.user.user_metadata as Record<string, unknown>)
+          : {};
+
+      if (!userId) {
+        if (!cancelled) {
+          setProfileContext(null);
+        }
+        return;
+      }
+
+      const storageKey = `wandrix:profile-defaults:${userId}`;
+
+      try {
+        const stored = window.localStorage.getItem(storageKey);
+        const parsed = stored ? (JSON.parse(stored) as Record<string, unknown>) : {};
+
+        if (!cancelled) {
+          setProfileContext({
+            display_name:
+              typeof parsed.displayName === "string"
+                ? parsed.displayName
+                : typeof userMetadata.full_name === "string"
+                  ? userMetadata.full_name
+                  : typeof userMetadata.name === "string"
+                    ? userMetadata.name
+                    : null,
+            first_name:
+              typeof parsed.firstName === "string" ? parsed.firstName : null,
+            home_airport:
+              typeof parsed.homeAirport === "string" ? parsed.homeAirport : null,
+            preferred_currency:
+              typeof parsed.preferredCurrency === "string"
+                ? parsed.preferredCurrency
+                : null,
+            home_city: typeof parsed.homeCity === "string" ? parsed.homeCity : null,
+            home_country:
+              typeof parsed.homeCountry === "string" ? parsed.homeCountry : null,
+            trip_pace: typeof parsed.tripPace === "string" ? parsed.tripPace : null,
+            preferred_styles: Array.isArray(parsed.preferredStyles)
+              ? parsed.preferredStyles.filter(
+                  (value): value is string => typeof value === "string",
+                )
+              : [],
+            location_summary:
+              typeof parsed.locationSummary === "string"
+                ? parsed.locationSummary
+                : null,
+            location_assist_enabled:
+              typeof parsed.locationAssistEnabled === "boolean"
+                ? parsed.locationAssistEnabled
+                : null,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setProfileContext(null);
+        }
+      }
+    }
+
+    void loadProfileContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const adapter = useMemo<ChatModelAdapter>(
     () => ({
       async *run({ messages, abortSignal }) {
@@ -52,6 +218,7 @@ export function TravelPlannerAssistant({
           workspace,
           workspaceError,
           latestText,
+          profileContext,
           onDraftUpdated,
         });
 
@@ -72,25 +239,83 @@ export function TravelPlannerAssistant({
         }
       },
     }),
-    [isBootstrapping, onDraftUpdated, workspace, workspaceError],
+    [isBootstrapping, onDraftUpdated, profileContext, workspace, workspaceError],
   );
 
-  const runtime = useLocalRuntime(adapter);
+  if (tripId && savedMessages === null) {
+    return (
+      <section className="relative flex h-full min-h-0 flex-col bg-[color:var(--chat-pane-bg)]">
+        <div className="flex min-h-0 flex-1 items-center justify-center px-8">
+          <div className="max-w-md text-center">
+            <p className="text-sm font-medium text-foreground">
+              Restoring this trip conversation
+            </p>
+            <p className="mt-2 text-sm leading-7 text-muted-foreground">
+              Pulling the most recent local thread state back into the workspace so
+              the chat and live board feel connected again.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <TravelPlannerAssistantRuntime
+      key={tripId ?? "wandrix-chat-empty"}
+      adapter={adapter}
+      tripId={tripId}
+      initialMessages={savedMessages ?? []}
+      profileContext={profileContext}
+      isBootstrapping={isBootstrapping}
+      hasWorkspace={Boolean(workspace)}
+      hasError={Boolean(workspaceError)}
+    />
+  );
+}
+
+function TravelPlannerAssistantRuntime({
+  adapter,
+  tripId,
+  initialMessages,
+  profileContext,
+  isBootstrapping,
+  hasWorkspace,
+  hasError,
+}: {
+  adapter: ChatModelAdapter;
+  tripId: string | null;
+  initialMessages: PersistedThreadMessage[];
+  profileContext: PlannerProfileContext | null;
+  isBootstrapping: boolean;
+  hasWorkspace: boolean;
+  hasError: boolean;
+}) {
+  const runtime = useLocalRuntime(adapter, {
+    initialMessages: initialMessages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      createdAt: message.createdAt ? new Date(message.createdAt) : undefined,
+    })),
+  });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <PersistedThreadStateSync tripId={tripId} />
       <section className="relative flex h-full min-h-0 flex-col bg-[color:var(--chat-pane-bg)]">
         <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <ThreadPrimitive.Viewport className="chat-workspace-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-8">
             <ThreadPrimitive.Empty>
               <AssistantWelcome
                 disabled={isBootstrapping}
-                hasWorkspace={Boolean(workspace)}
-                hasError={Boolean(workspaceError)}
+                hasWorkspace={hasWorkspace}
+                hasError={hasError}
+                profileContext={profileContext}
               />
             </ThreadPrimitive.Empty>
 
-            <div className="mx-auto mt-auto flex w-full max-w-4xl flex-col gap-6 pb-40">
+            <div className="mx-auto mt-auto flex w-full max-w-[52rem] flex-col gap-6 pb-40">
               <ThreadPrimitive.Messages
                 components={{
                   UserMessage,
@@ -107,25 +332,76 @@ export function TravelPlannerAssistant({
   );
 }
 
+function PersistedThreadStateSync({ tripId }: { tripId: string | null }) {
+  const messages = useThread((state) => state.messages);
+
+  useEffect(() => {
+    if (!tripId) {
+      return;
+    }
+
+    const persistedMessages = messages.flatMap((message) => {
+      const textContent = message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim();
+
+      if (!textContent) {
+        return [];
+      }
+
+      return [
+        {
+          id: message.id,
+          role: message.role,
+          content: textContent,
+          createdAt:
+            message.createdAt instanceof Date
+              ? message.createdAt.toISOString()
+              : undefined,
+        } satisfies PersistedThreadMessage,
+      ];
+    });
+
+    window.localStorage.setItem(
+      `${CHAT_HISTORY_STORAGE_PREFIX}${tripId}`,
+      JSON.stringify(persistedMessages),
+    );
+  }, [messages, tripId]);
+
+  return null;
+}
+
 function AssistantWelcome({
   disabled,
   hasWorkspace,
   hasError,
+  profileContext,
 }: {
   disabled: boolean;
   hasWorkspace: boolean;
   hasError: boolean;
+  profileContext: PlannerProfileContext | null;
 }) {
+  const greetingName =
+    profileContext?.first_name ||
+    profileContext?.display_name?.split(" ")[0] ||
+    "there";
+  const contextLine = buildWelcomeContextLine(profileContext);
+
   return (
-    <div className="mx-auto flex h-full min-h-[24rem] w-full max-w-4xl flex-col justify-end gap-6 px-1 pt-2">
+    <div className="mx-auto flex h-full min-h-[24rem] w-full max-w-[52rem] flex-col justify-end gap-6 px-1 pt-2">
       <div className="space-y-2">
         <div className="text-xs font-medium uppercase tracking-[0.22em] text-[color:var(--accent)]">
           Wandrix planner
         </div>
         <div className="space-y-2">
-          <div className="text-sm font-semibold text-foreground">Start with a trip idea</div>
+          <div className="text-sm font-semibold text-foreground">
+            {`Hey ${greetingName}, I’m Wandrix.`}
+          </div>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            Pick a starting point and refine the details in chat.
+            {contextLine}
           </p>
         </div>
         {disabled ? (
@@ -148,7 +424,11 @@ function AssistantWelcome({
       <div className="grid gap-3 sm:grid-cols-2">
         <ThreadPrimitive.Suggestion
           className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-          prompt="Plan a 5-day food and culture trip to Kyoto for two adults."
+          prompt={
+            profileContext?.home_airport
+              ? `Plan a 5-day food and culture trip to Kyoto from ${profileContext.home_airport} for two adults.`
+              : "Plan a 5-day food and culture trip to Kyoto for two adults."
+          }
           autoSend
           disabled={disabled || !hasWorkspace}
         >
@@ -162,12 +442,18 @@ function AssistantWelcome({
             Kyoto food and culture
           </div>
           <div className="mt-1 text-sm leading-6 text-muted-foreground">
-            Plan a 5-day food and culture trip to Kyoto for two adults.
+            {profileContext?.home_airport
+              ? `Plan a 5-day food and culture trip to Kyoto from ${profileContext.home_airport} for two adults.`
+              : "Plan a 5-day food and culture trip to Kyoto for two adults."}
           </div>
         </ThreadPrimitive.Suggestion>
         <ThreadPrimitive.Suggestion
           className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-          prompt="Help me shape a luxury long weekend in Lisbon with flights and hotel ideas."
+          prompt={
+            profileContext?.preferred_currency
+              ? `Help me shape a luxury long weekend in Lisbon with flights and hotel ideas, and keep the budget in ${profileContext.preferred_currency}.`
+              : "Help me shape a luxury long weekend in Lisbon with flights and hotel ideas."
+          }
           autoSend
           disabled={disabled || !hasWorkspace}
         >
@@ -181,7 +467,9 @@ function AssistantWelcome({
             Lisbon luxury weekend
           </div>
           <div className="mt-1 text-sm leading-6 text-muted-foreground">
-            Help me shape a luxury long weekend in Lisbon with flights and hotel ideas.
+            {profileContext?.preferred_currency
+              ? `Help me shape a luxury long weekend in Lisbon with flights and hotel ideas, and keep the budget in ${profileContext.preferred_currency}.`
+              : "Help me shape a luxury long weekend in Lisbon with flights and hotel ideas."}
           </div>
         </ThreadPrimitive.Suggestion>
         <ThreadPrimitive.Suggestion
@@ -264,7 +552,7 @@ function AssistantMessage() {
 function Composer() {
   return (
     <ComposerPrimitive.Root className="border-t border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)] px-4 pb-4 pt-3 sm:px-8">
-      <div className="mx-auto w-full max-w-4xl">
+      <div className="mx-auto w-full max-w-[52rem]">
         <div className="overflow-hidden rounded-xl border border-[color:var(--chat-rail-border-strong)] bg-[color:var(--chat-rail-surface-strong)] p-2">
           <div className="flex items-end gap-2">
             <div className="flex min-w-0 flex-1 rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] px-3 py-2.5 transition-colors focus-within:border-[color:var(--accent)]/45">
@@ -337,12 +625,14 @@ async function buildAssistantReply({
   workspace,
   workspaceError,
   latestText,
+  profileContext,
   onDraftUpdated,
 }: {
   isBootstrapping: boolean;
   workspace: PlannerWorkspaceState | null;
   workspaceError: string | null;
   latestText: string;
+  profileContext: PlannerProfileContext | null;
   onDraftUpdated: (tripDraft: TripDraft) => void;
 }) {
   if (isBootstrapping || workspaceError || !workspace || !latestText) {
@@ -367,7 +657,10 @@ async function buildAssistantReply({
   try {
     const response = await sendTripConversationMessage(
       workspace.trip.trip_id,
-      { message: latestText },
+      {
+        message: latestText,
+        profile_context: profileContext ?? undefined,
+      },
       session.access_token,
     );
     const updatedDraft = await getTripDraft(
@@ -382,6 +675,34 @@ async function buildAssistantReply({
       ? error.message
       : "The backend conversation bridge failed unexpectedly.";
   }
+}
+
+function buildWelcomeContextLine(profileContext: PlannerProfileContext | null) {
+  if (!profileContext) {
+    return "Tell me where you want to go, how you want the trip to feel, and I’ll start shaping it with the live board on the right.";
+  }
+
+  const contextBits = [
+    profileContext.home_airport
+      ? `starting from ${profileContext.home_airport}`
+      : null,
+    profileContext.preferred_currency
+      ? `working in ${profileContext.preferred_currency}`
+      : null,
+    profileContext.home_city
+      ? `using ${profileContext.home_city}${
+          profileContext.home_country ? `, ${profileContext.home_country}` : ""
+        } as your home base`
+      : profileContext.home_country
+        ? `using ${profileContext.home_country} as your home base`
+        : null,
+  ].filter(Boolean);
+
+  if (contextBits.length === 0) {
+    return "Tell me where you want to go, how you want the trip to feel, and I’ll start shaping it with the live board on the right.";
+  }
+
+  return `I can start with ${contextBits.join(", ")} as soft defaults, but anything you say in chat will take priority for this trip.`;
 }
 
 function buildFallbackAssistantReply({

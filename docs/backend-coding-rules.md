@@ -54,8 +54,8 @@ Validate and normalize AI responses before using them in downstream logic or ret
 3. Separate orchestration from provider calls.
 `services/` should decide what to generate; `integrations/llm/` should handle the actual model request.
 
-4. Do not treat deterministic extraction as the primary planner strategy.
-Heuristic parsing is allowed only as a temporary fallback or safety net. New planner understanding should move toward LLM-first structured extraction.
+4. Do not use deterministic extraction for planner understanding.
+Planner updates should come from LLM-first structured extraction, validation, and clarification instead of regex or keyword parsing.
 
 5. Prefer clarification over brittle guessing.
 If a user message is ambiguous, the planner should ask a follow-up question or keep the field inferred, rather than hard-locking a value from a weak heuristic.
@@ -108,5 +108,5 @@ When changing response shapes used by the frontend, coordinate the frontend upda
 4. Append meaningful backend changes to `CHANGELOG.md`.
 Each entry must include both technical detail and a plain-English explanation.
 
-5. Reduce heuristic parsing over time.
+5. Do not add heuristic parsing to new planner work.
 Do not add more regex and keyword rules as the default way to understand user intent unless there is a strong short-term reason and a clear plan to replace them.
