@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { TravelPlannerAssistant } from "@/components/assistant/travel-planner-assistant";
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
+import { useChatSidebarCollapsedState } from "@/components/chat/use-chat-sidebar-collapsed-state";
 import { TripBoardPreview } from "@/components/package/trip-board-preview";
 import { createBrowserSession } from "@/lib/api/browser-sessions";
 import { createTrip, getTrip, getTripDraft, listTrips } from "@/lib/api/trips";
@@ -15,7 +16,6 @@ import type { TripListItemResponse } from "@/types/trip";
 
 
 const BROWSER_SESSION_STORAGE_KEY = "wandrix.browser_session_id";
-const CHAT_SIDEBAR_COLLAPSED_KEY = "wandrix.chat_sidebar_collapsed";
 const LAST_ACTIVE_TRIP_STORAGE_KEY = "wandrix.last_active_trip_id";
 const RECENT_TRIPS_LIMIT = 24;
 const TRIP_LIST_BOOTSTRAP_TIMEOUT_MS = 3500;
@@ -31,20 +31,8 @@ export function TravelPackageWorkspace() {
   const [recentTrips, setRecentTrips] = useState<TripListItemResponse[]>([]);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return window.localStorage.getItem(CHAT_SIDEBAR_COLLAPSED_KEY) === "true";
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      CHAT_SIDEBAR_COLLAPSED_KEY,
-      isSidebarCollapsed ? "true" : "false",
-    );
-  }, [isSidebarCollapsed]);
+  const { isSidebarCollapsed, setIsSidebarCollapsed } =
+    useChatSidebarCollapsedState();
 
   useEffect(() => {
     let cancelled = false;

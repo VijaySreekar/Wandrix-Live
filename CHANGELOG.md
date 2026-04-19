@@ -9,6 +9,22 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-19 - Deferred Sidebar Preference Hydration In Chat Workspaces
+
+Technical Summary:
+- Added a shared chat-sidebar preference hook that reads the persisted collapsed state only after mount instead of during the initial render.
+- Updated both the main `/chat` workspace shell and the `/board-preview` sandbox to use the shared hook so server-rendered markup starts from the same sidebar shape as the client.
+- Prevented the first client render from immediately overwriting the saved sidebar preference before that preference has been loaded from `localStorage`.
+
+Plain-English Summary:
+- The planner shell should stop fighting itself on load when the sidebar was previously collapsed.
+- Wandrix now restores the sidebar preference after the page mounts, which avoids a hydration mismatch in the chat-and-board layout and should make the workspace feel steadier.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/use-chat-sidebar-collapsed-state.ts`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+
 ## 2026-04-19 - Aborted Stalled Chat Workspace Requests
 
 Technical Summary:

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
+import { useChatSidebarCollapsedState } from "@/components/chat/use-chat-sidebar-collapsed-state";
 import { TripBoardPreview } from "@/components/package/trip-board-preview";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { TripListItemResponse } from "@/types/trip";
@@ -34,17 +35,10 @@ const SANDBOX_SCENARIOS: Array<{
   },
 ];
 
-const CHAT_SIDEBAR_COLLAPSED_KEY = "wandrix.chat_sidebar_collapsed";
-
 export function TripBoardSandbox() {
   const [activeScenario, setActiveScenario] = useState<SandboxScenarioKey>("kyoto");
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return window.localStorage.getItem(CHAT_SIDEBAR_COLLAPSED_KEY) === "true";
-  });
+  const { isSidebarCollapsed, setIsSidebarCollapsed } =
+    useChatSidebarCollapsedState();
 
   const workspace = useMemo(
     () => buildSandboxWorkspace(activeScenario),
@@ -57,13 +51,6 @@ export function TripBoardSandbox() {
       SANDBOX_SCENARIOS[0],
     [activeScenario],
   );
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      CHAT_SIDEBAR_COLLAPSED_KEY,
-      isSidebarCollapsed ? "true" : "false",
-    );
-  }, [isSidebarCollapsed]);
 
   return (
     <main className="h-[calc(100vh-4.75rem)] overflow-hidden bg-background">
