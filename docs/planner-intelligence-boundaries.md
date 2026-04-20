@@ -723,7 +723,7 @@ Suggested priority values:
 
 | ID | Priority | Status | Change | Main Files | Why It Matters | Safe Shape |
 | --- | --- | --- | --- | --- | --- | --- |
-| PI-01 | P0 | in progress | Add per-field confidence semantics | `backend/app/graph/planner/turn_models.py`, `backend/app/schemas/trip_conversation.py` | The planner needs to say how sure it is, not just what it thinks | Let the model return structured confidence signals and store them in memory |
+| PI-01 | P0 | reviewing | Add per-field confidence semantics | `backend/app/graph/planner/turn_models.py`, `backend/app/schemas/trip_conversation.py`, `backend/app/graph/planner/runner.py` | The planner needs to say how sure it is, not just what it thinks | Let the model return structured confidence signals and store them in memory |
 | PI-02 | P0 | not started | Add per-field source semantics | `backend/app/graph/planner/turn_models.py`, `backend/app/schemas/trip_conversation.py` | We need to know whether a fact came from the user, the board, profile context, or inference | Extend structured output and state bookkeeping, not raw-text heuristics |
 | PI-03 | P0 | in progress | Tighten explicit vs inferred merge rules | `backend/app/graph/planner/conversation_state.py` | Prevent inferred details from silently behaving like confirmed facts | Deterministic merge precedence after structured output is produced |
 | PI-04 | P0 | not started | Improve correction handling | `backend/app/graph/planner/conversation_state.py`, `backend/app/schemas/trip_conversation.py` | Users change their minds often; the planner must update cleanly | Track corrections and rejected history explicitly |
@@ -756,7 +756,9 @@ This section explains each change one by one so implementation stays precise.
 ## PI-01. Add Per-Field Confidence Semantics
 
 Progress update:
-- 2026-04-20: Added structured `field_confidences` output to planner turn updates, stored confidence levels in conversation field memory, and removed source-only confidence scoring for newly merged planner facts.
+- 2026-04-20: implemented.
+- 2026-04-21: testing done once.
+- 2026-04-21: Added runner-side hydration so older persisted drafts rebuild structured field memory from legacy confirmed and inferred status fields, plus direct regression coverage and a live signed-in verification pass.
 
 ### What this change is
 

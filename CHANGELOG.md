@@ -9,6 +9,27 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-21 - Hydrated Legacy Planner Confidence Memory And Verified PI-01 Live
+
+Technical Summary:
+- Added runner-side hydration that rebuilds `conversation.memory.field_memory` from legacy `status.confirmed_fields` and `status.inferred_fields` when older persisted drafts do not yet carry structured field memory.
+- Hydrated legacy confirmed fields as high-confidence explicit memory entries and legacy inferred fields as medium-confidence inferred entries so older trips continue to participate in the newer field-confidence model on the next turn.
+- Updated stale backend tests to the current runner-based planner flow and added direct regression coverage that legacy confirmed and inferred fields hydrate back into structured planner memory on the next processed turn.
+- Installed `pytest` in the local backend virtual environment to restore backend verification, then validated the change with targeted planner tests, the full backend test suite, and a live smoke test through the existing signed-in chat session on the `DevTools Snapshot Proof Trip`.
+
+Plain-English Summary:
+- Older trips no longer lose planner certainty data just because they were saved before the newer confidence memory existed.
+- When the planner revisits an existing trip, it now rebuilds that memory and keeps working with explicit vs inferred facts safely.
+- In the live app test, a fuzzy message about flying from London versus Manchester kept London as the working departure point, stored a medium confidence level for it, and remembered Manchester as an alternative instead of switching too aggressively.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `backend/tests/test_trip_draft_schema.py`
+- `backend/tests/test_trip_service.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
 ## 2026-04-20 - Added Structured Planner Field Confidence
 
 Technical Summary:

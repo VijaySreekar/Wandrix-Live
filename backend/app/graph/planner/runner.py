@@ -19,6 +19,7 @@ from app.graph.state import PlanningGraphState
 from app.schemas.conversation import ConversationBoardAction
 from app.schemas.trip_conversation import (
     CheckpointConversationMessage,
+    ConversationFieldMemory,
     PlannerConfirmationStatus,
     PlannerFinalizedVia,
     PlannerIntent,
@@ -55,6 +56,11 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
     user_input = state.get("user_input", "").strip()
     now = datetime.now(timezone.utc)
     turn_id = f"turn_{uuid4().hex[:10]}"
+    current_conversation = _hydrate_conversation_memory_from_status(
+        conversation=current_conversation,
+        status=current_status,
+        configuration=previous_configuration,
+    )
 
     llm_update = generate_llm_trip_update(
         user_input=user_input,
@@ -302,6 +308,65 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
             "turn_id": turn_id,
         },
     }
+
+
+def _hydrate_conversation_memory_from_status(
+    *,
+    conversation: TripConversationState,
+    status: TripDraftStatus,
+    configuration: TripConfiguration,
+) -> TripConversationState:
+    if not status.confirmed_fields and not status.inferred_fields:
+        return conversation
+
+    next_conversation = conversation.model_copy(deep=True)
+    field_memory = dict(next_conversation.memory.field_memory)
+
+    for field in status.confirmed_fields:
+        if field in field_memory:
+            continue
+        value = _get_configuration_value(configuration, field)
+        if value in (None, "", [], {}):
+            continue
+        field_memory[field] = ConversationFieldMemory(
+            field=field,
+            value=value,
+            confidence_level="high",
+            confidence=None,
+            source="user_explicit",
+        )
+
+    for field in status.inferred_fields:
+        if field in field_memory:
+            continue
+        value = _get_configuration_value(configuration, field)
+        if value in (None, "", [], {}):
+            continue
+        field_memory[field] = ConversationFieldMemory(
+            field=field,
+            value=value,
+            confidence_level="medium",
+            confidence=None,
+            source="user_inferred",
+        )
+
+    next_conversation.memory.field_memory = field_memory
+    return next_conversation
+
+
+def _get_configuration_value(
+    configuration: TripConfiguration,
+    field: str,
+):
+    if field == "adults":
+        return configuration.travelers.adults
+    if field == "children":
+        return configuration.travelers.children
+    if field == "activity_styles":
+        return configuration.activity_styles
+    if field == "selected_modules":
+        return configuration.selected_modules.model_dump(mode="json")
+    return getattr(configuration, field)
 
 
 def _resolve_trip_title(
