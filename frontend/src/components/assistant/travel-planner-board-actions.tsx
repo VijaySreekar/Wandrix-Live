@@ -12,6 +12,7 @@ type TravelPlannerBoardActionsProps = {
   disabled: boolean;
   onHandled: (actionId: string) => void;
   onActionReadyForBackend: (action: ConversationBoardAction) => void;
+  onDirectActionSubmit: (action: ConversationBoardAction) => Promise<string>;
 };
 
 export function TravelPlannerBoardActions({
@@ -19,10 +20,12 @@ export function TravelPlannerBoardActions({
   disabled,
   onHandled,
   onActionReadyForBackend,
+  onDirectActionSubmit,
 }: TravelPlannerBoardActionsProps) {
   const threadRuntime = useThreadRuntime();
   const isRunning = useThread((state) => state.isRunning);
   const handledActionIdRef = useRef<string | null>(null);
+  const submittingActionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!pendingBoardAction) {
@@ -53,6 +56,8 @@ export function TravelPlannerBoardActions({
       destination_name: pendingBoardAction.destination_name,
       country_or_region: pendingBoardAction.country_or_region,
       suggestion_id: pendingBoardAction.suggestion_id,
+      from_location: pendingBoardAction.from_location,
+      to_location: pendingBoardAction.to_location,
       selected_modules: pendingBoardAction.selected_modules,
       travel_window: pendingBoardAction.travel_window,
       trip_length: pendingBoardAction.trip_length,
@@ -64,6 +69,45 @@ export function TravelPlannerBoardActions({
       budget_posture: pendingBoardAction.budget_posture,
       budget_gbp: pendingBoardAction.budget_gbp,
     };
+
+    if (
+      pendingBoardAction.type === "finalize_quick_plan" ||
+      pendingBoardAction.type === "reopen_plan"
+    ) {
+      if (submittingActionIdRef.current === pendingBoardAction.action_id) {
+        return;
+      }
+
+      submittingActionIdRef.current = pendingBoardAction.action_id;
+
+      void onDirectActionSubmit(backendAction)
+        .then((assistantMessage) => {
+          threadRuntime.append({
+            role: "assistant",
+            content: [{ type: "text", text: assistantMessage }],
+          });
+        })
+        .catch((error: unknown) => {
+          threadRuntime.append({
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? error.message
+                    : "That board action could not be completed right now.",
+              },
+            ],
+          });
+        })
+        .finally(() => {
+          handledActionIdRef.current = pendingBoardAction.action_id;
+          onHandled(pendingBoardAction.action_id);
+          submittingActionIdRef.current = null;
+        });
+      return;
+    }
 
     onActionReadyForBackend(backendAction);
     threadRuntime.append({
@@ -81,6 +125,7 @@ export function TravelPlannerBoardActions({
   }, [
     disabled,
     isRunning,
+    onDirectActionSubmit,
     onActionReadyForBackend,
     onHandled,
     pendingBoardAction,
@@ -97,6 +142,14 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
 
   if (action.type === "select_advanced_plan") {
     return "I want Advanced Planning, but if it is not available yet then default to Quick Plan and start the itinerary.";
+  }
+
+  if (action.type === "finalize_quick_plan") {
+    return "Finalize this quick plan from the board.";
+  }
+
+  if (action.type === "reopen_plan") {
+    return "Reopen this finalized trip from the board.";
   }
 
   if (action.type === "confirm_trip_details") {

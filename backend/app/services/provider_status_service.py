@@ -11,6 +11,10 @@ def get_provider_statuses() -> ProviderStatusResponse:
     return ProviderStatusResponse(
         items=[
             _get_amadeus_status(),
+            _get_xotelo_status(),
+            _get_agoda_status(),
+            _get_hotels_com_status(),
+            _get_travel_advisor_status(),
         ]
     )
 
@@ -63,3 +67,71 @@ def _extract_http_error_message(error: httpx.HTTPStatusError) -> str:
         pass
 
     return f"Amadeus authentication failed with status {error.response.status_code}."
+
+
+def _get_xotelo_status() -> ProviderStatusItem:
+    settings = get_settings()
+    checked_at = datetime.now(timezone.utc)
+
+    if not settings.rapidapi_key:
+        return ProviderStatusItem(
+            provider="xotelo",
+            status="not_configured",
+            message="RapidAPI key is not configured for Xotelo hotel discovery.",
+            checked_at=checked_at,
+        )
+
+    return ProviderStatusItem(
+        provider="xotelo",
+        status="ok",
+        message="RapidAPI key is configured for Xotelo cached hotel discovery.",
+        checked_at=checked_at,
+    )
+
+
+def _get_agoda_status() -> ProviderStatusItem:
+    return _build_rapidapi_reference_status(
+        provider="agoda",
+        configured_message="RapidAPI key is configured for Agoda property-level hotel enrichment.",
+        missing_message="RapidAPI key is not configured for Agoda hotel enrichment.",
+    )
+
+
+def _get_hotels_com_status() -> ProviderStatusItem:
+    return _build_rapidapi_reference_status(
+        provider="hotels_com",
+        configured_message="RapidAPI key is configured for Hotels.com property review enrichment.",
+        missing_message="RapidAPI key is not configured for Hotels.com property review enrichment.",
+    )
+
+
+def _get_travel_advisor_status() -> ProviderStatusItem:
+    return _build_rapidapi_reference_status(
+        provider="travel_advisor",
+        configured_message="RapidAPI key is configured for Travel Advisor reference enrichment.",
+        missing_message="RapidAPI key is not configured for Travel Advisor reference enrichment.",
+    )
+
+
+def _build_rapidapi_reference_status(
+    *,
+    provider: str,
+    configured_message: str,
+    missing_message: str,
+) -> ProviderStatusItem:
+    settings = get_settings()
+    checked_at = datetime.now(timezone.utc)
+    if not settings.rapidapi_key:
+        return ProviderStatusItem(
+            provider=provider,
+            status="not_configured",
+            message=missing_message,
+            checked_at=checked_at,
+        )
+
+    return ProviderStatusItem(
+        provider=provider,
+        status="ok",
+        message=configured_message,
+        checked_at=checked_at,
+    )

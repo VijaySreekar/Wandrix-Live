@@ -13,10 +13,17 @@ from app.graph.planner.location_context import resolve_planner_location_context
 from app.graph.planner.quick_plan import generate_quick_plan_draft
 from app.graph.planner.provider_enrichment import build_module_outputs, build_timeline
 from app.graph.planner.response_builder import build_assistant_response
+from app.graph.planner.turn_models import TripTurnUpdate
 from app.graph.planner.understanding import generate_llm_trip_update
 from app.graph.state import PlanningGraphState
 from app.schemas.conversation import ConversationBoardAction
-from app.schemas.trip_conversation import CheckpointConversationMessage, TripConversationState
+from app.schemas.trip_conversation import (
+    CheckpointConversationMessage,
+    PlannerConfirmationStatus,
+    PlannerFinalizedVia,
+    PlannerIntent,
+    TripConversationState,
+)
 from app.schemas.trip_draft import TripDraftStatus
 from app.schemas.trip_planning import TimelineItem, TripConfiguration, TripModuleOutputs
 
@@ -66,26 +73,47 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         llm_update,
         board_action=state.get("board_action", {}),
     )
+    current_confirmation_status = (
+        current_status.confirmation_status
+        if getattr(current_status, "confirmation_status", None)
+        else current_conversation.confirmation_status
+    )
+    reopen_requested = _is_reopen_requested(
+        llm_update=llm_update,
+        board_action=state.get("board_action", {}),
+    )
+    locked_without_reopen = (
+        current_confirmation_status == "finalized" and not reopen_requested
+    )
+    effective_input_update = (
+        _prepare_locked_turn_update(llm_update)
+        if locked_without_reopen
+        else llm_update
+    )
 
-    next_configuration = merge_trip_configuration(previous_configuration, llm_update)
+    next_configuration = (
+        previous_configuration.model_copy(deep=True)
+        if locked_without_reopen
+        else merge_trip_configuration(previous_configuration, effective_input_update)
+    )
     brief_confirmed = is_trip_brief_confirmed(
         current_conversation,
-        llm_update,
+        effective_input_update,
         state.get("board_action", {}),
     )
     planning_mode, planning_mode_status = _resolve_next_planning_mode(
         current_conversation=current_conversation,
-        llm_update=llm_update,
+        llm_update=effective_input_update,
         board_action=state.get("board_action", {}),
         brief_confirmed=brief_confirmed,
     )
     preserve_existing_quick_plan = _should_preserve_existing_quick_plan(
         current_conversation=current_conversation,
-        llm_update=llm_update,
+        llm_update=effective_input_update,
         board_action=state.get("board_action", {}),
     )
     effective_llm_update = _prepare_effective_llm_update(
-        llm_update=llm_update,
+        llm_update=effective_input_update,
         preserve_existing_quick_plan=preserve_existing_quick_plan,
     )
     if (
@@ -115,7 +143,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
             resolved_location_context,
         )
     )
-    if preserve_existing_quick_plan:
+    if locked_without_reopen or preserve_existing_quick_plan:
         module_outputs = existing_module_outputs
         timeline = existing_timeline
     else:
@@ -134,7 +162,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
             quick_plan_draft = generate_quick_plan_draft(
                 title=_resolve_trip_title(
                     current_title=trip_draft.get("title"),
-                    llm_title=llm_update.title,
+                    llm_title=effective_input_update.title,
                     configuration=next_configuration,
                 ),
                 configuration=next_configuration,
@@ -152,6 +180,17 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
             module_outputs=module_outputs,
             include_derived_when_preview_present=include_derived_when_preview_present,
         )
+    confirmation_status, finalized_at, finalized_via, confirmation_transition = (
+        _resolve_confirmation_state(
+            current_status=current_status,
+            current_conversation=current_conversation,
+            llm_update=effective_llm_update,
+            board_action=state.get("board_action", {}),
+            planning_mode=planning_mode,
+            timeline=timeline,
+            now=now,
+        )
+    )
 
     provisional_conversation = build_conversation_state(
         current=current_conversation,
@@ -168,15 +207,22 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         brief_confirmed=brief_confirmed,
         planning_mode=planning_mode,
         planning_mode_status=planning_mode_status,
+        confirmation_status=confirmation_status,
+        finalized_at=finalized_at,
+        finalized_via=finalized_via,
         record_memory=False,
     )
     assistant_response = build_assistant_response(
         configuration=next_configuration,
         conversation=provisional_conversation,
         llm_update=effective_llm_update,
-        fallback_text=llm_update.assistant_response,
+        fallback_text=effective_input_update.assistant_response,
+        locked_without_reopen=locked_without_reopen,
         profile_context=state.get("profile_context", {}),
         board_action=state.get("board_action", {}),
+        confirmation_status=confirmation_status,
+        finalized_via=finalized_via,
+        confirmation_transition=confirmation_transition,
     )
     next_conversation = build_conversation_state(
         current=current_conversation,
@@ -193,6 +239,9 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         brief_confirmed=brief_confirmed,
         planning_mode=planning_mode,
         planning_mode_status=planning_mode_status,
+        confirmation_status=confirmation_status,
+        finalized_at=finalized_at,
+        finalized_via=finalized_via,
     )
     next_status = build_status(
         current=current_status,
@@ -201,27 +250,41 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         module_outputs=module_outputs,
         now=now,
         resolved_location_context=resolved_location_context,
+        confirmation_status=confirmation_status,
+        finalized_at=finalized_at,
+        finalized_via=finalized_via,
     )
 
-    updated_messages = [
-        *raw_messages,
-        CheckpointConversationMessage(
-            role="user",
-            content=user_input,
-            created_at=now,
-        ).model_dump(mode="json"),
+    updated_messages = list(raw_messages)
+    if user_input:
+        updated_messages.append(
+            CheckpointConversationMessage(
+                role="user",
+                content=user_input,
+                created_at=now,
+            ).model_dump(mode="json")
+        )
+    elif state.get("board_action", {}):
+        updated_messages.append(
+            CheckpointConversationMessage(
+                role="system",
+                content=_build_board_action_audit_message(state.get("board_action", {})),
+                created_at=now,
+            ).model_dump(mode="json")
+        )
+    updated_messages.append(
         CheckpointConversationMessage(
             role="assistant",
             content=assistant_response,
             created_at=now,
-        ).model_dump(mode="json"),
-    ]
+        ).model_dump(mode="json")
+    )
 
     return {
         "trip_draft": {
             "title": _resolve_trip_title(
                 current_title=trip_draft.get("title"),
-                llm_title=llm_update.title,
+                llm_title=effective_input_update.title,
                 configuration=next_configuration,
             ),
             "configuration": next_configuration.model_dump(mode="json"),
@@ -314,3 +377,70 @@ def _prepare_effective_llm_update(
         "Advanced Planning is still in development, so Wandrix kept the current Quick Plan draft in place."
     )
     return effective_update
+
+
+def _prepare_locked_turn_update(llm_update) -> TripTurnUpdate:
+    return TripTurnUpdate(planner_intent=llm_update.planner_intent)
+
+
+def _is_reopen_requested(*, llm_update, board_action: dict) -> bool:
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    return bool(
+        (action and action.type == "reopen_plan")
+        or getattr(llm_update, "planner_intent", "none") == "reopen_plan"
+    )
+
+
+def _resolve_confirmation_state(
+    *,
+    current_status: TripDraftStatus,
+    current_conversation: TripConversationState,
+    llm_update,
+    board_action: dict,
+    planning_mode: str | None,
+    timeline: list[TimelineItem],
+    now: datetime,
+) -> tuple[
+    PlannerConfirmationStatus,
+    datetime | None,
+    PlannerFinalizedVia | None,
+    str,
+]:
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    current_confirmation_status = (
+        current_status.confirmation_status
+        if getattr(current_status, "confirmation_status", None)
+        else current_conversation.confirmation_status
+    )
+    current_finalized_at = (
+        current_status.finalized_at
+        if getattr(current_status, "finalized_at", None)
+        else current_conversation.finalized_at
+    )
+    current_finalized_via = (
+        current_status.finalized_via
+        if getattr(current_status, "finalized_via", None)
+        else current_conversation.finalized_via
+    )
+    planner_intent: PlannerIntent = getattr(llm_update, "planner_intent", "none")
+    quick_draft_ready = planning_mode == "quick" and len(timeline) > 0
+
+    if action and action.type == "reopen_plan" and current_confirmation_status == "finalized":
+        return ("unconfirmed", None, None, "reopened")
+    if planner_intent == "reopen_plan" and current_confirmation_status == "finalized":
+        return ("unconfirmed", None, None, "reopened")
+
+    if current_confirmation_status == "finalized":
+        return ("finalized", current_finalized_at, current_finalized_via, "none")
+
+    if action and action.type == "finalize_quick_plan" and quick_draft_ready:
+        return ("finalized", now, "board", "finalized")
+    if planner_intent == "confirm_plan" and quick_draft_ready:
+        return ("finalized", now, "chat", "finalized")
+
+    return ("unconfirmed", None, None, "none")
+
+
+def _build_board_action_audit_message(board_action: dict) -> str:
+    action = ConversationBoardAction.model_validate(board_action)
+    return f"Board action: {action.type}"

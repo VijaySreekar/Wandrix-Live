@@ -19,6 +19,9 @@ export type TripListItemResponse = TripCreateResponse & {
   updated_at: string;
   phase: ChatPlannerPhase | null;
   brochure_ready: boolean;
+  latest_brochure_snapshot_id: string | null;
+  latest_brochure_version: number | null;
+  brochure_versions_count: number;
   from_location: string | null;
   to_location: string | null;
   start_date: string | null;

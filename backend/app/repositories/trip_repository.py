@@ -58,7 +58,10 @@ def list_trips_for_user(
 ) -> list[TripModel]:
     statement = (
         select(TripModel)
-        .options(selectinload(TripModel.draft))
+        .options(
+            selectinload(TripModel.draft),
+            selectinload(TripModel.brochure_snapshots),
+        )
         .where(TripModel.user_id == user_id)
         .order_by(TripModel.updated_at.desc())
         .limit(limit)

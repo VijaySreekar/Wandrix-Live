@@ -1,9 +1,10 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
 from app.schemas.trip_conversation import (
     ConversationOptionKind,
+    PlannerIntent,
     PlannerPlanningMode,
     PlannerDecisionCard,
     TripFieldKey,
@@ -27,6 +28,8 @@ class ProposedTimelineItem(BaseModel):
     type: TimelineItemType
     title: str
     day_label: str | None = None
+    start_at: datetime | None = None
+    end_at: datetime | None = None
     location_label: str | None = None
     summary: str | None = None
     details: list[str] = Field(default_factory=list)
@@ -87,6 +90,7 @@ class TripTurnUpdate(BaseModel):
         default_factory=list,
         max_length=4,
     )
+    planner_intent: PlannerIntent = "none"
     requested_planning_mode: PlannerPlanningMode | None = None
     confirmed_trip_brief: bool = False
     assistant_response: str = ""

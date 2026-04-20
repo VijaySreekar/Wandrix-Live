@@ -9,6 +9,281 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-20 - Expanded Planner Intelligence Guide With Granular Tracker
+
+Technical Summary:
+- Expanded the planner intelligence boundary guide from a high-level rulebook into a granular implementation tracker with individual planner-intelligence change IDs.
+- Added a tracker table covering priority, status, target files, why each change matters, and the safe implementation shape for twenty-five distinct planner-intelligence tasks.
+- Added detailed per-change notes explaining exactly what each planner task is, why it matters, what the implementation should do, what it must not do, and before-and-after examples to reduce design mistakes during execution.
+- Kept the guidance aligned with the repo rule that planner understanding remains LLM-first while deterministic logic is limited to validation, merge semantics, gating, and persistence.
+
+Plain-English Summary:
+- The planner intelligence doc is now much more practical and much harder to misunderstand.
+- Instead of broad advice, it now breaks the work into small tracked changes and explains each one clearly with examples of good and bad behavior.
+- This should make it much easier to improve the planner carefully without slipping back into brittle keyword or rule-based logic.
+
+Files / Areas Touched:
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Documented Planner Intelligence Boundaries And Anti-Heuristic Rules
+
+Technical Summary:
+- Added a dedicated planner intelligence boundary document that defines the repo-safe split between LLM-first planner understanding and deterministic application logic.
+- Documented which planner changes are safe, which are unsafe, which gray zones need careful review, and how the boundary should be enforced in implementation and code review.
+- Included detailed Wandrix-specific before-and-after examples showing how broad asks, rough timing, corrections, profile defaults, confirmation language, provider triggering, and board actions should behave.
+- Added a practical review checklist and safe backlog guidance so future planner work can improve intelligence without drifting back into regex, keyword, or heuristic extraction.
+
+Plain-English Summary:
+- The repo now has a clear written rulebook for making the planner smarter without turning it into a brittle keyword parser.
+- This explains what kinds of intelligence upgrades are good, what kinds would be a mistake, and shows concrete examples so the boundary is easy to understand.
+- It should make future planner work much safer and more consistent.
+
+Files / Areas Touched:
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Restricted Saved Trips To Finalized Brochures Only
+
+## 2026-04-20 - Refined Hotel Cards In The Reference And Live Board Views
+
+Technical Summary:
+- Added a dedicated hotel reference card component so the hotel module workspace no longer renders flat text rows inline inside the already-large module workspace file.
+- Updated the hotel module surface to show a clearer stay window, address extraction, highlights, and source CTA when a provider link is available.
+- Refined the live board hotel summary so it mirrors the stay-focused structure more cleanly instead of showing only a generic gradient block and the first raw note.
+- Kept the hotel presentation grounded in the existing theme tokens and premium travel-product style without reintroducing generic dashboard card styling.
+
+Plain-English Summary:
+- Hotel results now look much more like real stay options and much less like raw backend data.
+- The hotels page is easier to scan, and the live board gives a cleaner snapshot of the current stay direction.
+- This makes the new Xotelo-backed hotel results feel like part of the product instead of a temporary data dump.
+
+Files / Areas Touched:
+- `frontend/src/components/hotels/hotel-reference-card.tsx`
+- `frontend/src/components/modules/trip-module-workspace.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Added Xotelo Hotel Search With RapidAPI Usage Tracking
+
+Technical Summary:
+- Added RapidAPI-backed hotel configuration and a shared RapidAPI client so hotel discovery can be routed through app-owned adapters rather than provider payloads leaking into the planner.
+- Introduced a new hotel provider service that uses Xotelo cached hotel search as the active destination-based hotel source, with a structured LLM fallback when cached provider results are unavailable.
+- Wired planner module enrichment to populate hotel outputs from the new provider chain instead of leaving the hotel layer unchanged.
+- Added app-owned provider usage metrics persistence, usage summary schemas and routes, and a new authenticated `/providers` frontend page to track monthly request budgets and last-known provider health.
+- Extended provider status reporting to include Xotelo plus the additional RapidAPI hotel/reference providers that are configured for future property-level expansion.
+- Validated the new flow with real Xotelo hotel searches, planner enrichment, usage counter increments, route-level provider endpoint checks, and frontend build/lint verification.
+
+Plain-English Summary:
+- Wandrix can now pull real cached hotel options through Xotelo instead of leaving hotels as an empty placeholder layer.
+- If cached hotel results are thin, the planner can still fall back to clearly-labeled AI hotel suggestions so the trip keeps moving.
+- There is now an in-product provider usage page so you can track how much of the RapidAPI hotel quota the app is using.
+
+Files / Areas Touched:
+- `backend/app/core/config.py`
+- `backend/app/integrations/rapidapi/client.py`
+- `backend/app/models/provider_usage_metric.py`
+- `backend/app/repositories/provider_usage_repository.py`
+- `backend/app/schemas/provider_usage.py`
+- `backend/app/services/provider_status_service.py`
+- `backend/app/services/provider_usage_service.py`
+- `backend/app/services/providers/hotels.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/api/routes/providers.py`
+- `backend/alembic/versions/3c9d8e7f6a5b_add_provider_usage_metrics.py`
+- `frontend/src/app/providers/page.tsx`
+- `frontend/src/components/auth/user-account-popover.tsx`
+- `frontend/src/components/modules/trip-module-workspace.tsx`
+- `frontend/src/components/providers/provider-usage-page.tsx`
+- `frontend/src/lib/api/providers.ts`
+- `frontend/src/types/provider-usage.ts`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Added Travelpayouts Cached Flight Fallback
+
+Technical Summary:
+- Added Travelpayouts configuration support to backend settings so Wandrix can use the repo `.env` token and base URL for cached Aviasales flight data.
+- Introduced a dedicated Travelpayouts integration client and a lightweight city/IATA lookup helper so flight fallback does not depend entirely on Amadeus location lookup succeeding.
+- Updated the flight provider layer to try Amadeus first, then fall back to Travelpayouts cached Aviasales offers when live search is unavailable or returns nothing useful.
+- Broadened the Travelpayouts request strategy to try exact-date cache lookups first and then month-level cache lookups, which works better for sparse cached availability.
+- Wired planner flight enrichment to use the shared fallback entry point instead of the Amadeus-only path and validated the flow with a live London-to-Barcelona smoke test.
+
+Plain-English Summary:
+- Wandrix can now show cached Aviasales flight options through Travelpayouts when Amadeus is unreliable.
+- This fits the current product direction well because cached flight results are enough for planning and comparison without needing fully live booking inventory.
+- Flights are now much less likely to disappear just because one provider is unstable.
+
+Files / Areas Touched:
+- `backend/app/core/config.py`
+- `backend/app/integrations/travelpayouts/client.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/services/providers/flights.py`
+- `backend/app/services/providers/iata_lookup.py`
+- `CHANGELOG.md`
+
+Technical Summary:
+- Updated the Saved Trips library so it now filters to `brochure_ready` trips only instead of mixing in in-progress and review-state planning sessions.
+- Removed the old trip-stage filter controls (`All trips`, `In progress`, `Ready for review`, `Brochure-ready`) and simplified the page into a brochure-only search surface.
+- Adjusted the trip cards and page copy so the shelf now speaks in terms of finalized brochure versions, PDF downloads, and history rather than active planning phases.
+
+Plain-English Summary:
+- The Saved Trips page now only shows trips that were actually finalized and turned into brochures.
+- Unfinished trips no longer appear there, and the page now behaves like a clean brochure archive instead of a mixed planning inbox.
+
+Files / Areas Touched:
+- `frontend/src/components/trips/trip-library.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Added Immutable Brochure Snapshots And Editorial PDF Flow
+
+Technical Summary:
+- Added a new `brochure_snapshots` persistence layer with versioned immutable brochure records, plus an Alembic migration to create the owned table in Supabase Postgres.
+- Wired the conversation finalization path so confirming a trip now creates a brochure snapshot automatically, reopening leaves earlier versions untouched, and re-finalizing creates the next version.
+- Added backend brochure services and routes for listing brochure history, loading the latest brochure, loading a specific brochure version, and rendering a server-side PDF with Playwright/Chromium.
+- Extended trip list contracts with brochure snapshot metadata so Saved Trips can show brochure version actions without extra guessing.
+- Replaced the old live-draft brochure page with an editorial snapshot-based brochure experience that includes a hero cover, version history rail, structured warnings, itinerary sections, and PDF download.
+- Updated Saved Trips to expose `Open brochure`, `Download PDF`, and `View history` for brochure-ready trips.
+- Installed Playwright, downloaded Chromium for server-side PDF rendering, and validated the full finalize -> reopen -> re-finalize path against the real database flow.
+
+Plain-English Summary:
+- Wandrix brochures are now saved as permanent versions when a trip is finalized instead of changing whenever the live trip draft changes.
+- Users can reopen a trip, make changes, and save a brand-new brochure version later without losing the older brochure they already finalized.
+- The brochure page now looks and behaves more like a polished travel document, and users can download the same saved brochure as a PDF.
+
+Files / Areas Touched:
+- `backend/app/models/brochure_snapshot.py`
+- `backend/app/repositories/brochure_snapshot_repository.py`
+- `backend/app/services/brochure_service.py`
+- `backend/app/services/conversation_service.py`
+- `backend/app/services/trip_service.py`
+- `backend/app/schemas/brochure.py`
+- `backend/app/schemas/trip.py`
+- `backend/app/api/routes/brochures.py`
+- `backend/app/api/router.py`
+- `backend/app/utils/destination_images.py`
+- `backend/alembic/env.py`
+- `backend/alembic/versions/2b7e8a9c4d1f_add_brochure_snapshots.py`
+- `backend/requirements.txt`
+- `frontend/src/types/brochure.ts`
+- `frontend/src/types/trip.ts`
+- `frontend/src/lib/api/brochures.ts`
+- `frontend/src/components/brochure/trip-brochure.tsx`
+- `frontend/src/components/trips/trip-library.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/lib/recent-trips-cache.ts`
+- `frontend/src/app/brochure/[tripId]/page.tsx`
+- `docs/architecture.md`
+- `docs/decision-log.md`
+- `README.md`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Fixed Board-Only Finalize Memory Crash
+
+Technical Summary:
+- Fixed the planner conversation-memory merge path so board-only actions no longer try to write an empty `user_message` into `ConversationTurnSummary`.
+- Added a board-action summary fallback in `conversation_state.py`, which lets finalize/reopen actions record a valid memory entry even when no free-text user message was sent.
+- Re-ran backend compile checks and a direct finalize-trip service call to confirm the quick-plan confirmation flow now reaches the finalized state successfully.
+
+Plain-English Summary:
+- The `Confirm plan` button was crashing because the backend expected a typed user message, even though this action came from the board.
+- Wandrix now records a proper board-action summary instead, so confirming a plan from the right-side board works normally.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Added Quick Plan Finalize And Reopen Flow
+
+Technical Summary:
+- Added a real quick-draft confirmation lifecycle to the planner state with `confirmation_status`, `finalized_at`, and `finalized_via` on both conversation and trip-draft status models.
+- Extended planner phases with `finalized` and updated the backend phase/status builders so brochure readiness is now derived from finalized state instead of generic review state.
+- Extended the structured LLM turn schema with `planner_intent` so chat can interpret `confirm_plan` and `reopen_plan` without regex or keyword parsing.
+- Added explicit board action types for `finalize_quick_plan` and `reopen_plan`, and mapped them into the same backend confirmation transition path as chat.
+- Updated the planner runner so finalized trips behave like a soft lock: the saved quick plan stays frozen until the user explicitly reopens planning.
+- Added assistant copy for the pre-confirm quick-draft prompt, the post-confirm success state, the reopen confirmation, and the “plan is still locked” response when someone tries to edit a finalized trip without reopening it.
+- Changed the board-action runtime so finalize and reopen actions are submitted as real board actions to the backend instead of synthetic free-text user messages.
+- Added the live-board confirm CTA, confirmation dialog, and reopen CTA on the quick-plan itinerary surface.
+- Updated starter/mock trip-draft data and sandbox data so the new finalized-state fields are represented consistently across the app.
+
+Plain-English Summary:
+- Users can now lock a quick trip plan from either chat or the right-side board.
+- Once the plan is confirmed, Wandrix treats it as finalized, saves it as brochure-ready, and points the user to Saved Trips as the place to open or download it later.
+- If the user wants to change the plan afterwards, they can reopen planning and keep editing instead of starting over.
+- The board button now behaves like a real planner action rather than pretending the user typed a confirmation message.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/trip_draft.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/app/layout.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Redesigned Summary Stats To Match Trip Details Board Styling
+
+Technical Summary:
+- Redesigned the summary stats section to match the exact styling pattern of the trip details board.
+- Converted each stat into its own card using `border-[var(--planner-board-border)]` and `bg-white`.
+- Changed layout from horizontal flex to vertical stack with icon on top.
+- Updated icon container to `size-10` with `rounded-full` and `bg-[var(--planner-board-cta)]/8`.
+- Icon color uses `text-[var(--planner-board-cta)]` for consistency.
+- Card padding standardized to `p-4` matching traveller cards.
+- Label uses `text-[var(--planner-board-muted)]` token.
+- Value text uses `text-[var(--planner-board-text)]` token with `font-medium`.
+- Grid gap set to `gap-4` for consistent card spacing.
+- All styling now uses planner board design tokens instead of generic theme tokens.
+
+Plain-English Summary:
+- The summary stats section (Route, Timing, Party, Planning mode) now matches the exact look and feel of the trip details board.
+- Each stat is in its own white card with consistent borders and spacing.
+- Icons are positioned at the top with the accent color, matching the traveller count cards.
+- The section now feels cohesive with the rest of the planning interface.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Improved Trip Live Board Spacing And Visual Breathing Room
+
+Technical Summary:
+- Increased padding and margins throughout the trip live board to reduce visual density.
+- Updated container padding from px-4 py-6 to px-6 py-8 (xl: px-8).
+- Increased section spacing from space-y-10 to space-y-12 and subsection spacing from space-y-6 to space-y-8.
+- Expanded gaps in grid layouts from gap-6 to gap-8 and summary stat grids from gap-4 to gap-5.
+- Increased timeline section padding from px-6 py-5 to px-7 py-6 and timeline item spacing from space-y-4 to space-y-5.
+- Adjusted timeline rail positioning and item gaps for better visual hierarchy.
+- Increased InfoCard padding from px-5 py-5 to px-6 py-6 and improved internal spacing.
+- Enhanced text line-height from leading-6 to leading-relaxed throughout for better readability.
+- Improved BoardHero spacing with larger gaps and more generous padding.
+- Adjusted tab button padding from px-4 py-2 to px-5 py-2.5.
+- Increased filter badge padding and gaps in FilterStack component.
+
+Plain-English Summary:
+- The trip live board now has much better breathing room and feels less cramped.
+- All sections, cards, and timeline items have more space between them.
+- Text is easier to read with improved line spacing.
+- The overall layout feels more premium and less cluttered.
+- Cards and sections have more generous padding making content easier to scan.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
 ## 2026-04-20 - Restored The Richer Live Trip Board Layout For Quick Plan
 
 Technical Summary:
@@ -23,6 +298,128 @@ Plain-English Summary:
 
 Files / Areas Touched:
 - `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Redesigned Itinerary Section With Cleaner Cards And Better Visual Flow
+
+Technical Summary:
+- Redesigned timeline day sections to use individual white cards with planner board borders instead of nested container layout.
+- Split day header into its own card separate from timeline items for better visual separation.
+- Converted timeline items to individual bordered cards with hover effects (`hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)]`).
+- Repositioned time display to the left with fixed width (`min-w-[4.5rem]`) and right-aligned tabular numbers.
+- Increased icon container size from `h-8 w-8` to `h-9 w-9` with `bg-[color:var(--accent)]/8` background.
+- Updated timeline rail to use gradient (`from-[color:var(--accent)]/20 via-[color:var(--accent)]/10 to-transparent`) instead of solid border.
+- Enhanced timeline markers: lead marker now `h-7 w-7` with stronger shadow, non-lead markers use `bg-[color:var(--accent)]/30`.
+- Added bullet points to detail lists with small circular markers (`h-1 w-1 rounded-full`).
+- Improved spacing: day sections use `space-y-4`, items use `space-y-3` for tighter grouping.
+- All cards now use consistent `border-[var(--planner-board-border)]` and `bg-white` matching trip details board.
+
+Plain-English Summary:
+- The itinerary timeline now looks much cleaner and more modern.
+- Each day and each activity is in its own white card, making it easier to scan.
+- The timeline rail has a subtle gradient fade effect instead of a plain line.
+- Times are positioned on the left with better alignment, and icons are slightly larger.
+- Cards have a subtle hover effect to show interactivity.
+- The overall design now matches the rest of the planning interface perfectly.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Simplified The Live Board And Relaxed The Top Summary Strip
+
+Technical Summary:
+- Removed the `Selections` tab and its supporting tab-switching logic from the live Quick Plan board so the right side stays focused on one primary itinerary view.
+- Replaced the cramped four-up summary strip with a calmer two-column summary block that uses the existing board theme, shell borders, and background tokens instead of the off-theme white card treatment.
+- Moved the most useful non-itinerary context into the right-side `Planner notes` card so the board still keeps key refinement signals without needing a second tab.
+
+Plain-English Summary:
+- The live trip board is now simpler and more focused.
+- There is no extra `Selections` tab anymore, and the top summary section feels less cramped and more in line with the rest of the board design.
+- The useful trip notes are still there, but they now live in the side panel instead of forcing a second view.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Split The Route Summary And Removed Planning Mode From The Top Strip
+
+Technical Summary:
+- Updated the live board summary strip so route information is shown as separate `From` and `To` cards instead of one cramped combined route card.
+- Removed the `Planning mode` card from the top summary area entirely to free space and let the remaining trip facts breathe.
+- Kept the same board shell and summary-card styling while improving information density and scanability.
+
+Plain-English Summary:
+- The top of the live board is easier to read now.
+- Instead of squeezing the full route into one box, it now shows where the trip starts and where it goes as separate items.
+- I also removed the planning-mode box from that row so the layout feels less cramped.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Removed The Mini Card Containers From The Live Board Summary Strip
+
+Technical Summary:
+- Simplified the top summary section of the live trip board by removing the individual stat-card containers around `From`, `To`, `Timing`, and `Party`.
+- Kept the outer board section intact while changing the inner summary layout to a cleaner four-column strip with spacing instead of nested boxes.
+
+Plain-English Summary:
+- The trip facts at the top of the board now feel lighter and less cramped.
+- Instead of looking like four separate small cards inside another card, they now sit together as one cleaner summary strip.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Stacked The Live Board Summary Facts Vertically And Removed The Outer Wrapper
+
+Technical Summary:
+- Reworked the live board summary facts so `From`, `To`, `Timing`, and `Party` now render as a vertical stacked list rather than a horizontal strip.
+- Removed the extra outer summary container around that section and used subtle row dividers instead, reducing visual nesting at the top of the itinerary column.
+
+Plain-English Summary:
+- The trip facts at the top of the board are now stacked vertically.
+- I also removed the extra surrounding box, so that area feels cleaner and less crowded.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Removed Duplicate Hero Facts And Dropped The Brochure Button From The Live Board
+
+Technical Summary:
+- Trimmed the lower live-board fact stack so it now only shows `From` and `To`, removing duplicated `Timing` and `Party` information that was already present in the hero section.
+- Removed the `Brochure` call-to-action from the live board hero to keep the top area quieter and more focused on the trip itself.
+
+Plain-English Summary:
+- The board was repeating the travel window and traveller count in two places, so I removed the duplicate copies from the lower section.
+- I also removed the `Brochure` button from the top of the board to make the hero feel cleaner.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Removed Planner Notes And Tightened Quick Plan Timing Detail
+
+Technical Summary:
+- Removed the `Planner notes` sidebar card from the live trip board and cleaned up the now-unused supporting UI helpers.
+- Extended the Quick Plan structured timeline model so proposed itinerary items can carry `start_at` and `end_at` values.
+- Tightened the Quick Plan drafting prompt to demand more concrete destination-specific itinerary blocks, explicit travel-time context, and real timed flight blocks when provider data exists.
+- Updated timeline merging so provider-backed flight and hotel items are preserved alongside the LLM draft instead of getting dropped when a quick-plan preview exists.
+- Updated the flight card UI to display departure and arrival times whenever live flight data is available.
+
+Plain-English Summary:
+- The extra `Planner notes` panel is gone from the board.
+- I also made the planner aim for more specific itinerary blocks and better travel-time detail, especially around flights.
+- When the flight provider returns real timings, the board can now show them more clearly instead of only showing airport codes.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/provider_enrichment.py`
 - `CHANGELOG.md`
 
 ## 2026-04-20 - Restored Modules As A Required Details-Board Step

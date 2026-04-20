@@ -1,5 +1,16 @@
 # Decision Log
 
+## 2026-04-20 - Brochure Snapshot Model
+
+Technical Summary:
+- Brochure output now uses immutable `brochure_snapshots` created on trip finalization instead of rendering directly from the mutable live trip draft.
+- Reopening planning no longer rewrites older brochure versions; re-finalizing creates a new snapshot version and marks it latest.
+- The brochure page, Saved Trips actions, and PDF generation path resolve against brochure snapshots rather than live draft state.
+
+Plain-English Summary:
+- Once a trip is finalized, Wandrix saves that exact brochure version permanently.
+- If the user reopens the trip and changes it later, the older brochure stays intact and a new version is created the next time the trip is finalized.
+
 ## 2026-04-19 - Structured Conversation Memory Inside The Trip Draft
 
 Technical Summary:

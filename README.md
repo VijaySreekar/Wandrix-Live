@@ -77,6 +77,10 @@ Set these before wiring real AI logic:
 - `GET /api/v1/trips/{trip_id}` - load one saved trip
 - `GET /api/v1/trips/{trip_id}/draft` - load the structured trip board data
 - `PUT /api/v1/trips/{trip_id}/draft` - save the structured trip board data
+- `GET /api/v1/trips/{trip_id}/brochures` - list saved brochure versions for a trip
+- `GET /api/v1/trips/{trip_id}/brochures/latest` - load the latest saved brochure snapshot
+- `GET /api/v1/trips/{trip_id}/brochures/{snapshot_id}` - load one brochure version
+- `POST /api/v1/trips/{trip_id}/brochures/{snapshot_id}/pdf` - render and download a brochure PDF
 - `POST /api/v1/trips/{trip_id}/conversation` - send one authenticated chat message through the backend bridge
 - `POST /api/v1/packages/generate` - starter AI travel package generator payload
 
@@ -89,7 +93,7 @@ Set these before wiring real AI logic:
 - `/hotels` - saved-trip hotel reference view
 - `/activities` - saved-trip activities and highlights reference view
 - `/trips` - saved trip library
-- `/brochure/[tripId]` - brochure-style trip presentation
+- `/brochure/[tripId]` - latest saved brochure snapshot with version history and PDF download
 
 ## Backend structure
 

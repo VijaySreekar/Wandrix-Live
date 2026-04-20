@@ -1,5 +1,7 @@
 import type {
   ChatPlannerPhase,
+  PlannerConfirmationStatus,
+  PlannerFinalizedVia,
   TripConversationState,
   TripFieldKey,
 } from "@/types/trip-conversation";
@@ -121,6 +123,9 @@ export type TimelineItem = {
 
 export type TripDraftStatus = {
   phase: TripPlanningPhase;
+  confirmation_status: PlannerConfirmationStatus;
+  finalized_at: string | null;
+  finalized_via: PlannerFinalizedVia | null;
   missing_fields: string[];
   confirmed_fields: TripFieldKey[];
   inferred_fields: TripFieldKey[];

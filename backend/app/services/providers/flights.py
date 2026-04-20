@@ -1,15 +1,35 @@
 from datetime import datetime
 
 from app.integrations.amadeus.client import create_amadeus_client
+from app.integrations.travelpayouts.client import create_travelpayouts_client
 from app.schemas.trip_planning import FlightDetail, TripConfiguration
+from app.services.providers.iata_lookup import resolve_location_iata
+
+
+def enrich_flights(configuration: TripConfiguration) -> list[FlightDetail]:
+    if not _can_search_flights(configuration):
+        return []
+
+    try:
+        live_flights = enrich_flights_from_amadeus(configuration)
+    except Exception:
+        live_flights = []
+
+    if live_flights:
+        return live_flights
+
+    try:
+        return enrich_flights_from_travelpayouts(configuration)
+    except Exception:
+        return []
 
 
 def enrich_flights_from_amadeus(configuration: TripConfiguration) -> list[FlightDetail]:
     if not _can_search_flights(configuration):
         return []
 
-    origin_code = _resolve_location_iata(configuration.from_location or "")
-    destination_code = _resolve_location_iata(configuration.to_location or "")
+    origin_code = resolve_location_iata(configuration.from_location or "")
+    destination_code = resolve_location_iata(configuration.to_location or "")
 
     if not origin_code or not destination_code:
         return []
@@ -48,44 +68,28 @@ def enrich_flights_from_amadeus(configuration: TripConfiguration) -> list[Flight
     return _map_offer_to_flights(first_offer, carriers)
 
 
-def _resolve_location_iata(keyword: str) -> str | None:
-    if not keyword.strip():
-        return None
+def enrich_flights_from_travelpayouts(
+    configuration: TripConfiguration,
+) -> list[FlightDetail]:
+    if not _can_search_flights(configuration):
+        return []
 
-    cleaned_keyword = keyword.strip()
-    if len(cleaned_keyword) == 3 and cleaned_keyword.isalpha():
-        return cleaned_keyword.upper()
+    origin_code = resolve_location_iata(configuration.from_location or "")
+    destination_code = resolve_location_iata(configuration.to_location or "")
 
-    with create_amadeus_client() as client:
-        response = client.get(
-            "/v1/reference-data/locations",
-            params={
-                "subType": "CITY,AIRPORT",
-                "keyword": cleaned_keyword[:20],
-                "page[limit]": 5,
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
+    if not origin_code or not destination_code:
+        return []
 
-    candidates = payload.get("data") or []
-    if not candidates:
-        return None
-
-    city_candidate = next(
-        (
-            item
-            for item in candidates
-            if item.get("subType") == "CITY" and item.get("iataCode")
-        ),
-        None,
+    offers = _search_travelpayouts_offers(
+        origin_code=origin_code,
+        destination_code=destination_code,
+        configuration=configuration,
     )
-    if city_candidate:
-        return city_candidate["iataCode"]
+    if not offers:
+        return []
 
-    first_candidate = candidates[0]
-    iata_code = first_candidate.get("iataCode")
-    return iata_code if isinstance(iata_code, str) else None
+    first_offer = offers[0]
+    return _map_travelpayouts_offer_to_flights(first_offer)
 
 
 def _map_offer_to_flights(
@@ -138,6 +142,118 @@ def _map_offer_to_flights(
     return flights
 
 
+def _map_travelpayouts_offer_to_flights(offer: dict) -> list[FlightDetail]:
+    notes = []
+    price = offer.get("price")
+    if price is not None:
+        notes.append(f"Cached Aviasales fare snapshot: GBP {price}")
+
+    transfers = offer.get("transfers")
+    return_transfers = offer.get("return_transfers")
+    if isinstance(transfers, int):
+        notes.append(
+            "Direct outbound option from cached Aviasales data."
+            if transfers == 0
+            else f"{transfers} stop(s) outbound in cached Aviasales data."
+        )
+    if isinstance(return_transfers, int) and offer.get("return_at"):
+        notes.append(
+            "Direct return option from cached Aviasales data."
+            if return_transfers == 0
+            else f"{return_transfers} stop(s) returning in cached Aviasales data."
+        )
+
+    deep_link = offer.get("link")
+    if isinstance(deep_link, str) and deep_link.strip():
+        notes.append(f"Aviasales link: https://www.aviasales.com{deep_link}")
+
+    flights = [
+        FlightDetail(
+            id="travelpayouts_flight_outbound",
+            direction="outbound",
+            carrier=(offer.get("airline") or "Carrier unavailable"),
+            flight_number=offer.get("flight_number"),
+            departure_airport=(offer.get("origin_airport") or offer.get("origin") or "TBD"),
+            arrival_airport=(
+                offer.get("destination_airport") or offer.get("destination") or "TBD"
+            ),
+            departure_time=_parse_amadeus_datetime(offer.get("departure_at")),
+            arrival_time=None,
+            duration_text=_format_duration_minutes(offer.get("duration_to") or offer.get("duration")),
+            notes=notes,
+        )
+    ]
+
+    return_at = _parse_amadeus_datetime(offer.get("return_at"))
+    if return_at:
+        flights.append(
+            FlightDetail(
+                id="travelpayouts_flight_return",
+                direction="return",
+                carrier=(offer.get("airline") or "Carrier unavailable"),
+                flight_number=None,
+                departure_airport=(offer.get("destination_airport") or offer.get("destination") or "TBD"),
+                arrival_airport=(offer.get("origin_airport") or offer.get("origin") or "TBD"),
+                departure_time=return_at,
+                arrival_time=None,
+                duration_text=_format_duration_minutes(offer.get("duration_back") or offer.get("duration")),
+                notes=notes,
+            )
+        )
+
+    return flights
+
+
+def _search_travelpayouts_offers(
+    *,
+    origin_code: str,
+    destination_code: str,
+    configuration: TripConfiguration,
+) -> list[dict]:
+    parameter_sets = [
+        {
+            "origin": origin_code,
+            "destination": destination_code,
+            "departure_at": configuration.start_date.isoformat(),
+            "return_at": configuration.end_date.isoformat()
+            if configuration.end_date
+            else None,
+            "one_way": "false" if configuration.end_date else "true",
+            "sorting": "price",
+            "direct": "false",
+            "currency": "gbp",
+            "limit": 10,
+        },
+        {
+            "origin": origin_code,
+            "destination": destination_code,
+            "departure_at": configuration.start_date.strftime("%Y-%m"),
+            "return_at": configuration.end_date.strftime("%Y-%m")
+            if configuration.end_date
+            else None,
+            "one_way": "false" if configuration.end_date else "true",
+            "sorting": "price",
+            "direct": "false",
+            "currency": "gbp",
+            "limit": 10,
+        },
+    ]
+
+    with create_travelpayouts_client() as client:
+        for params in parameter_sets:
+            response = client.get(
+                "/aviasales/v3/prices_for_dates",
+                params=params,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            offers = payload.get("data") or []
+            if offers:
+                return offers
+
+    return []
+
+
 def _parse_amadeus_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -183,6 +299,19 @@ def _format_duration(value: str | None) -> str | None:
         parts.append(f"{minutes}m")
 
     return " ".join(parts) if parts else value
+
+
+def _format_duration_minutes(value: object | None) -> str | None:
+    if not isinstance(value, int) or value <= 0:
+        return None
+    hours = value // 60
+    minutes = value % 60
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    return " ".join(parts) if parts else None
 
 
 def _can_search_flights(configuration: TripConfiguration) -> bool:

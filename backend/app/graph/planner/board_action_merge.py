@@ -25,6 +25,16 @@ def apply_board_action_updates(
         merged_update.requested_planning_mode = "advanced"
         return merged_update
 
+    if action.type == "finalize_quick_plan":
+        merged_update = llm_update.model_copy(deep=True)
+        merged_update.planner_intent = "confirm_plan"
+        return merged_update
+
+    if action.type == "reopen_plan":
+        merged_update = llm_update.model_copy(deep=True)
+        merged_update.planner_intent = "reopen_plan"
+        return merged_update
+
     if action.type != "confirm_trip_details":
         return llm_update
 

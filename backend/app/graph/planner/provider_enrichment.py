@@ -12,7 +12,8 @@ from app.schemas.trip_planning import (
     WeatherDetail,
 )
 from app.services.providers.activities import enrich_activities_from_geoapify
-from app.services.providers.flights import enrich_flights_from_amadeus
+from app.services.providers.flights import enrich_flights
+from app.services.providers.hotels import enrich_hotels
 from app.services.providers.location_lookup import (
     Coordinates,
     resolve_destination_coordinates,
@@ -65,10 +66,10 @@ def build_timeline(
     include_derived_when_preview_present: bool = True,
 ) -> list[TimelineItem]:
     preview_items = [_to_timeline_item(item) for item in llm_preview]
-    if preview_items and not include_derived_when_preview_present:
-        return preview_items[:10]
     derived_items = _build_derived_timeline(configuration, module_outputs)
-    return _merge_timeline_items(preview_items, derived_items)[:10]
+    if preview_items and not include_derived_when_preview_present:
+        return _merge_timeline_items(preview_items, derived_items)[:12]
+    return _merge_timeline_items(preview_items, derived_items)[:12]
 
 
 def has_any_module_output(module_outputs: TripModuleOutputs) -> bool:
@@ -109,7 +110,7 @@ def _build_flight_outputs(
     ):
         return existing_module_outputs.flights
     try:
-        live_flights = enrich_flights_from_amadeus(configuration)
+        live_flights = enrich_flights(configuration)
     except Exception:
         live_flights = []
     return live_flights or existing_module_outputs.flights
@@ -129,7 +130,11 @@ def _build_hotel_outputs(
         configuration,
     ):
         return existing_module_outputs.hotels
-    return existing_module_outputs.hotels
+    try:
+        live_hotels = enrich_hotels(configuration)
+    except Exception:
+        live_hotels = []
+    return live_hotels or existing_module_outputs.hotels
 
 
 def _build_weather_outputs(
@@ -380,7 +385,18 @@ def _merge_timeline_items(
     seen_keys: set[tuple[str, str | None, str | None]] = set()
     merged_items: list[TimelineItem] = []
 
-    for item in [*preview_items, *derived_items]:
+    prioritized_derived = [
+        item
+        for item in derived_items
+        if item.type in {"flight", "hotel"}
+    ]
+    remaining_derived = [
+        item
+        for item in derived_items
+        if item.type not in {"flight", "hotel"}
+    ]
+
+    for item in [*prioritized_derived, *preview_items, *remaining_derived]:
         key = (item.title.lower(), item.day_label, item.source_module)
         if key in seen_keys:
             continue
@@ -396,6 +412,8 @@ def _to_timeline_item(item: ProposedTimelineItem) -> TimelineItem:
         type=item.type,
         title=item.title,
         day_label=item.day_label,
+        start_at=item.start_at,
+        end_at=item.end_at,
         location_label=item.location_label,
         summary=item.summary,
         details=item.details,

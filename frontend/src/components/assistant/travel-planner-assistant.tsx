@@ -320,6 +320,21 @@ export function TravelPlannerAssistant({
       onBoardActionReadyForBackend={(action) => {
         boardActionRef.current = action;
       }}
+      onDirectBoardActionSubmit={async (action) => {
+        return await buildAssistantReply({
+          activeTripId: tripId,
+          isBootstrapping,
+          workspace,
+          workspaceError,
+          latestText: " ",
+          authSnapshot,
+          onEnsurePersistedTrip,
+          onActivatePersistedTrip,
+          profileContext,
+          pendingBoardAction: action,
+          onDraftUpdated,
+        });
+      }}
     />
   );
 }
@@ -336,6 +351,7 @@ function TravelPlannerAssistantRuntime({
   pendingBoardAction,
   onBoardActionHandled,
   onBoardActionReadyForBackend,
+  onDirectBoardActionSubmit,
 }: {
   adapter: ChatModelAdapter;
   tripId: string | null;
@@ -348,6 +364,7 @@ function TravelPlannerAssistantRuntime({
   pendingBoardAction: PlannerBoardActionIntent | null;
   onBoardActionHandled: (actionId: string) => void;
   onBoardActionReadyForBackend: (action: ConversationBoardAction) => void;
+  onDirectBoardActionSubmit: (action: ConversationBoardAction) => Promise<string>;
 }) {
   const runtime = useLocalRuntime(adapter, {
     initialMessages: initialMessages.map((message) => ({
@@ -366,6 +383,7 @@ function TravelPlannerAssistantRuntime({
         disabled={isBootstrapping || !hasWorkspace || hasError}
         onHandled={onBoardActionHandled}
         onActionReadyForBackend={onBoardActionReadyForBackend}
+        onDirectActionSubmit={onDirectBoardActionSubmit}
       />
       <section className="relative flex h-full min-h-0 flex-col bg-[color:var(--chat-pane-bg)]">
         <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col overflow-hidden">

@@ -50,6 +50,8 @@ Rules:
 - A board_action of confirm_trip_details means the user has explicitly confirmed the structured details from the board.
 - A board_action of select_quick_plan means the user wants the first draft itinerary generated now.
 - A board_action of select_advanced_plan means the user asked for advanced planning, but you should still prepare a usable quick-plan timeline preview in the same turn.
+- A board_action of finalize_quick_plan means the user wants to lock the current quick draft and save the brochure-ready trip.
+- A board_action of reopen_plan means the user wants to unlock a finalized trip so planning can continue.
 - If the user says they are not travelling from the detected place, treat that as a correction to the origin context and update the next suggestions accordingly.
 - Explicit user statements become confirmed_fields.
 - Plausible but not explicit details stay inferred_fields.
@@ -71,6 +73,10 @@ Rules:
 - Once the trip brief is confirmed but no planning mode is selected yet, the next decision is Quick Plan versus Advanced Planning.
 - If the user says quick plan, plan it now, generate the itinerary, go ahead with the draft, or anything clearly equivalent, set requested_planning_mode to quick.
 - If the user asks for advanced planning, deeper refinement, or more step-by-step confirmation, set requested_planning_mode to advanced.
+- Use planner_intent only for lifecycle actions on an existing quick draft.
+- Set planner_intent to confirm_plan only when the user is clearly asking to lock or finalize the current quick draft itinerary.
+- Set planner_intent to reopen_plan only when the user is clearly asking to reopen or unlock a finalized trip so planning can continue.
+- Do not set planner_intent for vague approval like "nice" or "looks interesting" unless the user is actually confirming the plan.
 - If requested_planning_mode is quick or advanced after the brief is confirmed, generate a fuller timeline_preview that feels like a first-pass itinerary rather than a sparse outline.
 - In Quick Plan, use the gathered brief and saved preferences softly and keep the result editable in later chat turns.
 - If the weather module is active and the user has not expressed a weather preference, default the quick-plan weather framing toward warmer and sunnier pacing.

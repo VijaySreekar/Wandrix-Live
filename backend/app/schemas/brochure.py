@@ -1,0 +1,125 @@
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from app.schemas.trip_planning import (
+    ActivityDetail,
+    FlightDetail,
+    HotelStayDetail,
+    TimelineItem,
+    WeatherDetail,
+)
+
+
+BrochureWarningCategory = Literal[
+    "timing",
+    "logistics",
+    "budget",
+    "weather",
+    "selection_pending",
+]
+BrochureSnapshotStatus = Literal["latest", "historical"]
+
+
+class BrochureHeroImage(BaseModel):
+    url: str = Field(..., min_length=1, max_length=600)
+    alt_text: str = Field(..., min_length=1, max_length=200)
+    attribution: str | None = Field(default=None, max_length=160)
+
+
+class BrochureMetric(BaseModel):
+    label: str = Field(..., min_length=1, max_length=80)
+    value: str = Field(..., min_length=1, max_length=120)
+    note: str | None = Field(default=None, max_length=240)
+
+
+class BrochureWarning(BaseModel):
+    id: str
+    category: BrochureWarningCategory
+    title: str = Field(..., min_length=1, max_length=120)
+    message: str = Field(..., min_length=1, max_length=320)
+    related_timeline_ids: list[str] = Field(default_factory=list)
+
+
+class BrochureSection(BaseModel):
+    id: str
+    title: str = Field(..., min_length=1, max_length=120)
+    summary: str | None = Field(default=None, max_length=320)
+
+
+class BrochureResourceLink(BaseModel):
+    label: str = Field(..., min_length=1, max_length=80)
+    url: str = Field(..., min_length=1, max_length=600)
+
+
+class BrochureItineraryDay(BaseModel):
+    id: str
+    label: str = Field(..., min_length=1, max_length=120)
+    summary: str | None = Field(default=None, max_length=320)
+    items: list[TimelineItem] = Field(default_factory=list)
+
+
+class BrochureBudgetSummary(BaseModel):
+    headline: str = Field(..., min_length=1, max_length=160)
+    detail: str = Field(..., min_length=1, max_length=320)
+
+
+class BrochureTravelSummary(BaseModel):
+    headline: str = Field(..., min_length=1, max_length=160)
+    detail: str = Field(..., min_length=1, max_length=320)
+
+
+class BrochureSnapshotPayload(BaseModel):
+    title: str = Field(..., min_length=1, max_length=160)
+    route_text: str = Field(..., min_length=1, max_length=320)
+    origin_label: str | None = Field(default=None, max_length=160)
+    destination_label: str | None = Field(default=None, max_length=160)
+    travel_window_text: str = Field(..., min_length=1, max_length=200)
+    party_text: str = Field(..., min_length=1, max_length=120)
+    budget_text: str = Field(..., min_length=1, max_length=120)
+    style_tags: list[str] = Field(default_factory=list)
+    module_tags: list[str] = Field(default_factory=list)
+    executive_summary: str = Field(..., min_length=1, max_length=500)
+    hero_image: BrochureHeroImage
+    metrics: list[BrochureMetric] = Field(default_factory=list)
+    sections: list[BrochureSection] = Field(default_factory=list)
+    warnings: list[BrochureWarning] = Field(default_factory=list)
+    itinerary_days: list[BrochureItineraryDay] = Field(default_factory=list)
+    flights: list[FlightDetail] = Field(default_factory=list)
+    stays: list[HotelStayDetail] = Field(default_factory=list)
+    weather: list[WeatherDetail] = Field(default_factory=list)
+    highlights: list[ActivityDetail] = Field(default_factory=list)
+    planning_notes: list[str] = Field(default_factory=list)
+    budget_summary: BrochureBudgetSummary
+    travel_summary: BrochureTravelSummary
+    resources: list[BrochureResourceLink] = Field(default_factory=list)
+
+
+class BrochureSnapshotSummary(BaseModel):
+    snapshot_id: str
+    trip_id: str
+    version_number: int
+    status: BrochureSnapshotStatus
+    finalized_at: datetime
+    created_at: datetime
+    pdf_file_name: str
+
+
+class BrochureHistoryItem(BrochureSnapshotSummary):
+    is_latest: bool = False
+
+
+class BrochureSnapshot(BaseModel):
+    snapshot_id: str
+    trip_id: str
+    version_number: int
+    status: BrochureSnapshotStatus
+    finalized_at: datetime
+    created_at: datetime
+    pdf_file_name: str
+    payload: BrochureSnapshotPayload
+
+
+class BrochureHistoryResponse(BaseModel):
+    items: list[BrochureHistoryItem] = Field(default_factory=list)

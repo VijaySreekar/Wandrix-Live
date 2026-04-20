@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import {
   Cormorant_Garamond,
   Geist_Mono,
-  Manrope,
   Sora, Geist } from "next/font/google";
 import Script from "next/script";
 

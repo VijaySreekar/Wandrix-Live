@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.trip_conversation import (
     CheckpointConversationMessage,
@@ -42,6 +42,8 @@ class ConversationBoardAction(BaseModel):
         "confirm_trip_brief",
         "select_quick_plan",
         "select_advanced_plan",
+        "finalize_quick_plan",
+        "reopen_plan",
     ]
     destination_name: str | None = Field(default=None, max_length=120)
     country_or_region: str | None = Field(default=None, max_length=120)
@@ -61,10 +63,16 @@ class ConversationBoardAction(BaseModel):
 
 
 class TripConversationMessageRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=4000)
+    message: str = Field(default="", max_length=4000)
     profile_context: PlannerProfileContext | None = None
     current_location_context: PlannerLocationContext | None = None
     board_action: ConversationBoardAction | None = None
+
+    @model_validator(mode="after")
+    def validate_turn_has_message_or_board_action(self):
+        if self.message.strip() or self.board_action is not None:
+            return self
+        raise ValueError("A conversation turn needs either a message or a board action.")
 
 
 class TripConversationMessageResponse(BaseModel):

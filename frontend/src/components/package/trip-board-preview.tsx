@@ -27,7 +27,7 @@ export function TripBoardPreview({
     return (
       <section className="flex h-full min-h-0 flex-col bg-shell">
         <BoardHeader />
-        <TripLiveBoard workspace={workspace} />
+        <TripLiveBoard workspace={workspace} onAction={onAction} />
       </section>
     );
   }

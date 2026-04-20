@@ -3,7 +3,10 @@ export type ChatPlannerPhase =
   | "collecting_requirements"
   | "shaping_trip"
   | "enriching_modules"
-  | "reviewing";
+  | "reviewing"
+  | "finalized";
+export type PlannerConfirmationStatus = "unconfirmed" | "finalized";
+export type PlannerFinalizedVia = "chat" | "board";
 export type PlannerPlanningMode = "quick" | "advanced";
 export type PlannerPlanningModeStatus =
   | "not_selected"
@@ -203,6 +206,9 @@ export type TripConversationState = {
   phase: ChatPlannerPhase;
   planning_mode?: PlannerPlanningMode | null;
   planning_mode_status: PlannerPlanningModeStatus;
+  confirmation_status: PlannerConfirmationStatus;
+  finalized_at?: string | null;
+  finalized_via?: PlannerFinalizedVia | null;
   open_questions: ConversationQuestion[];
   decision_cards: PlannerDecisionCard[];
   last_turn_summary?: string | null;

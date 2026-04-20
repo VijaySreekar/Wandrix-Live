@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { HotelReferenceCard } from "@/components/hotels/hotel-reference-card";
 import { getProviderStatuses } from "@/lib/api/providers";
 import { getTripDraft, listTrips } from "@/lib/api/trips";
 import { formatTripWindowDisplay } from "@/lib/trip-timing";
@@ -147,6 +148,8 @@ export function TripModuleWorkspace({
   const moduleProviderStatus =
     module === "flights"
       ? providerStatuses.find((item) => item.provider === "amadeus") ?? null
+      : module === "hotels"
+        ? providerStatuses.find((item) => item.provider === "xotelo") ?? null
       : null;
 
   return (
@@ -408,30 +411,7 @@ function HotelList({ items }: { items: HotelStayDetail[] }) {
   return (
     <div className="mt-4 grid gap-3">
       {items.map((hotel) => (
-        <article
-          key={hotel.id}
-          className="rounded-lg border border-shell-border bg-panel px-4 py-4"
-        >
-          <p className="text-sm font-semibold text-foreground">{hotel.hotel_name}</p>
-          <p className="mt-1 text-sm text-foreground/62">
-            {hotel.area ?? "Area still open"}
-          </p>
-          <p className="mt-3 text-sm text-foreground/70">
-            {hotel.check_in ?? "TBD"} through {hotel.check_out ?? "TBD"}
-          </p>
-          {hotel.notes.length > 0 ? (
-            <ul className="mt-3 grid gap-2 text-sm text-foreground/65">
-              {hotel.notes.map((note) => (
-                <li
-                  key={note}
-                  className="rounded-md border border-shell-border bg-background px-3 py-2"
-                >
-                  {note}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </article>
+        <HotelReferenceCard key={hotel.id} hotel={hotel} />
       ))}
     </div>
   );
@@ -570,9 +550,9 @@ function getModuleMeta(module: ModuleKind) {
         heading: "Hotel reference",
         sidebarCopy: "Choose a saved trip and inspect the stay and neighborhood layer for that plan.",
         description:
-          "Use this surface to inspect stay details, hotel placeholders, and lodging blocks for the selected trip while continuing to plan inside chat.",
+          "Use this surface to inspect stay details, cached hotel discovery, and lodging blocks for the selected trip while continuing to plan inside chat.",
         primaryNote:
-          "Hotel discovery will eventually bring in stay options, areas, and check-in details here, but final trip shaping still happens in chat.",
+          "This view now reflects Xotelo-backed hotel discovery first, with AI fallback suggestions when cached provider results are thin, while final trip shaping still happens in chat.",
         itemsHeading: "Structured hotel items",
         timelineType: "hotel" as const,
       };

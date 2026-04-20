@@ -1,6 +1,11 @@
 from app.graph.planner.turn_models import TripTurnUpdate
 from app.schemas.conversation import ConversationBoardAction, PlannerProfileContext
-from app.schemas.trip_conversation import TripConversationState, TripFieldKey
+from app.schemas.trip_conversation import (
+    PlannerConfirmationStatus,
+    PlannerFinalizedVia,
+    TripConversationState,
+    TripFieldKey,
+)
 from app.schemas.trip_planning import TripConfiguration
 
 
@@ -12,6 +17,10 @@ def build_assistant_response(
     fallback_text: str | None,
     profile_context: dict,
     board_action: dict | None,
+    confirmation_status: PlannerConfirmationStatus,
+    finalized_via: PlannerFinalizedVia | None,
+    confirmation_transition: str = "none",
+    locked_without_reopen: bool = False,
 ) -> str:
     profile = (
         PlannerProfileContext.model_validate(profile_context)
@@ -21,6 +30,31 @@ def build_assistant_response(
     greeting_name = _get_greeting_name(profile)
 
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if confirmation_transition == "finalized":
+        return _sanitize_assistant_text(
+            _build_plan_finalized_response(
+                configuration=configuration,
+                greeting_name=greeting_name,
+                finalized_via=finalized_via,
+            )
+        )
+
+    if confirmation_transition == "reopened":
+        return _sanitize_assistant_text(
+            _build_reopen_planning_response(
+                configuration=configuration,
+                greeting_name=greeting_name,
+            )
+        )
+
+    if locked_without_reopen and confirmation_status == "finalized":
+        return _sanitize_assistant_text(
+            _build_finalized_lock_response(
+                configuration=configuration,
+                greeting_name=greeting_name,
+            )
+        )
+
     if _requested_advanced_plan(action, llm_update):
         return _sanitize_assistant_text(
             _build_advanced_planning_fallback_response(
@@ -132,12 +166,16 @@ def build_assistant_response(
             )
         )
 
-    return _sanitize_assistant_text(
-        (
-            f"The trip is now coherent enough to review around {route_summary}. "
-            "I can keep refining the choices with you or turn this into a clearer trip summary next."
-        )
+    base_response = (
+        f"The trip is now coherent enough to review around {route_summary}. "
+        "I can keep refining the choices with you or turn this into a clearer trip summary next."
     )
+    if conversation.planning_mode == "quick" and confirmation_status != "finalized":
+        base_response += (
+            " If you want to confirm this plan, say so here and I'll lock it down. "
+            "That will finalize the current trip, save the brochure-ready version in Saved Trips, and keep it ready for download there."
+        )
+    return _sanitize_assistant_text(base_response)
 
 
 def _sanitize_assistant_text(text: str) -> str:
@@ -246,7 +284,9 @@ def _build_quick_plan_response(
     return (
         f"{greeting_prefix}I have started a Quick Plan for {destination} and built a first draft itinerary. "
         "Treat this as a working version, not a locked final plan. "
-        "You can now keep refining the flights, pacing, hotels, activities, or budget directly in chat."
+        "You can now keep refining the flights, pacing, hotels, activities, or budget directly in chat. "
+        "If you want to confirm this plan, say so here and I'll lock it down. "
+        "That will finalize the current trip plan and save the brochure-ready version in Saved Trips, where you can open it and download the brochure later."
     )
 
 
@@ -259,7 +299,55 @@ def _build_advanced_planning_fallback_response(
     destination = configuration.to_location or "this trip"
     return (
         f"{greeting_prefix}Advanced Planning is not available yet, so I am defaulting to Quick Plan for {destination} and building the first itinerary draft now. "
-        "Once it appears on the board, you can keep refining it with me in chat."
+        "Once it appears on the board, you can keep refining it with me in chat. "
+        "When it looks right, confirm it here and I'll save the brochure-ready version in Saved Trips."
+    )
+
+
+def _build_plan_finalized_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+    finalized_via: PlannerFinalizedVia | None,
+) -> str:
+    greeting_prefix = f"Locked in, {greeting_name}. " if greeting_name else "Locked in. "
+    destination = configuration.to_location or "this trip"
+    via_line = (
+        "I used the board confirmation to finalize it. "
+        if finalized_via == "board"
+        else "I finalized it from your chat confirmation. "
+    )
+    return (
+        f"{greeting_prefix}{via_line}"
+        f"The current plan for {destination} is now finalized and the brochure-ready version is saved in Saved Trips. "
+        "You can open it there, review the details, and download the brochure when you need it. "
+        "If you want to change anything later, just ask me to reopen planning and I will unlock it."
+    )
+
+
+def _build_reopen_planning_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+) -> str:
+    greeting_prefix = f"Absolutely, {greeting_name}. " if greeting_name else "Absolutely. "
+    destination = configuration.to_location or "this trip"
+    return (
+        f"{greeting_prefix}I have reopened planning for {destination}. "
+        "The finalized lock is off now, so we can keep refining the trip in chat and update the board before you save a new brochure-ready version."
+    )
+
+
+def _build_finalized_lock_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+) -> str:
+    greeting_prefix = f"Just so you know, {greeting_name}, " if greeting_name else "Just so you know, "
+    destination = configuration.to_location or "this trip"
+    return (
+        f"{greeting_prefix}{destination} is currently finalized, so I have kept the saved plan locked. "
+        "If you want to make changes, ask me to reopen planning first and I will unlock it before we edit anything."
     )
 
 

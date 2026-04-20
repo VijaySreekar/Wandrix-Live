@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 
 from app.schemas.trip_conversation import (
     ChatPlannerPhase,
+    PlannerConfirmationStatus,
+    PlannerFinalizedVia,
     TripConversationState,
     TripFieldKey,
 )
@@ -29,6 +31,9 @@ TripPlanningPhase = ChatPlannerPhase
 
 class TripDraftStatus(BaseModel):
     phase: TripPlanningPhase = "opening"
+    confirmation_status: PlannerConfirmationStatus = "unconfirmed"
+    finalized_at: datetime | None = None
+    finalized_via: PlannerFinalizedVia | None = None
     missing_fields: list[str] = Field(default_factory=list)
     confirmed_fields: list[TripFieldKey] = Field(default_factory=list)
     inferred_fields: list[TripFieldKey] = Field(default_factory=list)

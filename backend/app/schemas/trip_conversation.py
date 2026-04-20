@@ -12,8 +12,12 @@ ChatPlannerPhase = Literal[
     "shaping_trip",
     "enriching_modules",
     "reviewing",
+    "finalized",
 ]
 PlannerPlanningMode = Literal["quick", "advanced"]
+PlannerIntent = Literal["none", "confirm_plan", "reopen_plan"]
+PlannerConfirmationStatus = Literal["unconfirmed", "finalized"]
+PlannerFinalizedVia = Literal["chat", "board"]
 PlannerPlanningModeStatus = Literal[
     "not_selected",
     "selected",
@@ -204,6 +208,9 @@ class TripConversationState(BaseModel):
     phase: ChatPlannerPhase = "opening"
     planning_mode: PlannerPlanningMode | None = None
     planning_mode_status: PlannerPlanningModeStatus = "not_selected"
+    confirmation_status: PlannerConfirmationStatus = "unconfirmed"
+    finalized_at: datetime | None = None
+    finalized_via: PlannerFinalizedVia | None = None
     open_questions: list[ConversationQuestion] = Field(default_factory=list)
     decision_cards: list[PlannerDecisionCard] = Field(default_factory=list)
     last_turn_summary: str | None = Field(default=None, max_length=400)

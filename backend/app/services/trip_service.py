@@ -94,6 +94,9 @@ def list_trips(
                 updated_at=trip.updated_at,
                 phase=_extract_trip_phase(trip),
                 brochure_ready=_extract_brochure_ready(trip),
+                latest_brochure_snapshot_id=_extract_latest_brochure_snapshot_id(trip),
+                latest_brochure_version=_extract_latest_brochure_version(trip),
+                brochure_versions_count=_extract_brochure_versions_count(trip),
                 from_location=_extract_configuration_value(trip, "from_location"),
                 to_location=_extract_configuration_value(trip, "to_location"),
                 start_date=_extract_configuration_value(trip, "start_date"),
@@ -212,6 +215,23 @@ def _extract_configuration_value(trip, key: str) -> str | None:
     return None
 
 
+def _extract_latest_brochure_snapshot_id(trip) -> str | None:
+    latest_snapshot = _get_latest_brochure_snapshot(trip)
+    return latest_snapshot.id if latest_snapshot is not None else None
+
+
+def _extract_latest_brochure_version(trip) -> int | None:
+    latest_snapshot = _get_latest_brochure_snapshot(trip)
+    return latest_snapshot.version_number if latest_snapshot is not None else None
+
+
+def _extract_brochure_versions_count(trip) -> int:
+    snapshots = getattr(trip, "brochure_snapshots", None)
+    if isinstance(snapshots, list):
+        return len(snapshots)
+    return 0
+
+
 def _extract_selected_modules(trip) -> list[str]:
     if not trip.draft or not isinstance(trip.draft.configuration, dict):
         return []
@@ -232,3 +252,11 @@ def _extract_timeline_item_count(trip) -> int:
         return len(trip.draft.timeline)
 
     return 0
+
+
+def _get_latest_brochure_snapshot(trip):
+    snapshots = getattr(trip, "brochure_snapshots", None)
+    if not isinstance(snapshots, list) or not snapshots:
+        return None
+
+    return snapshots[0]

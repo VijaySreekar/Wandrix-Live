@@ -41,12 +41,20 @@ class Settings:
     poi_provider: str
     geoapify_base_url: str
     geoapify_api_key: str
+    hotel_provider: str
+    rapidapi_key: str | None
+    rapidapi_xotelo_base_url: str
+    rapidapi_agoda_base_url: str
+    rapidapi_hotels_com_base_url: str
+    rapidapi_travel_advisor_base_url: str
     events_provider: str
     ticketmaster_base_url: str
     ticketmaster_consumer_key: str
     ticketmaster_consumer_secret: str
     travel_content_provider: str
     wikimedia_travel_base_url: str
+    travelpayouts_base_url: str
+    travelpayouts_api_token: str | None
 
 
 @lru_cache
@@ -100,6 +108,24 @@ def get_settings() -> Settings:
         poi_provider=os.getenv("POI_PROVIDER", "geoapify"),
         geoapify_base_url=os.getenv("GEOAPIFY_BASE_URL", "https://api.geoapify.com/v2"),
         geoapify_api_key=os.getenv("GEOAPIFY_API_KEY", ""),
+        hotel_provider=os.getenv("HOTEL_PROVIDER", "xotelo"),
+        rapidapi_key=os.getenv("RAPIDAPI_KEY") or None,
+        rapidapi_xotelo_base_url=os.getenv(
+            "RAPIDAPI_XOTELO_BASE_URL",
+            "https://xotelo-hotel-prices.p.rapidapi.com",
+        ),
+        rapidapi_agoda_base_url=os.getenv(
+            "RAPIDAPI_AGODA_BASE_URL",
+            "https://agoda-com.p.rapidapi.com",
+        ),
+        rapidapi_hotels_com_base_url=os.getenv(
+            "RAPIDAPI_HOTELS_COM_BASE_URL",
+            "https://hotels-com6.p.rapidapi.com",
+        ),
+        rapidapi_travel_advisor_base_url=os.getenv(
+            "RAPIDAPI_TRAVEL_ADVISOR_BASE_URL",
+            "https://travel-advisor.p.rapidapi.com",
+        ),
         events_provider=os.getenv("EVENTS_PROVIDER", "ticketmaster"),
         ticketmaster_base_url=os.getenv(
             "TICKETMASTER_BASE_URL",
@@ -112,6 +138,11 @@ def get_settings() -> Settings:
             "WIKIMEDIA_TRAVEL_BASE_URL",
             "https://api.wikimedia.org/wiki/Travel",
         ),
+        travelpayouts_base_url=os.getenv(
+            "TRAVELPAYOUTS_BASE_URL",
+            "https://api.travelpayouts.com",
+        ),
+        travelpayouts_api_token=os.getenv("TRAVELPAYOUTS_API_TOKEN") or None,
     )
 
 

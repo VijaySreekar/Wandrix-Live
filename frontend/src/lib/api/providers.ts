@@ -4,10 +4,17 @@ import type {
   PlannerLocationSuggestionResponse,
 } from "@/types/location-suggestions";
 import type { ProviderStatusResponse } from "@/types/provider-status";
+import type { ProviderUsageResponse } from "@/types/provider-usage";
 
 
 export function getProviderStatuses(accessToken?: string) {
   return getJson<ProviderStatusResponse>("/api/v1/providers/status", {
+    accessToken,
+  });
+}
+
+export function getProviderUsage(accessToken?: string) {
+  return getJson<ProviderUsageResponse>("/api/v1/providers/usage", {
     accessToken,
   });
 }

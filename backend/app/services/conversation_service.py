@@ -15,6 +15,7 @@ from app.schemas.conversation import (
     TripConversationMessageResponse,
 )
 from app.schemas.trip_draft import TripDraft, TripPlanningPhase
+from app.services.brochure_service import create_brochure_snapshot_for_trip
 
 
 def send_trip_message(
@@ -40,6 +41,19 @@ def send_trip_message(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trip draft was not found.",
         )
+
+    previous_draft = TripDraft.model_validate(
+        {
+            "trip_id": trip.id,
+            "thread_id": draft.thread_id,
+            "title": draft.title,
+            "configuration": draft.configuration,
+            "timeline": draft.timeline,
+            "module_outputs": draft.module_outputs,
+            "status": draft.status,
+            "conversation": draft.conversation,
+        }
+    )
 
     graph_result = graph.invoke(
         {
@@ -92,6 +106,22 @@ def send_trip_message(
         status=updated_draft.get("status") or draft.status,
         conversation=updated_draft.get("conversation") or draft.conversation,
     )
+    next_draft = TripDraft.model_validate(
+        {
+            "trip_id": trip.id,
+            "thread_id": trip.thread_id,
+            "title": persisted_draft.title,
+            "configuration": persisted_draft.configuration,
+            "timeline": persisted_draft.timeline,
+            "module_outputs": persisted_draft.module_outputs,
+            "status": persisted_draft.status,
+            "conversation": persisted_draft.conversation,
+        }
+    )
+
+    if _should_create_brochure_snapshot(previous_draft, next_draft):
+        create_brochure_snapshot_for_trip(db, trip=trip, draft=next_draft)
+
     next_title = persisted_draft.title.strip()
     if next_title and next_title != trip.title:
         trip = update_trip_title_record(
@@ -127,6 +157,16 @@ def send_trip_message(
             }
         ),
     )
+
+
+def _should_create_brochure_snapshot(previous_draft: TripDraft, next_draft: TripDraft) -> bool:
+    if next_draft.status.confirmation_status != "finalized":
+        return False
+
+    if previous_draft.status.confirmation_status != "finalized":
+        return True
+
+    return previous_draft.status.finalized_at != next_draft.status.finalized_at
 
 
 def get_trip_conversation_history(

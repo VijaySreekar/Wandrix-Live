@@ -15,6 +15,8 @@ from app.schemas.trip_conversation import (
     ConversationDecisionEvent,
     ConversationFieldMemory,
     ConversationOptionMemory,
+    PlannerConfirmationStatus,
+    PlannerFinalizedVia,
     ConversationQuestion,
     ConversationTurnSummary,
     PlannerPlanningMode,
@@ -55,6 +57,9 @@ def build_conversation_state(
     brief_confirmed: bool = False,
     planning_mode: PlannerPlanningMode | None = None,
     planning_mode_status: PlannerPlanningModeStatus = "not_selected",
+    confirmation_status: PlannerConfirmationStatus = "unconfirmed",
+    finalized_at: datetime | None = None,
+    finalized_via: PlannerFinalizedVia | None = None,
     record_memory: bool = True,
 ) -> TripConversationState:
     conversation = current.model_copy(deep=True)
@@ -68,11 +73,15 @@ def build_conversation_state(
         module_outputs=module_outputs,
         brief_confirmed=brief_confirmed,
         planning_mode=planning_mode,
+        confirmation_status=confirmation_status,
     )
 
     conversation.phase = phase
     conversation.planning_mode = planning_mode
     conversation.planning_mode_status = planning_mode_status
+    conversation.confirmation_status = confirmation_status
+    conversation.finalized_at = finalized_at
+    conversation.finalized_via = finalized_via
     conversation.open_questions = merge_open_questions(
         current.open_questions,
         llm_update,
@@ -128,9 +137,15 @@ def build_status(
     module_outputs: TripModuleOutputs,
     now: datetime,
     resolved_location_context: ResolvedPlannerLocationContext | None = None,
+    confirmation_status: PlannerConfirmationStatus = "unconfirmed",
+    finalized_at: datetime | None = None,
+    finalized_via: PlannerFinalizedVia | None = None,
 ) -> TripDraftStatus:
     status = current.model_copy(deep=True)
     status.phase = conversation.phase
+    status.confirmation_status = confirmation_status
+    status.finalized_at = finalized_at
+    status.finalized_via = finalized_via
     status.missing_fields = compute_missing_fields_with_context(
         configuration,
         resolved_location_context,
@@ -148,9 +163,7 @@ def build_status(
 
     status.confirmed_fields = sorted(set(confirmed_fields))
     status.inferred_fields = sorted(set(field for field in inferred_fields if field not in confirmed_fields))
-    status.brochure_ready = conversation.phase == "reviewing" and (
-        bool(conversation.memory.turn_summaries) or has_any_module_output(module_outputs)
-    )
+    status.brochure_ready = confirmation_status == "finalized"
     status.last_updated_at = now
     return status
 
@@ -162,7 +175,11 @@ def determine_phase(
     module_outputs: TripModuleOutputs,
     brief_confirmed: bool,
     planning_mode: PlannerPlanningMode | None,
+    confirmation_status: PlannerConfirmationStatus,
 ) -> str:
+    if confirmation_status == "finalized":
+        return "finalized"
+
     active_modules = [
         name
         for name, enabled in configuration.selected_modules.model_dump(mode="json").items()
@@ -374,6 +391,7 @@ def merge_conversation_memory(
         changed_fields=sorted(set([*llm_update.confirmed_fields, *llm_update.inferred_fields])),
         phase=phase,
         now=now,
+        board_action=board_action,
     )
 
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
@@ -567,6 +585,62 @@ def _merge_decision_history(
                     resolved_at=now,
                 )
             )
+    if action and action.type == "finalize_quick_plan":
+        finalization_key = ("trip plan finalized", ("board",))
+        if finalization_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=action.action_id,
+                    title="Trip plan finalized",
+                    description="The user finalized the quick plan from the board and saved the brochure-ready trip.",
+                    options=["board"],
+                    selected_option="board",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+    if action and action.type == "reopen_plan":
+        reopen_key = ("planning reopened", ("board",))
+        if reopen_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=action.action_id,
+                    title="Planning reopened",
+                    description="The user reopened the finalized trip from the board so planning could continue.",
+                    options=["board"],
+                    selected_option="board",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+    if llm_update.planner_intent == "confirm_plan" and not action:
+        finalization_key = ("trip plan finalized", ("chat",))
+        if finalization_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=f"decision_{uuid4().hex[:10]}",
+                    title="Trip plan finalized",
+                    description="The user finalized the quick plan in chat and saved the brochure-ready trip.",
+                    options=["chat"],
+                    selected_option="chat",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+    if llm_update.planner_intent == "reopen_plan" and not action:
+        reopen_key = ("planning reopened", ("chat",))
+        if reopen_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=f"decision_{uuid4().hex[:10]}",
+                    title="Planning reopened",
+                    description="The user reopened the finalized trip in chat so planning could continue.",
+                    options=["chat"],
+                    selected_option="chat",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
 
     return merged[-12:]
 
@@ -580,12 +654,16 @@ def _merge_turn_summaries(
     changed_fields: list[TripFieldKey],
     phase: str,
     now: datetime,
+    board_action: dict | None = None,
 ) -> list[ConversationTurnSummary]:
     merged = list(current)
+    summary_user_message = user_message.strip() or _build_turn_summary_user_message(
+        board_action or {}
+    )
     merged.append(
         ConversationTurnSummary(
             turn_id=turn_id,
-            user_message=user_message.strip(),
+            user_message=summary_user_message,
             assistant_message=assistant_message.strip(),
             changed_fields=changed_fields,
             resulting_phase=phase,
@@ -593,6 +671,27 @@ def _merge_turn_summaries(
         )
     )
     return merged[-10:]
+
+
+def _build_turn_summary_user_message(board_action: dict) -> str:
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action is None:
+        return "Planner action recorded."
+    if action.type == "finalize_quick_plan":
+        return "Board action: confirm the current quick plan."
+    if action.type == "reopen_plan":
+        return "Board action: reopen planning for this trip."
+    if action.type == "confirm_trip_details":
+        return "Board action: confirm the current trip details."
+    if action.type == "select_quick_plan":
+        return "Board action: generate a quick plan."
+    if action.type == "select_advanced_plan":
+        return "Board action: request advanced planning."
+    if action.type == "select_destination_suggestion":
+        return "Board action: choose a destination suggestion."
+    if action.type == "own_choice":
+        return "Board action: continue with a custom destination."
+    return f"Board action: {action.type.replace('_', ' ')}."
 
 
 def _build_default_open_questions(

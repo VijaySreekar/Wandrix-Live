@@ -22,7 +22,10 @@ export function FlightCard({ flight }: { flight: FlightDetail | undefined }) {
       {flight ? (
         <>
           <div className="mt-5 flex items-end justify-between gap-4">
-            <AirportCode code={flight.departure_airport} />
+            <AirportCode
+              code={flight.departure_airport}
+              time={formatFlightTime(flight.departure_time)}
+            />
             <div className="flex flex-1 flex-col items-center px-3">
               <Plane className="h-4 w-4 text-white/74" />
               <div className="mt-2 h-px w-full border-t border-dashed border-white/34" />
@@ -30,7 +33,11 @@ export function FlightCard({ flight }: { flight: FlightDetail | undefined }) {
                 {flight.duration_text || "Flight time"}
               </p>
             </div>
-            <AirportCode code={flight.arrival_airport} align="right" />
+            <AirportCode
+              code={flight.arrival_airport}
+              align="right"
+              time={formatFlightTime(flight.arrival_time)}
+            />
           </div>
           <div className="mt-5 rounded-lg bg-white/12 px-4 py-3 text-sm">
             <div className="flex items-center justify-between gap-3">
@@ -116,20 +123,38 @@ export function WeatherCard({ forecasts }: { forecasts: WeatherDetail[] }) {
 }
 
 export function HotelSummary({ hotel }: { hotel: HotelStayDetail }) {
+  const details = splitHotelNotes(hotel.notes);
+
   return (
     <div className="overflow-hidden rounded-xl bg-background">
-      <div className="h-28 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent)_18%,transparent),color-mix(in_srgb,var(--accent2)_16%,transparent))]" />
+      <div className="border-b border-shell-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent)_18%,transparent),color-mix(in_srgb,var(--accent2)_16%,transparent))] px-4 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-lg font-semibold text-foreground">{hotel.hotel_name}</p>
+            <p className="mt-1 text-sm text-foreground/58">
+              {hotel.area || "Area still being refined"}
+            </p>
+          </div>
+          <span className="rounded-md border border-shell-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground/62">
+            Stay
+          </span>
+        </div>
+      </div>
       <div className="px-4 py-4">
-        <p className="text-lg font-semibold text-foreground">{hotel.hotel_name}</p>
-        <p className="mt-1 text-sm text-foreground/58">
-          {hotel.area || "Area still being refined"}
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
+          Stay window
         </p>
-        <p className="mt-3 text-sm leading-7 text-foreground/66">
+        <p className="mt-2 text-sm leading-7 text-foreground/66">
           {formatDateRange(hotel.check_in, hotel.check_out)}
         </p>
-        {hotel.notes[0] ? (
+        {details.address ? (
+          <p className="mt-3 text-sm leading-7 text-foreground/66">
+            {details.address}
+          </p>
+        ) : null}
+        {details.highlights[0] ? (
           <p className="mt-2 text-sm leading-7 text-foreground/66">
-            {hotel.notes[0]}
+            {details.highlights[0]}
           </p>
         ) : null}
       </div>
@@ -236,13 +261,20 @@ export function getLiveDestinationImage(destination: string | null) {
 function AirportCode({
   code,
   align = "left",
+  time,
 }: {
   code: string;
   align?: "left" | "right";
+  time?: string | null;
 }) {
   return (
     <div className={cn("min-w-[4rem]", align === "right" && "text-right")}>
       <p className="font-display text-4xl leading-none">{code}</p>
+      {time ? (
+        <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/72">
+          {time}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -300,4 +332,47 @@ function formatPrimaryTemperature(forecast: WeatherDetail) {
   }
 
   return `${Math.round(forecast.high_c ?? forecast.low_c ?? 0)}°`;
+}
+
+function splitHotelNotes(notes: string[]) {
+  let address: string | null = null;
+  const highlights: string[] = [];
+
+  for (const note of notes) {
+    if (note.startsWith("TripAdvisor: ")) {
+      continue;
+    }
+
+    if (!address && looksLikeAddress(note)) {
+      address = note;
+      continue;
+    }
+
+    highlights.push(note);
+  }
+
+  return {
+    address,
+    highlights,
+  };
+}
+
+function looksLikeAddress(value: string) {
+  return /[0-9]/.test(value) || value.includes("Street") || value.includes("Avenue") || value.includes("Rua") || value.includes("Carrer") || value.includes("Pla");
+}
+
+function formatFlightTime(value: string | Date | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
 }

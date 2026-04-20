@@ -8,6 +8,7 @@ const VALID_CHAT_PHASES: ChatPlannerPhase[] = [
   "shaping_trip",
   "enriching_modules",
   "reviewing",
+  "finalized",
 ];
 
 export function getRecentTripsCacheKey(userId: string) {
@@ -66,6 +67,18 @@ export function readRecentTripsCache(cacheKey: string) {
             typeof candidate.brochure_ready === "boolean"
               ? candidate.brochure_ready
               : false,
+          latest_brochure_snapshot_id:
+            typeof candidate.latest_brochure_snapshot_id === "string"
+              ? candidate.latest_brochure_snapshot_id
+              : null,
+          latest_brochure_version:
+            typeof candidate.latest_brochure_version === "number"
+              ? candidate.latest_brochure_version
+              : null,
+          brochure_versions_count:
+            typeof candidate.brochure_versions_count === "number"
+              ? candidate.brochure_versions_count
+              : 0,
           from_location:
             typeof candidate.from_location === "string"
               ? candidate.from_location

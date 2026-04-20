@@ -40,7 +40,9 @@ export type ConversationBoardAction = {
     | "confirm_trip_details"
     | "confirm_trip_brief"
     | "select_quick_plan"
-    | "select_advanced_plan";
+    | "select_advanced_plan"
+    | "finalize_quick_plan"
+    | "reopen_plan";
   destination_name?: string | null;
   country_or_region?: string | null;
   suggestion_id?: string | null;
