@@ -9,6 +9,30 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-20 - Added Structured Planner Field Confidence
+
+Technical Summary:
+- Added a structured `field_confidences` contract to the planner turn schema so the LLM can attach low, medium, or high confidence to each touched trip field instead of relying on source-based fallback scoring.
+- Updated planner conversation memory to persist `confidence_level` per field, keep the strongest same-value confidence across later turns, and stop writing new fake-precision numeric confidence defaults.
+- Extended board-confirmation merge behavior so structured board-confirmed facts also land with high confidence, added targeted backend regression coverage for both LLM and board-action paths, and marked PI-01 as in progress in the planner boundary tracker.
+- Updated the frontend trip-conversation types to match the new persisted confidence contract.
+
+Plain-English Summary:
+- The planner is now more honest about uncertainty at the field level.
+- Instead of quietly pretending inferred facts have precise confidence scores, it stores clear low, medium, or high confidence signals for each trip detail the model touched.
+- This gives Wandrix a safer foundation for later clarification and board-behavior improvements without slipping back into brittle heuristics.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/types/trip-conversation.ts`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
 ## 2026-04-20 - Protected Explicit Planner Facts From Inference Downgrades
 
 Technical Summary:

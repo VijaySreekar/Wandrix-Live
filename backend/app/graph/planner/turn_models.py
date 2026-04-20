@@ -3,6 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field
 
 from app.schemas.trip_conversation import (
+    ConversationFieldConfidence,
     ConversationOptionKind,
     PlannerIntent,
     PlannerPlanningMode,
@@ -58,6 +59,11 @@ class DestinationSuggestionCandidate(BaseModel):
     practicality_label: str = Field(..., min_length=1, max_length=120)
 
 
+class TripFieldConfidenceUpdate(BaseModel):
+    field: TripFieldKey
+    confidence: ConversationFieldConfidence
+
+
 class TripTurnUpdate(BaseModel):
     title: str | None = None
     from_location: str | None = None
@@ -76,6 +82,7 @@ class TripTurnUpdate(BaseModel):
     activity_styles: list[ActivityStyle] = Field(default_factory=list)
     confirmed_fields: list[TripFieldKey] = Field(default_factory=list)
     inferred_fields: list[TripFieldKey] = Field(default_factory=list)
+    field_confidences: list[TripFieldConfidenceUpdate] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     decision_cards: list[PlannerDecisionCard] = Field(default_factory=list)
     timeline_preview: list[ProposedTimelineItem] = Field(default_factory=list)

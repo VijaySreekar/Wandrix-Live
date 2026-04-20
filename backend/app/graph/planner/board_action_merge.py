@@ -1,9 +1,10 @@
 from datetime import date
 
 from app.schemas.conversation import ConversationBoardAction
+from app.schemas.trip_conversation import ConversationFieldConfidence
 from app.schemas.trip_planning import TripModuleSelection
 
-from app.graph.planner.turn_models import TripTurnUpdate
+from app.graph.planner.turn_models import TripFieldConfidenceUpdate, TripTurnUpdate
 
 
 def apply_board_action_updates(
@@ -100,6 +101,21 @@ def _mark_confirmed(update: TripTurnUpdate, field: str) -> None:
         update.confirmed_fields.append(field)
     if field in update.inferred_fields:
         update.inferred_fields.remove(field)
+    _set_field_confidence(update, field, "high")
+
+
+def _set_field_confidence(
+    update: TripTurnUpdate,
+    field: str,
+    confidence: ConversationFieldConfidence,
+) -> None:
+    for existing in update.field_confidences:
+        if existing.field == field:
+            existing.confidence = confidence
+            return
+    update.field_confidences.append(
+        TripFieldConfidenceUpdate(field=field, confidence=confidence)
+    )
 
 
 def _parse_optional_date(value: str | None) -> date | None:

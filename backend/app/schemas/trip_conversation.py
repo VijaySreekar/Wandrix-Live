@@ -67,6 +67,7 @@ ConversationFieldSource = Literal[
     "profile_default",
     "assistant_derived",
 ]
+ConversationFieldConfidence = Literal["low", "medium", "high"]
 
 ConversationOptionKind = Literal[
     "destination",
@@ -160,7 +161,8 @@ class ConversationQuestion(BaseModel):
 class ConversationFieldMemory(BaseModel):
     field: TripFieldKey
     value: Any = None
-    confidence: float = Field(default=0.0, ge=0, le=1)
+    confidence_level: ConversationFieldConfidence | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
     source: ConversationFieldSource = "assistant_derived"
     source_turn_id: str | None = Field(default=None, max_length=80)
     first_seen_at: datetime | None = None

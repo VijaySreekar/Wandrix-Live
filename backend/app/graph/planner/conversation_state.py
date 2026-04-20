@@ -13,6 +13,7 @@ from app.graph.planner.turn_models import ConversationOptionCandidate, TripTurnU
 from app.schemas.conversation import ConversationBoardAction
 from app.schemas.trip_conversation import (
     ConversationDecisionEvent,
+    ConversationFieldConfidence,
     ConversationFieldMemory,
     ConversationFieldSource,
     ConversationOptionMemory,
@@ -329,6 +330,9 @@ def merge_conversation_memory(
     board_action: dict,
 ) -> TripConversationMemory:
     memory = current.model_copy(deep=True)
+    confidence_by_field = {
+        item.field: item.confidence for item in llm_update.field_confidences
+    }
 
     for field in sorted(set([*llm_update.confirmed_fields, *llm_update.inferred_fields])):
         value = _get_configuration_value(next_configuration, field)
@@ -342,6 +346,7 @@ def merge_conversation_memory(
             field=field,
             value=value,
             source=source,
+            confidence_level=confidence_by_field.get(field),
             turn_id=turn_id,
             now=now,
         )
@@ -772,15 +777,17 @@ def _merge_field_memory_entry(
     field: TripFieldKey,
     value: object,
     source: ConversationFieldSource,
+    confidence_level: ConversationFieldConfidence | None,
     turn_id: str,
     now: datetime,
 ) -> ConversationFieldMemory:
-    incoming_confidence = _default_field_confidence(source)
+    previous_confidence_level = _effective_confidence_level(previous_entry)
     if previous_entry is None:
         return ConversationFieldMemory(
             field=field,
             value=value,
-            confidence=incoming_confidence,
+            confidence_level=confidence_level,
+            confidence=None,
             source=source,
             source_turn_id=turn_id,
             first_seen_at=now,
@@ -797,7 +804,11 @@ def _merge_field_memory_entry(
         return ConversationFieldMemory(
             field=field,
             value=value,
-            confidence=max(previous_entry.confidence, incoming_confidence),
+            confidence_level=_stronger_confidence_level(
+                previous_confidence_level,
+                confidence_level,
+            ),
+            confidence=None,
             source=previous_entry.source,
             source_turn_id=previous_entry.source_turn_id,
             first_seen_at=previous_entry.first_seen_at,
@@ -807,9 +818,12 @@ def _merge_field_memory_entry(
     return ConversationFieldMemory(
         field=field,
         value=value,
-        confidence=max(previous_entry.confidence, incoming_confidence)
-        if previous_entry.value == value
-        else incoming_confidence,
+        confidence_level=(
+            _stronger_confidence_level(previous_confidence_level, confidence_level)
+            if previous_entry.value == value
+            else confidence_level
+        ),
+        confidence=None,
         source=source,
         source_turn_id=turn_id,
         first_seen_at=previous_entry.first_seen_at,
@@ -826,13 +840,44 @@ def _field_source_priority(source: ConversationFieldSource) -> int:
     }[source]
 
 
-def _default_field_confidence(source: ConversationFieldSource) -> float:
+def _effective_confidence_level(
+    entry: ConversationFieldMemory | None,
+) -> ConversationFieldConfidence | None:
+    if entry is None:
+        return None
+    if entry.confidence_level is not None:
+        return entry.confidence_level
+    if entry.confidence is None:
+        return None
+    if entry.confidence >= 0.85:
+        return "high"
+    if entry.confidence >= 0.55:
+        return "medium"
+    return "low"
+
+
+def _stronger_confidence_level(
+    previous: ConversationFieldConfidence | None,
+    incoming: ConversationFieldConfidence | None,
+) -> ConversationFieldConfidence | None:
+    if previous is None:
+        return incoming
+    if incoming is None:
+        return previous
+    return (
+        previous
+        if _field_confidence_priority(previous)
+        >= _field_confidence_priority(incoming)
+        else incoming
+    )
+
+
+def _field_confidence_priority(level: ConversationFieldConfidence) -> int:
     return {
-        "profile_default": 0.35,
-        "assistant_derived": 0.5,
-        "user_inferred": 0.65,
-        "user_explicit": 1.0,
-    }[source]
+        "low": 0,
+        "medium": 1,
+        "high": 2,
+    }[level]
 
 
 def _question_is_still_relevant(

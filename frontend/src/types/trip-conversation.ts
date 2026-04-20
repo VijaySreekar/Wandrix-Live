@@ -39,6 +39,7 @@ export type ConversationFieldSource =
   | "user_inferred"
   | "profile_default"
   | "assistant_derived";
+export type ConversationFieldConfidence = "low" | "medium" | "high";
 
 export type ConversationOptionKind =
   | "destination"
@@ -160,7 +161,8 @@ export type ConversationQuestion = {
 export type ConversationFieldMemory = {
   field: TripFieldKey;
   value: unknown;
-  confidence: number;
+  confidence_level?: ConversationFieldConfidence | null;
+  confidence?: number | null;
   source: ConversationFieldSource;
   source_turn_id?: string | null;
   first_seen_at?: string | null;

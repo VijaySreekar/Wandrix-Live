@@ -55,6 +55,10 @@ Rules:
 - If the user says they are not travelling from the detected place, treat that as a correction to the origin context and update the next suggestions accordingly.
 - Explicit user statements become confirmed_fields.
 - Plausible but not explicit details stay inferred_fields.
+- For each field you place in confirmed_fields or inferred_fields, also return a matching field_confidences entry.
+- Use only low, medium, or high confidence.
+- Use high when the user clearly stated the fact, medium for a strong but still inferred read, and low for soft or still-uncertain working assumptions.
+- Do not invent field_confidences for untouched fields.
 - Rejected or corrected options go into rejected_options.
 - Mentioned but unchosen possibilities go into mentioned_options.
 - Use travel_window for rough timing like "late September".
