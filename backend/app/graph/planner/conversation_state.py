@@ -14,6 +14,7 @@ from app.schemas.conversation import ConversationBoardAction
 from app.schemas.trip_conversation import (
     ConversationDecisionEvent,
     ConversationFieldMemory,
+    ConversationFieldSource,
     ConversationOptionMemory,
     PlannerConfirmationStatus,
     PlannerFinalizedVia,
@@ -333,16 +334,16 @@ def merge_conversation_memory(
         value = _get_configuration_value(next_configuration, field)
         if value in (None, "", [], {}):
             continue
-        source = "user_explicit" if field in llm_update.confirmed_fields else "user_inferred"
-        previous_entry = memory.field_memory.get(field)
-        memory.field_memory[field] = ConversationFieldMemory(
+        source: ConversationFieldSource = (
+            "user_explicit" if field in llm_update.confirmed_fields else "user_inferred"
+        )
+        memory.field_memory[field] = _merge_field_memory_entry(
+            previous_entry=memory.field_memory.get(field),
             field=field,
             value=value,
-            confidence=1.0 if source == "user_explicit" else 0.65,
             source=source,
-            source_turn_id=turn_id,
-            first_seen_at=previous_entry.first_seen_at if previous_entry else now,
-            last_seen_at=now,
+            turn_id=turn_id,
+            now=now,
         )
 
         previous_value = _get_configuration_value(previous_configuration, field)
@@ -763,6 +764,75 @@ def _field_to_option_candidate(field: TripFieldKey, value: object) -> Conversati
     if field == "budget_posture":
         return ConversationOptionCandidate(kind="budget_posture", value=str(value))
     return None
+
+
+def _merge_field_memory_entry(
+    *,
+    previous_entry: ConversationFieldMemory | None,
+    field: TripFieldKey,
+    value: object,
+    source: ConversationFieldSource,
+    turn_id: str,
+    now: datetime,
+) -> ConversationFieldMemory:
+    incoming_confidence = _default_field_confidence(source)
+    if previous_entry is None:
+        return ConversationFieldMemory(
+            field=field,
+            value=value,
+            confidence=incoming_confidence,
+            source=source,
+            source_turn_id=turn_id,
+            first_seen_at=now,
+            last_seen_at=now,
+        )
+
+    previous_priority = _field_source_priority(previous_entry.source)
+    incoming_priority = _field_source_priority(source)
+    keep_previous_source = (
+        previous_entry.value == value and previous_priority > incoming_priority
+    )
+
+    if keep_previous_source:
+        return ConversationFieldMemory(
+            field=field,
+            value=value,
+            confidence=max(previous_entry.confidence, incoming_confidence),
+            source=previous_entry.source,
+            source_turn_id=previous_entry.source_turn_id,
+            first_seen_at=previous_entry.first_seen_at,
+            last_seen_at=now,
+        )
+
+    return ConversationFieldMemory(
+        field=field,
+        value=value,
+        confidence=max(previous_entry.confidence, incoming_confidence)
+        if previous_entry.value == value
+        else incoming_confidence,
+        source=source,
+        source_turn_id=turn_id,
+        first_seen_at=previous_entry.first_seen_at,
+        last_seen_at=now,
+    )
+
+
+def _field_source_priority(source: ConversationFieldSource) -> int:
+    return {
+        "profile_default": 0,
+        "assistant_derived": 1,
+        "user_inferred": 2,
+        "user_explicit": 3,
+    }[source]
+
+
+def _default_field_confidence(source: ConversationFieldSource) -> float:
+    return {
+        "profile_default": 0.35,
+        "assistant_derived": 0.5,
+        "user_inferred": 0.65,
+        "user_explicit": 1.0,
+    }[source]
 
 
 def _question_is_still_relevant(

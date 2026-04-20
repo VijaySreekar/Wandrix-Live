@@ -725,7 +725,7 @@ Suggested priority values:
 | --- | --- | --- | --- | --- | --- | --- |
 | PI-01 | P0 | not started | Add per-field confidence semantics | `backend/app/graph/planner/turn_models.py`, `backend/app/schemas/trip_conversation.py` | The planner needs to say how sure it is, not just what it thinks | Let the model return structured confidence signals and store them in memory |
 | PI-02 | P0 | not started | Add per-field source semantics | `backend/app/graph/planner/turn_models.py`, `backend/app/schemas/trip_conversation.py` | We need to know whether a fact came from the user, the board, profile context, or inference | Extend structured output and state bookkeeping, not raw-text heuristics |
-| PI-03 | P0 | not started | Tighten explicit vs inferred merge rules | `backend/app/graph/planner/conversation_state.py` | Prevent inferred details from silently behaving like confirmed facts | Deterministic merge precedence after structured output is produced |
+| PI-03 | P0 | in progress | Tighten explicit vs inferred merge rules | `backend/app/graph/planner/conversation_state.py` | Prevent inferred details from silently behaving like confirmed facts | Deterministic merge precedence after structured output is produced |
 | PI-04 | P0 | not started | Improve correction handling | `backend/app/graph/planner/conversation_state.py`, `backend/app/schemas/trip_conversation.py` | Users change their minds often; the planner must update cleanly | Track corrections and rejected history explicitly |
 | PI-05 | P0 | not started | Improve confirmation detection through schema output | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/turn_models.py` | Casual approval should not finalize a trip | Keep confirmation as structured LLM output, not phrase matching |
 | PI-06 | P0 | not started | Improve open-question structure and priority | `backend/app/schemas/trip_conversation.py`, `backend/app/graph/planner/conversation_state.py` | The planner should ask the most valuable next question, not a random one | Use structured question objects with field, priority, and status |
@@ -847,6 +847,9 @@ Planner state:
 - if profile context is used, it is stored visibly as profile-derived context
 
 ## PI-03. Tighten Explicit Vs Inferred Merge Rules
+
+Progress update:
+- 2026-04-20: Preserved stronger explicit field memory when a later turn only repeats or revisits the same stored fact as inference, so confirmed planner facts no longer get downgraded silently in status bookkeeping.
 
 ### What this change is
 

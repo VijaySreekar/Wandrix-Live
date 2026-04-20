@@ -9,6 +9,23 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-20 - Protected Explicit Planner Facts From Inference Downgrades
+
+Technical Summary:
+- Tightened planner field-memory merge precedence so a later inferred turn can no longer silently downgrade a previously explicit fact when the persisted trip value itself has not changed.
+- Added deterministic source-priority helpers in the planner conversation state merge path to keep stronger explicit field provenance attached to stable trip facts while still allowing explicit corrections to replace older inferred values.
+- Added targeted backend regression coverage for both the downgrade case and the explicit-correction case, and marked PI-03 as in progress in the planner boundary tracker with a concrete status note.
+
+Plain-English Summary:
+- The planner now keeps clearly confirmed trip details feeling confirmed, even if a later message mentions alternatives or uncertainty around the same area.
+- This makes the live trip state more trustworthy because a firm choice like a destination will not quietly become "just inferred" again unless the user really changes it.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
 ## 2026-04-20 - Expanded Planner Intelligence Guide With Granular Tracker
 
 Technical Summary:
