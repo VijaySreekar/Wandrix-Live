@@ -1,6 +1,7 @@
 "use client";
 
 import { TripDetailsBoard } from "@/components/package/trip-details-board";
+import { TripLiveBoard } from "@/components/package/trip-live-board";
 import { TripSuggestionBoard } from "@/components/package/trip-suggestion-board";
 import type { BrowserAuthSnapshot } from "@/lib/supabase/auth-snapshot";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
@@ -22,10 +23,23 @@ export function TripBoardPreview({
   const conversation = workspace?.tripDraft.conversation;
   const suggestionBoard = conversation?.suggestion_board;
 
+  if (workspace && conversation?.planning_mode === "quick") {
+    return (
+      <section className="flex h-full min-h-0 flex-col bg-shell">
+        <BoardHeader />
+        <TripLiveBoard workspace={workspace} />
+      </section>
+    );
+  }
+
   if (
     workspace &&
     suggestionBoard &&
-    ["destination_suggestions", "decision_cards"].includes(suggestionBoard.mode)
+    [
+      "destination_suggestions",
+      "decision_cards",
+      "planning_mode_choice",
+    ].includes(suggestionBoard.mode)
   ) {
     return (
       <TripSuggestionBoard
@@ -43,7 +57,6 @@ export function TripBoardPreview({
         key={JSON.stringify(suggestionBoard.details_form ?? {})}
         accessToken={authSnapshot?.accessToken}
         board={suggestionBoard}
-        phase={conversation?.phase ?? "opening"}
         disabled={isBootstrapping}
         onAction={onAction}
       />

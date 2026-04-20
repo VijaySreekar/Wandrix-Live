@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.trip_conversation import (
     ConversationOptionKind,
+    PlannerPlanningMode,
     PlannerDecisionCard,
     TripFieldKey,
 )
@@ -30,6 +31,14 @@ class ProposedTimelineItem(BaseModel):
     summary: str | None = None
     details: list[str] = Field(default_factory=list)
     source_module: PlanningModuleKey | None = None
+
+
+class QuickPlanDraft(BaseModel):
+    board_summary: str | None = Field(default=None, max_length=400)
+    timeline_preview: list[ProposedTimelineItem] = Field(
+        default_factory=list,
+        max_length=12,
+    )
 
 
 class ConversationOptionCandidate(BaseModel):
@@ -78,5 +87,6 @@ class TripTurnUpdate(BaseModel):
         default_factory=list,
         max_length=4,
     )
+    requested_planning_mode: PlannerPlanningMode | None = None
     confirmed_trip_brief: bool = False
     assistant_response: str = ""

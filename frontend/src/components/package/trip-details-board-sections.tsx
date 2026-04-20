@@ -6,7 +6,6 @@ import {
   CalendarRange,
   CheckCircle2,
   ChevronDown,
-  CircleDollarSign,
   Cloud,
   Compass,
   Heart,
@@ -17,34 +16,32 @@ import {
   Palmtree,
   Plane,
   Plus,
-  SlidersHorizontal,
   Sparkles,
-  UtensilsCrossed,
   UsersRound,
-  Users,
+  UtensilsCrossed,
   Wine,
 } from "lucide-react";
 
+import {
+  getNextVisibleStep,
+  getRequiredSteps,
+  isStepComplete,
+} from "@/components/package/trip-details-board-model";
+import { RouteLocationInput } from "@/components/package/route-location-input";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DatePicker } from "@/components/ui/date-picker";
-import { RouteLocationInput } from "@/components/package/route-location-input";
 import { cn } from "@/lib/utils";
-import type { TripDetailsCollectionFormState } from "@/types/trip-conversation";
+import type {
+  TripDetailsCollectionFormState,
+  TripDetailsStepKey,
+} from "@/types/trip-conversation";
 import type {
   ActivityStyle,
   BudgetPosture,
   TripModuleSelection,
 } from "@/types/trip-draft";
-
-export type TripDetailsStepKey =
-  | "route"
-  | "timing"
-  | "travellers"
-  | "vibe"
-  | "budget"
-  | "modules";
 
 type TripDetailsStepperProps = {
   accessToken?: string;
@@ -52,9 +49,10 @@ type TripDetailsStepperProps = {
   disabled: boolean;
   focusNote: string;
   form: TripDetailsCollectionFormState;
+  visibleSteps: TripDetailsStepKey[];
   onActiveStepChange: (step: TripDetailsStepKey) => void;
   onAdultsChange: (value: number | null) => void;
-  onBudgetAmountChange: (value: number) => void;
+  onBudgetAmountChange: (value: number | null) => void;
   onBudgetPostureToggle: (posture: BudgetPosture) => void;
   onChildrenChange: (value: number | null) => void;
   onFieldChange: (
@@ -78,14 +76,49 @@ type TripDetailsFooterProps = {
   onConfirm: () => void;
 };
 
-const STEP_ORDER: TripDetailsStepKey[] = [
-  "route",
-  "timing",
-  "travellers",
-  "vibe",
-  "budget",
-  "modules",
-];
+type StepCardProps = {
+  children: ReactNode;
+  disabled: boolean;
+  isComplete: boolean;
+  isOpen: boolean;
+  isRequired: boolean;
+  stepNumber: number;
+  summary: string | null;
+  title: string;
+  onToggle: () => void;
+};
+
+type ChoiceButtonProps = {
+  children: ReactNode;
+  disabled: boolean;
+  selected: boolean;
+  onClick: () => void;
+};
+
+type StepActionsProps = {
+  disabled: boolean;
+  nextLabel: string | null;
+  onNext?: () => void;
+};
+
+type TravellerCardProps = {
+  accent: "primary" | "secondary";
+  description: string;
+  disabled: boolean;
+  label: string;
+  onDecrement: () => void;
+  onIncrement: () => void;
+  value: number;
+};
+
+const STEP_TITLES: Record<TripDetailsStepKey, string> = {
+  modules: "Trip modules",
+  route: "Route",
+  timing: "Timing",
+  travellers: "Travellers",
+  vibe: "Trip style",
+  budget: "Budget",
+};
 
 const STYLE_OPTIONS: ActivityStyle[] = [
   "food",
@@ -98,30 +131,12 @@ const STYLE_OPTIONS: ActivityStyle[] = [
   "outdoors",
 ];
 
-function getStyleConfig(style: ActivityStyle) {
-  const configs: Record<ActivityStyle, { icon: ReactNode }> = {
-    food: { icon: <UtensilsCrossed className="size-5" /> },
-    culture: { icon: <Compass className="size-5" /> },
-    relaxed: { icon: <Palmtree className="size-5" /> },
-    luxury: { icon: <Wine className="size-5" /> },
-    romantic: { icon: <Heart className="size-5" /> },
-    family: { icon: <UsersRound className="size-5" /> },
-    adventure: { icon: <Mountain className="size-5" /> },
-    outdoors: { icon: <Mountain className="size-5" /> },
-    nightlife: { icon: <Sparkles className="size-5" /> },
-  };
-  return configs[style];
-}
-
-function getModuleConfig(moduleName: keyof TripModuleSelection) {
-  const configs: Record<keyof TripModuleSelection, { icon: ReactNode; description: string }> = {
-    flights: { icon: <Plane className="size-5" />, description: "Find and book flights" },
-    hotels: { icon: <Hotel className="size-5" />, description: "Search accommodations" },
-    activities: { icon: <Sparkles className="size-5" />, description: "Discover things to do" },
-    weather: { icon: <Cloud className="size-5" />, description: "Check weather forecasts" },
-  };
-  return configs[moduleName];
-}
+const MODULE_ORDER: Array<keyof TripModuleSelection> = [
+  "flights",
+  "hotels",
+  "activities",
+  "weather",
+];
 
 const TRAVEL_WINDOW_OPTIONS = [
   "This month",
@@ -141,17 +156,10 @@ const TRIP_LENGTH_OPTIONS = [
   "2 weeks",
 ] as const;
 
-const MODULE_ORDER: Array<keyof TripModuleSelection> = [
-  "flights",
-  "hotels",
-  "activities",
-  "weather",
-];
-
 const BUDGET_OPTIONS: Array<{ value: BudgetPosture; label: string }> = [
-  { value: "budget", label: "Essential" },
-  { value: "mid_range", label: "Premium" },
-  { value: "premium", label: "Luxury" },
+  { value: "budget", label: "Budget" },
+  { value: "mid_range", label: "Mid-range" },
+  { value: "premium", label: "Premium" },
 ];
 
 export function TripDetailsStepper({
@@ -160,6 +168,7 @@ export function TripDetailsStepper({
   disabled,
   focusNote,
   form,
+  visibleSteps,
   onActiveStepChange,
   onAdultsChange,
   onBudgetAmountChange,
@@ -169,87 +178,157 @@ export function TripDetailsStepper({
   onModuleToggle,
   onStyleToggle,
 }: TripDetailsStepperProps) {
-  const firstIncomplete = getFirstIncompleteStep(form);
-  const firstIncompleteIndex = STEP_ORDER.indexOf(firstIncomplete);
-
-  const stepItems = STEP_ORDER.map((step, index) => ({
-    step,
-    index,
-    icon: STEP_ICONS[step],
-    title: STEP_TITLES[step],
-    summary: getStepSummary(step, form),
-    complete: isStepComplete(step, form),
-    locked:
-      firstIncompleteIndex !== -1 &&
-      index > firstIncompleteIndex &&
-      !STEP_ORDER.slice(0, index).every((priorStep) =>
-        isStepComplete(priorStep, form),
-      ),
-  }));
+  const requiredSteps = getRequiredSteps(form);
+  const flightsActive = form.selected_modules.flights;
 
   return (
-    <div className="space-y-1">
-      {stepItems.map((item) => {
-        const stepIsOpen = activeStep === item.step;
-        const stepIndex = item.index;
-        const nextStep =
-          stepIndex < STEP_ORDER.length - 1 ? STEP_ORDER[stepIndex + 1] : null;
+    <div className="space-y-3">
+      {visibleSteps.map((step, index) => {
+        const complete = isStepComplete(step, form);
+        const isOpen = activeStep === step;
+        const isRequired = requiredSteps.includes(step);
+        const nextStep = getNextVisibleStep(step, form);
 
         return (
           <StepCard
-            key={item.step}
+            key={step}
             disabled={disabled}
-            isComplete={item.complete}
-            isLocked={item.locked}
-            isOpen={stepIsOpen}
-            stepNumber={stepIndex + 1}
-            summary={item.summary}
-            title={item.title}
-            onToggle={() => {
-              if (!item.locked) {
-                onActiveStepChange(item.step);
-              }
-            }}
+            isComplete={complete}
+            isOpen={isOpen}
+            isRequired={isRequired}
+            stepNumber={index + 1}
+            summary={getStepSummary(step, form)}
+            title={STEP_TITLES[step]}
+            onToggle={() => onActiveStepChange(step)}
           >
-            {item.step === "route" ? (
+            {step === "modules" ? (
               <div className="space-y-5">
                 <StepIntro>
-                  Start with the route you have in mind. Both points stay editable
-                  later if the plan shifts.
+                  Choose what you want Wandrix to actively plan right now. Nothing here is mandatory. Full trip is just the default, and you can switch anything off if you only need a focused pass.
                 </StepIntro>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <RouteLocationInput
-                    accessToken={accessToken}
-                    disabled={disabled}
-                    kind="origin"
-                    label="From"
-                    placeholder="London or Heathrow"
-                    value={form.from_location ?? ""}
-                    onChange={(value) => onFieldChange("from_location", value)}
-                  />
-                  <RouteLocationInput
-                    accessToken={accessToken}
-                    disabled={disabled}
-                    kind="destination"
-                    label="To"
-                    placeholder="Marrakech or Kyoto"
-                    value={form.to_location ?? ""}
-                    onChange={(value) => onFieldChange("to_location", value)}
-                  />
+                <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)]/55 px-4 py-3">
+                  <p className="text-sm font-medium text-[var(--planner-board-text)]">
+                    How this works
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[var(--planner-board-muted)]">
+                    Keep all four on for a full trip. If you only want part of the plan, turn on just those modules and the rest of the board will simplify around them.
+                  </p>
                 </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {MODULE_ORDER.map((moduleName) => {
+                    const config = getModuleConfig(moduleName);
+                    const selected = form.selected_modules[moduleName];
+                    return (
+                      <button
+                        key={moduleName}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => onModuleToggle(moduleName)}
+                        className={cn(
+                          "flex items-start gap-4 rounded-xl border px-4 py-4 text-left transition-colors duration-150",
+                          selected
+                            ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-cta)]/5"
+                            : "border-[var(--planner-board-border)] bg-white hover:border-[var(--planner-board-cta)]",
+                          disabled && "cursor-not-allowed opacity-50",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full",
+                            selected
+                              ? "bg-[var(--planner-board-cta)] text-white"
+                              : "bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]",
+                          )}
+                        >
+                          {config.icon}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <h4 className="font-medium text-[var(--planner-board-text)]">
+                              {config.label}
+                            </h4>
+                            {selected ? (
+                              <CheckCircle2 className="size-4 shrink-0 text-[var(--planner-board-cta)]" />
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-sm leading-6 text-[var(--planner-board-muted)]">
+                            {config.description}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-sm leading-7 text-[var(--planner-board-muted)]">
+                  {focusNote}
+                </p>
                 <StepActions
-                  disabled={disabled || !item.complete}
-                  nextLabel={nextStep ? "Continue to timing" : null}
+                  disabled={disabled || !complete}
+                  nextLabel={
+                    nextStep
+                      ? `Continue to ${STEP_TITLES[nextStep].toLowerCase()}`
+                      : null
+                  }
                   onNext={nextStep ? () => onActiveStepChange(nextStep) : undefined}
                 />
               </div>
             ) : null}
 
-            {item.step === "timing" ? (
+            {step === "route" ? (
+              <div className="space-y-5">
+                <StepIntro>
+                  {flightsActive
+                    ? "Lock the route you want to plan around. Departure and destination both matter once flights are in scope."
+                    : "Keep the destination clear. Departure can stay in the background until you add flights back in."}
+                </StepIntro>
+                <div className={cn("grid gap-4", flightsActive && "sm:grid-cols-2")}>
+                  {flightsActive ? (
+                    <RouteLocationInput
+                      accessToken={accessToken}
+                      disabled={disabled}
+                      kind="origin"
+                      label="From"
+                      placeholder="London or Heathrow"
+                      value={form.from_location ?? ""}
+                      onChange={(value) => onFieldChange("from_location", value)}
+                    />
+                  ) : null}
+                  <RouteLocationInput
+                    accessToken={accessToken}
+                    disabled={disabled}
+                    kind="destination"
+                    label={flightsActive ? "To" : "Destination"}
+                    placeholder="Marrakech or Kyoto"
+                    value={form.to_location ?? ""}
+                    onChange={(value) => onFieldChange("to_location", value)}
+                  />
+                  {!flightsActive ? (
+                    <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)]/55 p-4">
+                      <Label className="text-sm font-medium text-[var(--planner-board-text)]">
+                        Departure point
+                      </Label>
+                      <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                        Optional for the current scope. If you bring flights back in later, Wandrix will surface this again.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+                <StepActions
+                  disabled={disabled || !complete}
+                  nextLabel={
+                    nextStep
+                      ? `Continue to ${STEP_TITLES[nextStep].toLowerCase()}`
+                      : null
+                  }
+                  onNext={nextStep ? () => onActiveStepChange(nextStep) : undefined}
+                />
+              </div>
+            ) : null}
+
+            {step === "timing" ? (
               <div className="space-y-6">
                 <StepIntro>
-                  Rough timing is enough to move forward. Add exact dates only if
-                  you already know them.
+                  Rough timing is enough to move forward. Add exact dates only if you already know them.
                 </StepIntro>
                 <div className="space-y-5">
                   <div className="space-y-3">
@@ -305,12 +384,12 @@ export function TripDetailsStepper({
                     <DatePicker
                       disabled={disabled}
                       placeholder="Start date"
-                      date={form.start_date ? new Date(form.start_date + 'T00:00:00') : undefined}
+                      date={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined}
                       onDateChange={(date) => {
                         if (date) {
                           const year = date.getFullYear();
-                          const month = String(date.getMonth() + 1).padStart(2, '0');
-                          const day = String(date.getDate()).padStart(2, '0');
+                          const month = String(date.getMonth() + 1).padStart(2, "0");
+                          const day = String(date.getDate()).padStart(2, "0");
                           const nextStartDate = `${year}-${month}-${day}`;
                           onFieldChange("start_date", nextStartDate);
                           if (form.end_date && form.end_date < nextStartDate) {
@@ -324,19 +403,17 @@ export function TripDetailsStepper({
                     <DatePicker
                       disabled={disabled}
                       placeholder="End date"
-                      date={form.end_date ? new Date(form.end_date + 'T00:00:00') : undefined}
+                      date={form.end_date ? new Date(`${form.end_date}T00:00:00`) : undefined}
                       disabledDays={
                         form.start_date
-                          ? {
-                              before: new Date(form.start_date + "T00:00:00"),
-                            }
+                          ? { before: new Date(`${form.start_date}T00:00:00`) }
                           : undefined
                       }
                       onDateChange={(date) => {
                         if (date) {
                           const year = date.getFullYear();
-                          const month = String(date.getMonth() + 1).padStart(2, '0');
-                          const day = String(date.getDate()).padStart(2, '0');
+                          const month = String(date.getMonth() + 1).padStart(2, "0");
+                          const day = String(date.getDate()).padStart(2, "0");
                           onFieldChange("end_date", `${year}-${month}-${day}`);
                         } else {
                           onFieldChange("end_date", null);
@@ -346,96 +423,65 @@ export function TripDetailsStepper({
                   </div>
                 </div>
                 <StepActions
-                  disabled={disabled || !item.complete}
-                  nextLabel={nextStep ? "Continue to travellers" : null}
+                  disabled={disabled || !complete}
+                  nextLabel={
+                    nextStep
+                      ? `Continue to ${STEP_TITLES[nextStep].toLowerCase()}`
+                      : null
+                  }
                   onNext={nextStep ? () => onActiveStepChange(nextStep) : undefined}
                 />
               </div>
             ) : null}
 
-            {item.step === "travellers" ? (
+            {step === "travellers" ? (
               <div className="space-y-5">
                 <StepIntro>
-                  Tell Wandrix who the trip is for. Adults are required, children
-                  are optional.
+                  Tell Wandrix who the trip is for. Adults are required here, and children are optional.
                 </StepIntro>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="group rounded-xl border border-[var(--planner-board-border)] bg-gradient-to-br from-white to-[var(--planner-board-soft)] p-5 transition-all duration-200 hover:border-[var(--planner-board-cta)] hover:shadow-sm">
-                    <div className="mb-4 flex items-center gap-3">
-                      <div className="flex size-10 items-center justify-center rounded-full bg-[var(--planner-board-cta)]/10">
-                        <Users className="size-5 text-[var(--planner-board-cta)]" />
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-[var(--planner-board-text)]">Adults</h4>
-                        <p className="text-xs text-[var(--planner-board-muted)]">18 years and older</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-center gap-4">
-                      <CounterButton
-                        disabled={disabled || (form.adults ?? 1) <= 1}
-                        onClick={() => onAdultsChange(Math.max(1, (form.adults ?? 1) - 1))}
-                      >
-                        <Minus className="size-4" />
-                      </CounterButton>
-                      <span className="min-w-12 text-center text-2xl font-bold text-[var(--planner-board-text)]">
-                        {form.adults ?? 1}
-                      </span>
-                      <CounterButton
-                        disabled={disabled}
-                        onClick={() => onAdultsChange((form.adults ?? 1) + 1)}
-                      >
-                        <Plus className="size-4" />
-                      </CounterButton>
-                    </div>
-                  </div>
-
-                  <div className="group rounded-xl border border-[var(--planner-board-border)] bg-gradient-to-br from-white to-[var(--planner-board-soft)] p-5 transition-all duration-200 hover:border-[var(--planner-board-cta)] hover:shadow-sm">
-                    <div className="mb-4 flex items-center gap-3">
-                      <div className="flex size-10 items-center justify-center rounded-full bg-[var(--planner-board-accent-soft)]">
-                        <Baby className="size-5 text-[var(--planner-board-accent-text)]" />
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-[var(--planner-board-text)]">Children</h4>
-                        <p className="text-xs text-[var(--planner-board-muted)]">Under 18 years</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-center gap-4">
-                      <CounterButton
-                        disabled={disabled || (form.children ?? 0) <= 0}
-                        onClick={() => onChildrenChange(Math.max(0, (form.children ?? 0) - 1))}
-                      >
-                        <Minus className="size-4" />
-                      </CounterButton>
-                      <span className="min-w-12 text-center text-2xl font-bold text-[var(--planner-board-text)]">
-                        {form.children ?? 0}
-                      </span>
-                      <CounterButton
-                        disabled={disabled}
-                        onClick={() => onChildrenChange((form.children ?? 0) + 1)}
-                      >
-                        <Plus className="size-4" />
-                      </CounterButton>
-                    </div>
-                  </div>
+                  <TravellerCard
+                    accent="primary"
+                    description="18 years and older"
+                    disabled={disabled}
+                    label="Adults"
+                    onDecrement={() => onAdultsChange(Math.max(0, (form.adults ?? 0) - 1))}
+                    onIncrement={() => onAdultsChange((form.adults ?? 0) + 1)}
+                    value={form.adults ?? 0}
+                  />
+                  <TravellerCard
+                    accent="secondary"
+                    description="Under 18 years"
+                    disabled={disabled}
+                    label="Children"
+                    onDecrement={() =>
+                      onChildrenChange(Math.max(0, (form.children ?? 0) - 1))
+                    }
+                    onIncrement={() => onChildrenChange((form.children ?? 0) + 1)}
+                    value={form.children ?? 0}
+                  />
                 </div>
                 <StepActions
-                  disabled={disabled || !item.complete}
-                  nextLabel={nextStep ? "Continue to style" : null}
+                  disabled={disabled || !complete}
+                  nextLabel={
+                    nextStep
+                      ? `Continue to ${STEP_TITLES[nextStep].toLowerCase()}`
+                      : null
+                  }
                   onNext={nextStep ? () => onActiveStepChange(nextStep) : undefined}
                 />
               </div>
             ) : null}
 
-            {item.step === "vibe" ? (
+            {step === "vibe" ? (
               <div className="space-y-5">
                 <StepIntro>
-                  Choose the trip mood you want Wandrix to optimize around. Pick
-                  more than one if the plan has mixed priorities.
+                  Choose the trip mood you want Wandrix to optimize around. Pick more than one if the plan has mixed priorities.
                 </StepIntro>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {STYLE_OPTIONS.map((style) => {
+                    const config = getStyleConfig(style);
                     const isSelected = form.activity_styles.includes(style);
-                    const styleConfig = getStyleConfig(style);
                     return (
                       <button
                         key={style}
@@ -443,38 +489,29 @@ export function TripDetailsStepper({
                         disabled={disabled}
                         onClick={() => onStyleToggle(style)}
                         className={cn(
-                          "group relative flex flex-col items-center gap-3 rounded-xl border p-4 transition-all duration-200",
+                          "relative flex flex-col items-center gap-3 rounded-xl border px-4 py-4 text-center transition-colors duration-150",
                           isSelected
-                            ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-cta)]/5 shadow-sm"
-                            : "border-[var(--planner-board-border)] bg-white hover:border-[var(--planner-board-cta)] hover:bg-[var(--planner-board-soft)]",
-                          disabled && "cursor-not-allowed opacity-50"
+                            ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-cta)]/5"
+                            : "border-[var(--planner-board-border)] bg-white hover:border-[var(--planner-board-cta)]",
+                          disabled && "cursor-not-allowed opacity-50",
                         )}
                       >
                         <div
                           className={cn(
-                            "flex size-12 items-center justify-center rounded-full transition-all duration-200",
+                            "flex size-11 items-center justify-center rounded-full",
                             isSelected
                               ? "bg-[var(--planner-board-cta)] text-white"
-                              : "bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)] group-hover:bg-[var(--planner-board-cta)]/10 group-hover:text-[var(--planner-board-cta)]"
+                              : "bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]",
                           )}
                         >
-                          {styleConfig.icon}
+                          {config.icon}
                         </div>
-                        <span
-                          className={cn(
-                            "text-sm font-medium transition-colors duration-200",
-                            isSelected
-                              ? "text-[var(--planner-board-cta)]"
-                              : "text-[var(--planner-board-text)]"
-                          )}
-                        >
-                          {capitalizeLabel(style)}
+                        <span className="text-sm font-medium text-[var(--planner-board-text)]">
+                          {config.label}
                         </span>
-                        {isSelected && (
-                          <div className="absolute right-2 top-2">
-                            <CheckCircle2 className="size-4 text-[var(--planner-board-cta)]" />
-                          </div>
-                        )}
+                        {isSelected ? (
+                          <CheckCircle2 className="absolute right-2 top-2 size-4 text-[var(--planner-board-cta)]" />
+                        ) : null}
                       </button>
                     );
                   })}
@@ -485,170 +522,76 @@ export function TripDetailsStepper({
                   </Label>
                   <Input
                     disabled={disabled}
-                    placeholder="e.g., photography-focused, wellness retreat, nightlife..."
+                    placeholder="e.g. photography-focused, wellness retreat, nightlife"
                     value={form.custom_style ?? ""}
-                    onChange={(e) => onFieldChange("custom_style", e.target.value || null)}
-                    className="h-11 rounded-lg border-[var(--planner-board-border)] bg-white/50 transition-all duration-200 focus:border-[var(--planner-board-cta)]"
+                    onChange={(event) =>
+                      onFieldChange("custom_style", event.target.value || null)
+                    }
+                    className="h-11 rounded-lg border-[var(--planner-board-border)] bg-white/50 transition-colors duration-150 focus:border-[var(--planner-board-cta)]"
                   />
                 </div>
                 <StepActions
-                  disabled={disabled || !item.complete}
-                  nextLabel={nextStep ? "Continue to budget and scope" : null}
+                  disabled={disabled || !complete}
+                  nextLabel={
+                    nextStep
+                      ? `Continue to ${STEP_TITLES[nextStep].toLowerCase()}`
+                      : null
+                  }
                   onNext={nextStep ? () => onActiveStepChange(nextStep) : undefined}
                 />
               </div>
             ) : null}
 
-            {item.step === "budget" ? (
+            {step === "budget" ? (
               <div className="space-y-5">
                 <StepIntro>
-                  Set your trip budget. This helps Wandrix plan accommodations, activities, and dining that fit your spending comfort.
+                  Set the budget tone you want Wandrix to work within. For tighter scopes this stays helpful, but not always required.
                 </StepIntro>
-                <div className="rounded-xl border border-[var(--planner-board-border)] bg-gradient-to-br from-white to-[var(--planner-board-soft)] p-5">
-                  <div className="mb-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex size-10 items-center justify-center rounded-full bg-[var(--planner-board-cta)]/10">
-                        <CircleDollarSign className="size-5 text-[var(--planner-board-cta)]" />
-                      </div>
-                      <Label className="text-base font-semibold text-[var(--planner-board-text)]">
-                        Total Budget
-                      </Label>
-                    </div>
-                    <span className="text-2xl font-bold text-[var(--planner-board-cta)]">
-                      {formatCurrency(form.budget_gbp ?? 2200)}
-                    </span>
-                  </div>
-                  <div className="space-y-3">
-                    <input
-                      type="range"
-                      min="500"
-                      max="10000"
-                      step="100"
-                      disabled={disabled}
-                      value={form.budget_gbp ?? 2200}
-                      onChange={(event) =>
-                        onBudgetAmountChange(Number(event.target.value))
-                      }
-                      className="trip-budget-slider h-2 w-full cursor-pointer appearance-none rounded-full bg-[var(--planner-board-card)]"
-                    />
-                    <div className="flex items-center justify-between text-xs font-medium text-[var(--planner-board-muted-strong)]">
-                      <span>£500</span>
-                      <span>£10,000</span>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <Label className="mb-3 block text-sm font-medium text-[var(--planner-board-text)]">
-                    Budget style
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium text-[var(--planner-board-text)]">
+                    Budget posture
                   </Label>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid gap-2.5 sm:grid-cols-3">
                     {BUDGET_OPTIONS.map((option) => (
-                      <button
+                      <ChoiceButton
                         key={option.value}
-                        type="button"
                         disabled={disabled}
+                        selected={form.budget_posture === option.value}
                         onClick={() => onBudgetPostureToggle(option.value)}
-                        className={cn(
-                          "flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200",
-                          form.budget_posture === option.value
-                            ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-cta)]/5 shadow-sm"
-                            : "border-[var(--planner-board-border)] bg-white hover:border-[var(--planner-board-cta)] hover:bg-[var(--planner-board-soft)]",
-                          disabled && "cursor-not-allowed opacity-50"
-                        )}
                       >
-                        <span
-                          className={cn(
-                            "text-sm font-medium transition-colors duration-200",
-                            form.budget_posture === option.value
-                              ? "text-[var(--planner-board-cta)]"
-                              : "text-[var(--planner-board-text)]"
-                          )}
-                        >
-                          {option.label}
-                        </span>
-                        {form.budget_posture === option.value && (
-                          <CheckCircle2 className="size-4 text-[var(--planner-board-cta)]" />
-                        )}
-                      </button>
+                        {option.label}
+                      </ChoiceButton>
                     ))}
                   </div>
                 </div>
-                <StepActions
-                  disabled={disabled || !item.complete}
-                  nextLabel={nextStep ? "Continue to modules (optional)" : null}
-                  onNext={nextStep ? () => onActiveStepChange(nextStep) : undefined}
-                />
-              </div>
-            ) : null}
-
-            {item.step === "modules" ? (
-              <div className="space-y-5">
-                <div className="flex items-center gap-2">
-                  <StepIntro>
-                    Choose which parts of the trip to plan. All modules are enabled by default.
-                  </StepIntro>
-                  <span className="shrink-0 rounded-full bg-[var(--planner-board-accent-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--planner-board-accent-text)]">
-                    Optional
-                  </span>
+                <div className="space-y-3 border-t border-[var(--planner-board-border)] pt-5">
+                  <Label className="text-sm font-medium text-[var(--planner-board-text)]">
+                    Budget amount
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="50"
+                    inputMode="numeric"
+                    disabled={disabled}
+                    placeholder="e.g. 1800"
+                    value={form.budget_gbp ?? ""}
+                    onChange={(event) => {
+                      const rawValue = event.target.value.trim();
+                      if (!rawValue) {
+                        onBudgetAmountChange(null);
+                        return;
+                      }
+                      const parsed = Number(rawValue);
+                      onBudgetAmountChange(Number.isFinite(parsed) ? parsed : null);
+                    }}
+                    className="h-11 rounded-lg border-[var(--planner-board-border)] bg-white/50 transition-colors duration-150 focus:border-[var(--planner-board-cta)]"
+                  />
+                  <p className="text-sm leading-6 text-[var(--planner-board-muted)]">
+                    Enter the total working budget in GBP if you know it. If not, the posture alone can still guide the planning direction.
+                  </p>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {MODULE_ORDER.map((moduleName) => {
-                    const isSelected = form.selected_modules[moduleName];
-                    const moduleConfig = getModuleConfig(moduleName);
-                    return (
-                      <button
-                        key={moduleName}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => onModuleToggle(moduleName)}
-                        className={cn(
-                          "group flex items-center gap-4 rounded-xl border p-4 text-left transition-all duration-200",
-                          isSelected
-                            ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-cta)]/5"
-                            : "border-[var(--planner-board-border)] bg-white hover:border-[var(--planner-board-cta)] hover:bg-[var(--planner-board-soft)]",
-                          disabled && "cursor-not-allowed opacity-50"
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "flex size-12 shrink-0 items-center justify-center rounded-full transition-all duration-200",
-                            isSelected
-                              ? "bg-[var(--planner-board-cta)] text-white"
-                              : "bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)] group-hover:bg-[var(--planner-board-cta)]/10 group-hover:text-[var(--planner-board-cta)]"
-                          )}
-                        >
-                          {moduleConfig.icon}
-                        </div>
-                        <div className="flex-1">
-                          <h4
-                            className={cn(
-                              "font-semibold transition-colors duration-200",
-                              isSelected
-                                ? "text-[var(--planner-board-cta)]"
-                                : "text-[var(--planner-board-text)]"
-                            )}
-                          >
-                            {capitalizeLabel(moduleName)}
-                          </h4>
-                          <p className="mt-0.5 text-xs text-[var(--planner-board-muted)]">
-                            {moduleConfig.description}
-                          </p>
-                        </div>
-                        {isSelected && (
-                          <CheckCircle2 className="size-5 shrink-0 text-[var(--planner-board-cta)]" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-sm leading-6 text-[var(--planner-board-muted)]">
-                  {focusNote}
-                </p>
-                <StepActions
-                  disabled={disabled || !item.complete}
-                  nextLabel={null}
-                  onNext={undefined}
-                />
+                <StepActions disabled={disabled || !complete} nextLabel={null} />
               </div>
             ) : null}
           </StepCard>
@@ -664,12 +607,20 @@ export function TripDetailsFooter({
   onConfirm,
 }: TripDetailsFooterProps) {
   return (
-    <div className="flex justify-end pt-2">
+    <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--planner-board-border)] bg-white px-5 py-4">
+      <div>
+        <p className="text-sm font-medium text-[var(--planner-board-text)]">
+          Confirm the trip details
+        </p>
+        <p className="mt-1 text-sm leading-6 text-[var(--planner-board-muted)]">
+          This sends one structured update back into chat and lets Wandrix move forward from the confirmed brief.
+        </p>
+      </div>
       <Button
         type="button"
         disabled={disabled}
+        className="h-11 rounded-lg bg-[var(--planner-board-cta)] px-5 text-sm font-medium text-white hover:bg-[var(--planner-board-cta)]/90"
         onClick={onConfirm}
-        className="h-12 rounded-lg bg-[var(--planner-board-cta)] px-8 text-base font-semibold text-white shadow-[0_8px_20px_color-mix(in_srgb,var(--planner-board-cta)_24%,transparent)] transition-all duration-200 hover:bg-[var(--planner-board-cta-hover)] hover:shadow-[0_12px_28px_color-mix(in_srgb,var(--planner-board-cta)_28%,transparent)]"
       >
         {ctaLabel}
       </Button>
@@ -677,93 +628,75 @@ export function TripDetailsFooter({
   );
 }
 
-export function getFirstIncompleteStep(
-  form: TripDetailsCollectionFormState,
-): TripDetailsStepKey {
-  return STEP_ORDER.find((step) => !isStepComplete(step, form)) ?? "modules";
-}
-
 function StepCard({
   children,
   disabled,
   isComplete,
-  isLocked,
   isOpen,
-  onToggle,
+  isRequired,
   stepNumber,
   summary,
   title,
-}: {
-  children: ReactNode;
-  disabled: boolean;
-  isComplete: boolean;
-  isLocked: boolean;
-  isOpen: boolean;
-  onToggle: () => void;
-  stepNumber: number;
-  summary: string;
-  title: string;
-}) {
+  onToggle,
+}: StepCardProps) {
   return (
     <section
       className={cn(
-        "group relative transition-all duration-200",
-        isLocked && "opacity-50",
+        "overflow-hidden rounded-2xl border transition-colors duration-150",
+        isOpen
+          ? "border-[var(--planner-board-cta)] bg-white"
+          : "border-[var(--planner-board-border)] bg-white",
       )}
     >
       <button
         type="button"
-        disabled={disabled || isLocked}
+        disabled={disabled}
         onClick={onToggle}
         className={cn(
-          "flex w-full items-center gap-4 py-5 text-left transition-all duration-200",
-          isOpen ? "" : "hover:opacity-80",
+          "flex w-full items-start gap-4 px-5 py-4 text-left transition-colors duration-150",
+          !disabled && !isOpen && "hover:bg-[var(--planner-board-soft)]/45",
+          disabled && "cursor-not-allowed opacity-60",
         )}
       >
-        <div className={cn(
-          "relative flex size-10 shrink-0 items-center justify-center rounded-full transition-all duration-200",
-          isComplete
-            ? "bg-[var(--planner-board-cta)] text-white"
-            : isOpen
-            ? "bg-[var(--planner-board-cta)] text-white"
-            : "bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
-        )}>
-          {isComplete ? (
-            <CheckCircle2 className="size-5" />
-          ) : (
-            <span className="text-sm font-bold">{stepNumber}</span>
+        <div
+          className={cn(
+            "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full border text-sm font-semibold",
+            isComplete
+              ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-cta)] text-white"
+              : "border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]",
           )}
+        >
+          {isComplete ? <CheckCircle2 className="size-4" /> : stepNumber}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="font-display text-lg font-semibold text-[var(--planner-board-text)]">
-            {title}
-          </h3>
-          {!isOpen && (
-            <p className="mt-0.5 text-sm text-[var(--planner-board-muted)]">
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-medium text-[var(--planner-board-text)]">
+              {title}
+            </h3>
+            {!isRequired ? (
+              <span className="rounded-md bg-[var(--planner-board-soft)] px-2 py-0.5 text-[11px] font-medium text-[var(--planner-board-muted-strong)]">
+                Optional
+              </span>
+            ) : null}
+          </div>
+          {summary ? (
+            <p className="mt-1 text-sm leading-6 text-[var(--planner-board-muted)]">
               {summary}
             </p>
-          )}
+          ) : null}
         </div>
-        {isComplete && !isOpen && (
-          <span className="rounded-full bg-[var(--planner-board-accent-soft)] px-2.5 py-1 text-xs font-medium text-[var(--planner-board-accent-text)]">
-            Done
-          </span>
-        )}
         <ChevronDown
           className={cn(
-            "size-5 shrink-0 text-[var(--planner-board-muted)] transition-transform duration-200",
+            "mt-1 size-4 shrink-0 text-[var(--planner-board-muted)] transition-transform duration-150",
             isOpen && "rotate-180",
           )}
         />
       </button>
       {isOpen ? (
-        <div className="pb-8 pl-14 pr-0">
+        <div className="border-t border-[var(--planner-board-border)] px-5 pb-5 pt-5">
           {children}
         </div>
       ) : null}
-      {!isOpen && (
-        <div className="ml-5 h-px bg-[var(--planner-board-border)]" />
-      )}
     </section>
   );
 }
@@ -776,30 +709,97 @@ function StepIntro({ children }: { children: ReactNode }) {
   );
 }
 
-function StepActions({
-  disabled,
-  nextLabel,
-  onNext,
-}: {
-  disabled: boolean;
-  nextLabel: string | null;
-  onNext?: (() => void) | undefined;
-}) {
+function StepActions({ disabled, nextLabel, onNext }: StepActionsProps) {
   if (!nextLabel || !onNext) {
     return null;
   }
 
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-end border-t border-[var(--planner-board-border)] pt-5">
       <Button
         type="button"
-        disabled={disabled}
-        onClick={onNext}
         variant="outline"
-        className="h-10 rounded-lg border-[var(--planner-board-border)] bg-white/50 px-5 text-sm font-medium text-[var(--planner-board-text)] transition-all duration-200 hover:bg-white hover:border-[var(--planner-board-cta)]"
+        disabled={disabled}
+        className="h-10 rounded-lg border-[var(--planner-board-border)] px-4 text-sm"
+        onClick={onNext}
       >
         {nextLabel}
       </Button>
+    </div>
+  );
+}
+
+function ChoiceButton({
+  children,
+  disabled,
+  selected,
+  onClick,
+}: ChoiceButtonProps) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors duration-150",
+        selected
+          ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-cta)]/5 text-[var(--planner-board-text)]"
+          : "border-[var(--planner-board-border)] bg-white text-[var(--planner-board-muted-strong)] hover:border-[var(--planner-board-cta)]",
+        disabled && "cursor-not-allowed opacity-50",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TravellerCard({
+  accent,
+  description,
+  disabled,
+  label,
+  onDecrement,
+  onIncrement,
+  value,
+}: TravellerCardProps) {
+  const icon =
+    accent === "primary" ? (
+      <UsersRound className="size-5" />
+    ) : (
+      <Baby className="size-5" />
+    );
+
+  return (
+    <div className="rounded-xl border border-[var(--planner-board-border)] bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div
+            className={cn(
+              "mb-3 flex size-10 items-center justify-center rounded-full",
+              accent === "primary"
+                ? "bg-[var(--planner-board-cta)]/10 text-[var(--planner-board-cta)]"
+                : "bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]",
+            )}
+          >
+            {icon}
+          </div>
+          <p className="font-medium text-[var(--planner-board-text)]">{label}</p>
+          <p className="mt-1 text-sm leading-6 text-[var(--planner-board-muted)]">
+            {description}
+          </p>
+        </div>
+        <div className="text-3xl font-semibold tracking-tight text-[var(--planner-board-text)]">
+          {value}
+        </div>
+      </div>
+      <div className="mt-4 flex items-center gap-2">
+        <CounterButton disabled={disabled || value <= 0} onClick={onDecrement}>
+          <Minus className="size-4" />
+        </CounterButton>
+        <CounterButton disabled={disabled} onClick={onIncrement}>
+          <Plus className="size-4" />
+        </CounterButton>
+      </div>
     </div>
   );
 }
@@ -818,197 +818,128 @@ function CounterButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex size-9 items-center justify-center rounded-full border border-[var(--planner-board-border)] bg-white/50 text-[var(--planner-board-text)] transition-all duration-200 hover:bg-white hover:border-[var(--planner-board-cta)] disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      {children}
-    </button>
-  );
-}
-
-function ChoiceButton({
-  children,
-  compact = false,
-  disabled,
-  selected,
-  onClick,
-}: {
-  children: ReactNode;
-  compact?: boolean;
-  disabled: boolean;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
       className={cn(
-        "rounded-lg border px-4 text-center text-sm font-medium transition-all duration-200",
-        compact ? "py-2.5" : "py-3",
-        selected
-          ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-cta)] text-white"
-          : "border-[var(--planner-board-border)] bg-white/50 text-[var(--planner-board-text)] hover:bg-white hover:border-[var(--planner-board-cta)]",
+        "flex size-9 items-center justify-center rounded-lg border border-[var(--planner-board-border)] bg-white text-[var(--planner-board-text)] transition-colors duration-150 hover:border-[var(--planner-board-cta)]",
+        disabled && "cursor-not-allowed opacity-50",
       )}
     >
       {children}
     </button>
   );
-}
-
-function ToggleRow({
-  children,
-  disabled,
-  onClick,
-  selected,
-}: {
-  children: ReactNode;
-  disabled: boolean;
-  onClick: () => void;
-  selected: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "flex items-center justify-between rounded-lg border px-4 py-3 text-left transition-all duration-200",
-        selected
-          ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-cta)]/5"
-          : "border-[var(--planner-board-border)] bg-white/50 hover:bg-white hover:border-[var(--planner-board-cta)]",
-      )}
-    >
-      <span className="text-sm font-medium text-[var(--planner-board-text)]">
-        {children}
-      </span>
-      <span
-        className={cn(
-          "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors",
-          selected
-            ? "bg-[var(--planner-board-cta)]"
-            : "bg-[var(--planner-board-border)]",
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-0.5 size-4 rounded-full bg-white shadow-sm transition-all",
-            selected ? "left-4" : "left-0.5",
-          )}
-        />
-      </span>
-    </button>
-  );
-}
-
-function isStepComplete(
-  step: TripDetailsStepKey,
-  form: TripDetailsCollectionFormState,
-) {
-  if (step === "route") {
-    return Boolean(form.from_location?.trim() && form.to_location?.trim());
-  }
-
-  if (step === "timing") {
-    const hasWindow = Boolean(form.travel_window?.trim());
-    const hasLength = Boolean(form.trip_length?.trim());
-    const hasExactDates = Boolean(form.start_date && form.end_date);
-    return hasExactDates || (hasWindow && hasLength);
-  }
-
-  if (step === "travellers") {
-    return (form.adults ?? 0) > 0;
-  }
-
-  if (step === "vibe") {
-    return form.activity_styles.length > 0;
-  }
-
-  if (step === "budget") {
-    return (
-      form.budget_posture !== null &&
-      form.budget_posture !== undefined &&
-      form.budget_gbp !== null &&
-      form.budget_gbp !== undefined
-    );
-  }
-
-  if (step === "modules") {
-    // Modules step is always complete since it's optional and all are enabled by default
-    return true;
-  }
-
-  return false;
 }
 
 function getStepSummary(
   step: TripDetailsStepKey,
   form: TripDetailsCollectionFormState,
 ) {
-  if (step === "route") {
-    if (form.from_location?.trim() && form.to_location?.trim()) {
-      return `${form.from_location} to ${form.to_location}`;
+  if (step === "modules") {
+    const activeModules = Object.entries(form.selected_modules)
+      .filter(([, enabled]) => enabled)
+      .map(([moduleName]) => capitalizeLabel(moduleName));
+    if (!activeModules.length) {
+      return "Choose at least one planning module.";
     }
-    return "Set your departure point and destination.";
+    if (activeModules.length === 4) {
+      return "Full trip";
+    }
+    return activeModules.join(" / ");
+  }
+
+  if (step === "route") {
+    if (form.selected_modules.flights) {
+      const route = [form.from_location, form.to_location].filter(Boolean);
+      return route.length ? route.join(" -> ") : "Add the route you want to plan around.";
+    }
+    return form.to_location || "Choose the destination you want Wandrix to center on.";
   }
 
   if (step === "timing") {
-    const parts = [form.travel_window, form.trip_length].filter(Boolean);
-    if (parts.length > 0) {
-      return parts.join(" · ");
-    }
     if (form.start_date && form.end_date) {
       return `${form.start_date} to ${form.end_date}`;
     }
-    return "Add rough timing and trip length.";
+    const parts = [form.travel_window, form.trip_length].filter(Boolean);
+    return parts.length ? parts.join(" / ") : "Add rough timing or exact dates.";
   }
 
   if (step === "travellers") {
     const adults = form.adults ?? 0;
     const children = form.children ?? 0;
-    if (adults > 0 || children > 0) {
-      return [
-        adults > 0 ? `${adults} adult${adults > 1 ? "s" : ""}` : null,
-        children > 0 ? `${children} child${children > 1 ? "ren" : ""}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
+    const parts: string[] = [];
+    if (adults > 0) {
+      parts.push(`${adults} adult${adults === 1 ? "" : "s"}`);
     }
-    return "Tell Wandrix who is travelling.";
+    if (children > 0) {
+      parts.push(`${children} child${children === 1 ? "" : "ren"}`);
+    }
+    return parts.length ? parts.join(" / ") : "Add who is travelling.";
   }
 
   if (step === "vibe") {
-    if (form.activity_styles.length > 0) {
-      return form.activity_styles.map(capitalizeLabel).join(" · ");
+    const styles = form.activity_styles.map((style) => capitalizeLabel(style));
+    if (form.custom_style?.trim()) {
+      styles.push(form.custom_style.trim());
     }
-    return "Choose the trip style you want to optimize for.";
+    return styles.length ? styles.join(" / ") : "Choose the trip mood.";
   }
 
   if (step === "budget") {
-    if (
-      form.budget_posture &&
-      form.budget_gbp !== null &&
-      form.budget_gbp !== undefined
-    ) {
-      return `${capitalizeLabel(form.budget_posture)} · ${formatCurrency(
-        form.budget_gbp,
-      )}`;
-    }
-    return "Set your trip budget and spending style.";
+    const parts = [
+      form.budget_posture
+        ? capitalizeLabel(form.budget_posture.replace("_", "-"))
+        : null,
+      form.budget_gbp ? formatCurrency(form.budget_gbp) : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" / ") : "Set the working budget direction.";
   }
 
-  if (step === "modules") {
-    const enabledModules = MODULE_ORDER.filter(
-      (moduleName) => form.selected_modules[moduleName],
-    ).map(capitalizeLabel);
-    
-    if (enabledModules.length > 0) {
-      return enabledModules.join(" · ");
-    }
-    return "All modules enabled by default (optional).";
-  }
+  return null;
+}
 
-  return "";
+function getModuleConfig(moduleName: keyof TripModuleSelection) {
+  return {
+    flights: {
+      label: "Flights",
+      description: "Departure, timing, and fare-sensitive planning.",
+      icon: <Plane className="size-5" />,
+    },
+    hotels: {
+      label: "Hotels",
+      description: "Stay timing, room fit, and budget-aware accommodation.",
+      icon: <Hotel className="size-5" />,
+    },
+    activities: {
+      label: "Activities",
+      description: "Day shape, interests, and trip personality.",
+      icon: <Compass className="size-5" />,
+    },
+    weather: {
+      label: "Weather",
+      description: "Destination conditions and timing-sensitive suggestions.",
+      icon: <Cloud className="size-5" />,
+    },
+  }[moduleName];
+}
+
+function getStyleConfig(style: ActivityStyle) {
+  return {
+    food: { label: "Food", icon: <UtensilsCrossed className="size-5" /> },
+    culture: { label: "Culture", icon: <MapPinned className="size-5" /> },
+    relaxed: { label: "Relaxed", icon: <Palmtree className="size-5" /> },
+    luxury: { label: "Luxury", icon: <Sparkles className="size-5" /> },
+    romantic: { label: "Romantic", icon: <Heart className="size-5" /> },
+    family: { label: "Family", icon: <UsersRound className="size-5" /> },
+    adventure: { label: "Adventure", icon: <Mountain className="size-5" /> },
+    outdoors: { label: "Outdoors", icon: <CalendarRange className="size-5" /> },
+    nightlife: { label: "Nightlife", icon: <Wine className="size-5" /> },
+  }[style];
+}
+
+function capitalizeLabel(value: string) {
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function formatCurrency(value: number) {
@@ -1018,26 +949,3 @@ function formatCurrency(value: number) {
     maximumFractionDigits: 0,
   }).format(value);
 }
-
-function capitalizeLabel(value: string) {
-  return value.replace("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-
-const STEP_TITLES: Record<TripDetailsStepKey, string> = {
-  route: "Route details",
-  timing: "Travel timing",
-  travellers: "Traveller count",
-  vibe: "Trip style",
-  budget: "Budget",
-  modules: "Trip modules",
-};
-
-const STEP_ICONS: Record<TripDetailsStepKey, typeof MapPinned> = {
-  route: MapPinned,
-  timing: CalendarRange,
-  travellers: UsersRound,
-  vibe: Sparkles,
-  budget: CircleDollarSign,
-  modules: SlidersHorizontal,
-};

@@ -38,7 +38,9 @@ export type ConversationBoardAction = {
     | "select_destination_suggestion"
     | "own_choice"
     | "confirm_trip_details"
-    | "confirm_trip_brief";
+    | "confirm_trip_brief"
+    | "select_quick_plan"
+    | "select_advanced_plan";
   destination_name?: string | null;
   country_or_region?: string | null;
   suggestion_id?: string | null;

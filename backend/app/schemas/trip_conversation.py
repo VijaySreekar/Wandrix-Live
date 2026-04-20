@@ -10,15 +10,29 @@ ChatPlannerPhase = Literal[
     "opening",
     "collecting_requirements",
     "shaping_trip",
-    "awaiting_confirmation",
     "enriching_modules",
     "reviewing",
+]
+PlannerPlanningMode = Literal["quick", "advanced"]
+PlannerPlanningModeStatus = Literal[
+    "not_selected",
+    "selected",
+    "advanced_unavailable_fallback",
+]
+TripDetailsStepKey = Literal[
+    "modules",
+    "route",
+    "timing",
+    "travellers",
+    "vibe",
+    "budget",
 ]
 TripSuggestionBoardMode = Literal[
     "idle",
     "destination_suggestions",
     "decision_cards",
     "details_collection",
+    "planning_mode_choice",
     "helper",
 ]
 DestinationSuggestionSelectionStatus = Literal[
@@ -26,6 +40,7 @@ DestinationSuggestionSelectionStatus = Literal[
     "leading",
     "confirmed",
 ]
+PlanningModeCardStatus = Literal["available", "in_development"]
 
 TripFieldKey = Literal[
     "from_location",
@@ -101,14 +116,30 @@ class TripDetailsCollectionFormState(BaseModel):
     budget_gbp: float | None = Field(default=None, gt=0)
 
 
+class PlanningModeChoiceCard(BaseModel):
+    id: PlannerPlanningMode
+    title: str = Field(..., min_length=1, max_length=80)
+    description: str = Field(..., min_length=1, max_length=240)
+    bullets: list[str] = Field(default_factory=list, max_length=5)
+    status: PlanningModeCardStatus = "available"
+    badge: str | None = Field(default=None, max_length=80)
+    cta_label: str | None = Field(default=None, max_length=80)
+
+
 class TripSuggestionBoardState(BaseModel):
     mode: TripSuggestionBoardMode = "helper"
     source_context: str | None = Field(default=None, max_length=240)
     title: str | None = Field(default=None, max_length=160)
     subtitle: str | None = Field(default=None, max_length=320)
     cards: list[DestinationSuggestionCard] = Field(default_factory=list, max_length=4)
-    highlighted_details: list[PlannerChecklistItem] = Field(default_factory=list)
-    missing_details: list[PlannerChecklistItem] = Field(default_factory=list)
+    planning_mode_cards: list[PlanningModeChoiceCard] = Field(
+        default_factory=list,
+        max_length=2,
+    )
+    have_details: list[PlannerChecklistItem] = Field(default_factory=list)
+    need_details: list[PlannerChecklistItem] = Field(default_factory=list)
+    visible_steps: list[TripDetailsStepKey] = Field(default_factory=list)
+    required_steps: list[TripDetailsStepKey] = Field(default_factory=list)
     details_form: TripDetailsCollectionFormState | None = None
     confirm_cta_label: str | None = Field(default=None, max_length=120)
     own_choice_prompt: str | None = Field(default=None, max_length=240)
@@ -171,6 +202,8 @@ class TripConversationMemory(BaseModel):
 
 class TripConversationState(BaseModel):
     phase: ChatPlannerPhase = "opening"
+    planning_mode: PlannerPlanningMode | None = None
+    planning_mode_status: PlannerPlanningModeStatus = "not_selected"
     open_questions: list[ConversationQuestion] = Field(default_factory=list)
     decision_cards: list[PlannerDecisionCard] = Field(default_factory=list)
     last_turn_summary: str | None = Field(default=None, max_length=400)

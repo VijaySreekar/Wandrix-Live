@@ -49,6 +49,8 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
     },
     conversation: {
       phase: "opening",
+      planning_mode: null,
+      planning_mode_status: "not_selected",
       open_questions: [],
       decision_cards: [],
       last_turn_summary: null,
@@ -56,8 +58,11 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
       suggestion_board: {
         mode: "helper",
         cards: [],
-        highlighted_details: [],
-        missing_details: [],
+        planning_mode_cards: [],
+        have_details: [],
+        need_details: [],
+        visible_steps: [],
+        required_steps: [],
         details_form: null,
         confirm_cta_label: null,
         own_choice_prompt: null,

@@ -21,16 +21,34 @@ def build_assistant_response(
     greeting_name = _get_greeting_name(profile)
 
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
-    if (action and action.type == "confirm_trip_brief") or llm_update.confirmed_trip_brief:
+    if _requested_advanced_plan(action, llm_update):
         return _sanitize_assistant_text(
-            _build_trip_brief_confirmation_response(configuration)
+            _build_advanced_planning_fallback_response(
+                configuration=configuration,
+                greeting_name=greeting_name,
+            )
         )
 
-    if conversation.phase == "awaiting_confirmation":
+    if _requested_quick_plan(action, llm_update):
         return _sanitize_assistant_text(
-            _build_final_confirmation_prompt(
+            _build_quick_plan_response(
                 configuration=configuration,
-                conversation=conversation,
+                greeting_name=greeting_name,
+            )
+        )
+
+    if (action and action.type == "confirm_trip_details") or llm_update.confirmed_trip_brief:
+        return _sanitize_assistant_text(
+            _build_trip_brief_confirmation_response(
+                configuration=configuration,
+                greeting_name=greeting_name,
+            )
+        )
+
+    if conversation.suggestion_board.mode == "planning_mode_choice":
+        return _sanitize_assistant_text(
+            _build_planning_mode_choice_response(
+                configuration=configuration,
                 greeting_name=greeting_name,
             )
         )
@@ -60,7 +78,7 @@ def build_assistant_response(
             else ""
         )
         correction_line = (
-            "If you're not actually leaving from around there, tell me your real departure point and I'll switch the shortlist. "
+            "If you are not actually leaving from around there, tell me your real departure point and I will switch the shortlist. "
             if conversation.suggestion_board.source_context
             else ""
         )
@@ -93,9 +111,9 @@ def build_assistant_response(
         greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
         return _sanitize_assistant_text(
             (
-            f"{greeting_prefix}I'm ready to shape this with you. "
-            "Tell me where you want to go, roughly when, and where you'd leave from, "
-            "and I'll keep the early draft soft until the trip direction is clear."
+                f"{greeting_prefix}I am ready to shape this with you. "
+                "Tell me where you want to go, roughly when, and where you would leave from, "
+                "and I will keep the early draft soft until the trip direction is clear."
             )
         )
 
@@ -108,17 +126,17 @@ def build_assistant_response(
     if conversation.phase == "enriching_modules":
         return _sanitize_assistant_text(
             (
-            f"I've got enough shape to start planning around {route_summary}. "
-            "I'll keep using soft assumptions where needed, pull in the relevant modules carefully, "
-            "and call out anything that still needs a decision."
+                f"I have enough shape to start planning around {route_summary}. "
+                "I will use soft assumptions where needed, pull in the relevant modules carefully, "
+                "and call out anything that still needs a decision."
             )
         )
 
     return _sanitize_assistant_text(
         (
-        f"The trip is now coherent enough to review around {route_summary}. "
-        "I can keep refining the choices with you or turn this into a clearer trip summary next."
-    )
+            f"The trip is now coherent enough to review around {route_summary}. "
+            "I can keep refining the choices with you or turn this into a clearer trip summary next."
+        )
     )
 
 
@@ -144,69 +162,48 @@ def _build_details_collection_response(
 ) -> str:
     greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
     board = conversation.suggestion_board
-    from_summary = next(
-        (
-            item.value
-            for item in board.highlighted_details
-            if item.id == "from_location" and item.value
-        ),
-        configuration.from_location or "your current origin",
+    route_summary = next(
+        (item.value for item in board.have_details if item.id == "route" and item.value),
+        "the working route",
     )
-    to_summary = next(
-        (
-            item.value
-            for item in board.highlighted_details
-            if item.id == "to_location" and item.value
-        ),
-        configuration.to_location or "that destination",
-    )
-    known_lines = [
-        _format_checklist_line(item.label, item.value, known=True)
-        for item in board.highlighted_details
-        if item.id != "route"
+    have_lines = [
+        _format_checklist_line(item.label, item.value)
+        for item in board.have_details
     ]
-    missing_lines = [
-        _format_checklist_line(item.label, item.value, known=False)
-        for item in board.missing_details
+    need_lines = [
+        _format_checklist_line(item.label, item.value)
+        for item in board.need_details
     ]
-    bullet_lines = "\n".join([*known_lines, *missing_lines])
     intro_line = _build_details_intro(
         action=action,
         configuration=configuration,
         llm_update=llm_update,
-        from_summary=from_summary,
-        to_summary=to_summary,
+        route_summary=route_summary,
     )
+    section_lines = []
+    if have_lines:
+        section_lines.append("Here's what I have so far:")
+        section_lines.extend(have_lines)
+    if need_lines:
+        section_lines.append("To move this forward, I still need:")
+        section_lines.extend(need_lines)
+    else:
+        section_lines.append(
+            "If all of that looks right, confirm here in chat and I will move ahead. If you want to tweak anything first, you can edit it on the board."
+        )
+    bullet_lines = "\n".join(section_lines)
     return (
         f"{greeting_prefix}{intro_line} "
-        "Before I shape this properly, I still need a few trip details from you. "
-        "You can keep sending them here in chat, or use the board on the right to fill them in and confirm them in one go.\n"
+        "If anything looks off, just correct me. You can keep replying here in chat, or use the board on the right if that is quicker.\n"
         f"{bullet_lines}"
     )
 
 
-def _build_final_confirmation_prompt(
+def _build_trip_brief_confirmation_response(
     *,
     configuration: TripConfiguration,
-    conversation: TripConversationState,
     greeting_name: str | None,
 ) -> str:
-    greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
-    highlighted_details = conversation.suggestion_board.highlighted_details
-    recap_lines = [
-        _format_checklist_line(item.label, item.value, known=True)
-        for item in highlighted_details
-        if item.id != "route"
-    ]
-    recap = "\n".join(recap_lines)
-    return (
-        f"{greeting_prefix}I’ve got the full working brief in place now. Before I move on, please give this a quick check.\n"
-        f"{recap}\n"
-        "If this looks right, reply with something like yes, go ahead, or confirm it on the board. If anything needs changing, just tell me what to update."
-    )
-
-
-def _build_trip_brief_confirmation_response(configuration: TripConfiguration) -> str:
     route = " -> ".join(
         part for part in [configuration.from_location, configuration.to_location] if part
     )
@@ -215,17 +212,60 @@ def _build_trip_brief_confirmation_response(configuration: TripConfiguration) ->
         configuration.trip_length,
     ]
     timing = ", ".join(bit for bit in timing_bits if bit)
+    greeting_prefix = f"Perfect, {greeting_name}. " if greeting_name else "Perfect. "
     return (
-        f"Perfect. I’ll treat {route or 'this trip brief'} as confirmed and move into the next planning step now. "
-        f"{'I’ll plan around ' + timing + '. ' if timing else ''}"
-        "If you want to change anything later, you can still do that in chat."
+        f"{greeting_prefix}I have {route or 'this trip brief'} locked in as the working direction now. "
+        f"{'I will plan around ' + timing + '. ' if timing else ''}"
+        "You can let me spin up a Quick Plan next, or wait for Advanced Planning once that mode is ready."
     )
 
 
-def _format_checklist_line(label: str, value: str | None, *, known: bool) -> str:
-    status = "Known" if known else "Still needed"
-    detail = value or "Tell me this in chat or confirm it on the board"
-    return f"- {label}: {detail} ({status})"
+def _build_planning_mode_choice_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+) -> str:
+    route = " -> ".join(
+        part for part in [configuration.from_location, configuration.to_location] if part
+    )
+    greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
+    return (
+        f"{greeting_prefix}the trip brief is ready around {route or 'this route'}. "
+        "You can choose Quick Plan now if you want a fast first draft itinerary, and you can keep refining it in chat afterwards. "
+        "Advanced Planning is visible on the board too, but it is still in development."
+    )
+
+
+def _build_quick_plan_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+) -> str:
+    greeting_prefix = f"Great, {greeting_name}. " if greeting_name else "Great. "
+    destination = configuration.to_location or "the trip"
+    return (
+        f"{greeting_prefix}I have started a Quick Plan for {destination} and built a first draft itinerary. "
+        "Treat this as a working version, not a locked final plan. "
+        "You can now keep refining the flights, pacing, hotels, activities, or budget directly in chat."
+    )
+
+
+def _build_advanced_planning_fallback_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+) -> str:
+    greeting_prefix = f"Got it, {greeting_name}. " if greeting_name else "Got it. "
+    destination = configuration.to_location or "this trip"
+    return (
+        f"{greeting_prefix}Advanced Planning is not available yet, so I am defaulting to Quick Plan for {destination} and building the first itinerary draft now. "
+        "Once it appears on the board, you can keep refining it with me in chat."
+    )
+
+
+def _format_checklist_line(label: str, value: str | None) -> str:
+    detail = value or "Tell me this in chat or confirm it on the board."
+    return f"- {label}: {detail}"
 
 
 def _build_details_intro(
@@ -233,26 +273,23 @@ def _build_details_intro(
     action: ConversationBoardAction | None,
     configuration: TripConfiguration,
     llm_update: TripTurnUpdate,
-    from_summary: str,
-    to_summary: str,
+    route_summary: str,
 ) -> str:
     if action and action.type == "select_destination_suggestion":
         return (
-            f"I see you’re leaning toward {to_summary}. I’ll use it as the working destination from {from_summary} for now, and you can still change either part of the route later."
+            f"I can see {route_summary} as the strongest direction so far, and we can still change any part of it."
         )
 
     if action and action.type == "confirm_trip_details":
         return (
-            f"Nice — I’ve pulled those board details into the working brief for {from_summary} to {to_summary}."
+            f"Nice, I have pulled those board details into the working brief for {route_summary}."
         )
 
     captured = _describe_captured_fields(configuration, llm_update)
     if captured:
-        return (
-            f"I’ve added {captured} for {from_summary} to {to_summary}."
-        )
+        return f"I have added {captured} around {route_summary}."
 
-    return f"I’ve got {from_summary} to {to_summary} as the working route so far."
+    return f"I have {route_summary} as the working route so far."
 
 
 def _describe_captured_fields(
@@ -339,7 +376,7 @@ def _build_trip_shape_summary(configuration: TripConfiguration) -> str:
         parts.append(f"for {configuration.trip_length}")
 
     if not parts:
-        return "I don't want to lock the wrong details too early."
+        return "I do not want to lock the wrong details too early."
 
     return f"I can already start shaping this as {' '.join(parts)}."
 
@@ -347,10 +384,10 @@ def _build_trip_shape_summary(configuration: TripConfiguration) -> str:
 def _build_inferred_summary(inferred_fields: list[TripFieldKey]) -> str:
     labels = [_field_label(field) for field in inferred_fields[:2]]
     if not labels:
-        return "I'm keeping anything uncertain soft instead of pretending it's confirmed."
+        return "I am keeping anything uncertain soft instead of pretending it is confirmed."
     if len(labels) == 1:
-        return f"I'm still treating {labels[0]} as provisional."
-    return f"I'm still treating {labels[0]} and {labels[1]} as provisional."
+        return f"I am still treating {labels[0]} as provisional."
+    return f"I am still treating {labels[0]} and {labels[1]} as provisional."
 
 
 def _field_label(field: TripFieldKey) -> str:
@@ -368,3 +405,23 @@ def _field_label(field: TripFieldKey) -> str:
         "activity_styles": "the trip style",
         "selected_modules": "the active planning modules",
     }[field]
+
+
+def _requested_quick_plan(
+    action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
+) -> bool:
+    return bool(
+        (action and action.type == "select_quick_plan")
+        or llm_update.requested_planning_mode == "quick"
+    )
+
+
+def _requested_advanced_plan(
+    action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
+) -> bool:
+    return bool(
+        (action and action.type == "select_advanced_plan")
+        or llm_update.requested_planning_mode == "advanced"
+    )

@@ -62,8 +62,11 @@ def build_timeline(
     configuration: TripConfiguration,
     llm_preview: list[ProposedTimelineItem],
     module_outputs: TripModuleOutputs,
+    include_derived_when_preview_present: bool = True,
 ) -> list[TimelineItem]:
     preview_items = [_to_timeline_item(item) for item in llm_preview]
+    if preview_items and not include_derived_when_preview_present:
+        return preview_items[:10]
     derived_items = _build_derived_timeline(configuration, module_outputs)
     return _merge_timeline_items(preview_items, derived_items)[:10]
 

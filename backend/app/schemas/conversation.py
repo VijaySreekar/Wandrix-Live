@@ -40,6 +40,8 @@ class ConversationBoardAction(BaseModel):
         "own_choice",
         "confirm_trip_details",
         "confirm_trip_brief",
+        "select_quick_plan",
+        "select_advanced_plan",
     ]
     destination_name: str | None = Field(default=None, max_length=120)
     country_or_region: str | None = Field(default=None, max_length=120)

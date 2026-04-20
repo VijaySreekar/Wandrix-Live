@@ -10,13 +10,15 @@ from app.graph.planner.conversation_state import (
 )
 from app.graph.planner.draft_merge import derive_trip_title, merge_trip_configuration
 from app.graph.planner.location_context import resolve_planner_location_context
+from app.graph.planner.quick_plan import generate_quick_plan_draft
 from app.graph.planner.provider_enrichment import build_module_outputs, build_timeline
 from app.graph.planner.response_builder import build_assistant_response
 from app.graph.planner.understanding import generate_llm_trip_update
 from app.graph.state import PlanningGraphState
+from app.schemas.conversation import ConversationBoardAction
 from app.schemas.trip_conversation import CheckpointConversationMessage, TripConversationState
 from app.schemas.trip_draft import TripDraftStatus
-from app.schemas.trip_planning import TripConfiguration, TripModuleOutputs
+from app.schemas.trip_planning import TimelineItem, TripConfiguration, TripModuleOutputs
 
 
 def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
@@ -24,6 +26,10 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
     previous_configuration = TripConfiguration.model_validate(
         trip_draft.get("configuration", {})
     )
+    existing_timeline = [
+        TimelineItem.model_validate(item)
+        for item in trip_draft.get("timeline", [])
+    ]
     existing_module_outputs = TripModuleOutputs.model_validate(
         trip_draft.get("module_outputs", {})
     )
@@ -67,6 +73,21 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         llm_update,
         state.get("board_action", {}),
     )
+    planning_mode, planning_mode_status = _resolve_next_planning_mode(
+        current_conversation=current_conversation,
+        llm_update=llm_update,
+        board_action=state.get("board_action", {}),
+        brief_confirmed=brief_confirmed,
+    )
+    preserve_existing_quick_plan = _should_preserve_existing_quick_plan(
+        current_conversation=current_conversation,
+        llm_update=llm_update,
+        board_action=state.get("board_action", {}),
+    )
+    effective_llm_update = _prepare_effective_llm_update(
+        llm_update=llm_update,
+        preserve_existing_quick_plan=preserve_existing_quick_plan,
+    )
     if (
         brief_confirmed
         and not next_configuration.from_location
@@ -74,30 +95,69 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         and resolved_location_context.summary
     ):
         next_configuration.from_location = resolved_location_context.summary
-    should_enrich_modules = brief_confirmed and not compute_missing_fields_with_context(
-        next_configuration,
-        resolved_location_context,
-    )
-    module_outputs = (
-        build_module_outputs(
-            next_configuration,
-            previous_configuration,
-            existing_module_outputs,
+    if (
+        planning_mode == "quick"
+        and next_configuration.selected_modules.weather
+        and not any(
+            "weather" in goal.lower() and "warm" in goal.lower()
+            for goal in effective_llm_update.active_goals
         )
-        if should_enrich_modules
-        else existing_module_outputs
+    ):
+        effective_llm_update.active_goals = [
+            "Default the weather planning toward warmer, sunnier pacing unless the user says otherwise.",
+            *effective_llm_update.active_goals,
+        ]
+    should_enrich_modules = (
+        brief_confirmed
+        and planning_mode == "quick"
+        and not compute_missing_fields_with_context(
+            next_configuration,
+            resolved_location_context,
+        )
     )
-    timeline = build_timeline(
-        configuration=next_configuration,
-        llm_preview=llm_update.timeline_preview,
-        module_outputs=module_outputs,
-    )
+    if preserve_existing_quick_plan:
+        module_outputs = existing_module_outputs
+        timeline = existing_timeline
+    else:
+        module_outputs = (
+            build_module_outputs(
+                next_configuration,
+                previous_configuration,
+                existing_module_outputs,
+            )
+            if should_enrich_modules
+            else existing_module_outputs
+        )
+        effective_preview = effective_llm_update.timeline_preview
+        include_derived_when_preview_present = True
+        if planning_mode == "quick" and should_enrich_modules:
+            quick_plan_draft = generate_quick_plan_draft(
+                title=_resolve_trip_title(
+                    current_title=trip_draft.get("title"),
+                    llm_title=llm_update.title,
+                    configuration=next_configuration,
+                ),
+                configuration=next_configuration,
+                module_outputs=module_outputs,
+                conversation=current_conversation,
+            )
+            if quick_plan_draft.timeline_preview:
+                effective_preview = quick_plan_draft.timeline_preview
+                include_derived_when_preview_present = False
+            if quick_plan_draft.board_summary:
+                effective_llm_update.last_turn_summary = quick_plan_draft.board_summary
+        timeline = build_timeline(
+            configuration=next_configuration,
+            llm_preview=effective_preview,
+            module_outputs=module_outputs,
+            include_derived_when_preview_present=include_derived_when_preview_present,
+        )
 
     provisional_conversation = build_conversation_state(
         current=current_conversation,
         previous_configuration=previous_configuration,
         next_configuration=next_configuration,
-        llm_update=llm_update,
+        llm_update=effective_llm_update,
         module_outputs=module_outputs,
         assistant_response="",
         turn_id=turn_id,
@@ -106,12 +166,14 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         resolved_location_context=resolved_location_context,
         board_action=state.get("board_action", {}),
         brief_confirmed=brief_confirmed,
+        planning_mode=planning_mode,
+        planning_mode_status=planning_mode_status,
         record_memory=False,
     )
     assistant_response = build_assistant_response(
         configuration=next_configuration,
         conversation=provisional_conversation,
-        llm_update=llm_update,
+        llm_update=effective_llm_update,
         fallback_text=llm_update.assistant_response,
         profile_context=state.get("profile_context", {}),
         board_action=state.get("board_action", {}),
@@ -120,7 +182,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         current=current_conversation,
         previous_configuration=previous_configuration,
         next_configuration=next_configuration,
-        llm_update=llm_update,
+        llm_update=effective_llm_update,
         module_outputs=module_outputs,
         assistant_response=assistant_response,
         turn_id=turn_id,
@@ -129,6 +191,8 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         resolved_location_context=resolved_location_context,
         board_action=state.get("board_action", {}),
         brief_confirmed=brief_confirmed,
+        planning_mode=planning_mode,
+        planning_mode_status=planning_mode_status,
     )
     next_status = build_status(
         current=current_status,
@@ -191,3 +255,62 @@ def _resolve_trip_title(
         return current_title
 
     return derived_title
+
+
+def _resolve_next_planning_mode(
+    *,
+    current_conversation: TripConversationState,
+    llm_update,
+    board_action: dict,
+    brief_confirmed: bool,
+) -> tuple[str | None, str]:
+    if not brief_confirmed:
+        return (current_conversation.planning_mode, current_conversation.planning_mode_status)
+
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    current_mode = current_conversation.planning_mode
+    current_status = current_conversation.planning_mode_status
+
+    if action and action.type == "select_quick_plan":
+        return ("quick", "selected")
+    if action and action.type == "select_advanced_plan":
+        return ("quick", "advanced_unavailable_fallback")
+    if llm_update.requested_planning_mode == "quick":
+        return ("quick", "selected")
+    if llm_update.requested_planning_mode == "advanced":
+        return ("quick", "advanced_unavailable_fallback")
+    if current_mode == "quick":
+        return ("quick", current_status or "selected")
+    if current_mode == "advanced":
+        return ("advanced", current_status or "selected")
+    return (None, "not_selected")
+
+
+def _should_preserve_existing_quick_plan(
+    *,
+    current_conversation: TripConversationState,
+    llm_update,
+    board_action: dict,
+) -> bool:
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    requested_advanced = bool(
+        (action and action.type == "select_advanced_plan")
+        or llm_update.requested_planning_mode == "advanced"
+    )
+    return current_conversation.planning_mode == "quick" and requested_advanced
+
+
+def _prepare_effective_llm_update(
+    *,
+    llm_update,
+    preserve_existing_quick_plan: bool,
+):
+    if not preserve_existing_quick_plan:
+        return llm_update
+
+    effective_update = llm_update.model_copy(deep=True)
+    effective_update.timeline_preview = []
+    effective_update.last_turn_summary = (
+        "Advanced Planning is still in development, so Wandrix kept the current Quick Plan draft in place."
+    )
+    return effective_update

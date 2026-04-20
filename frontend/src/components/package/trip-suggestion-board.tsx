@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type {
   DestinationSuggestionCard,
+  PlanningModeChoiceCard,
   PlannerDecisionCard,
   TripSuggestionBoardState,
 } from "@/types/trip-conversation";
@@ -43,6 +44,34 @@ export function TripSuggestionBoard({
   const title = board.title?.trim() || "Sunny March Options";
   const subtitle =
     board.subtitle?.trim() || "Short-break recommendations for you";
+
+  if (board.mode === "planning_mode_choice") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <div className="grid gap-4">
+            {board.planning_mode_cards.map((card) => (
+              <PlanningModeOptionCard
+                key={card.id}
+                card={card}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   if (board.mode === "decision_cards" && cards.length === 0) {
     return (
@@ -142,6 +171,93 @@ export function TripSuggestionBoard({
         </button>
       </div>
     </section>
+  );
+}
+
+function PlanningModeOptionCard({
+  card,
+  disabled,
+  onAction,
+}: {
+  card: PlanningModeChoiceCard;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const isDisabled = disabled || card.status !== "available";
+
+  return (
+    <article
+      className={cn(
+        "rounded-xl border bg-[var(--planner-board-card)] px-6 py-6 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]",
+        card.status === "in_development"
+          ? "border-[color:color-mix(in_srgb,var(--planner-board-border)_76%,transparent)]"
+          : "border-[var(--planner-board-border)]",
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-xl font-bold tracking-[-0.02em] text-[var(--planner-board-text)]">
+            {card.title}
+          </h3>
+          <p className="mt-2 max-w-xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {card.description}
+          </p>
+        </div>
+        {card.badge ? (
+          <span
+            className={cn(
+              "rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]",
+              card.status === "available"
+                ? "border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] text-[color:var(--accent)]"
+                : "border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]",
+            )}
+          >
+            {card.badge}
+          </span>
+        ) : null}
+      </div>
+
+      <ul className="mt-5 space-y-3">
+        {card.bullets.map((bullet) => (
+          <li
+            key={bullet}
+            className="flex items-start gap-3 text-sm leading-7 text-[var(--planner-board-muted)]"
+          >
+            <span
+              className={cn(
+                "mt-2 block h-1.5 w-1.5 rounded-full",
+                card.status === "available"
+                  ? "bg-[color:var(--accent)]"
+                  : "bg-[var(--planner-board-muted-strong)]",
+              )}
+            />
+            <span>{bullet}</span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-6">
+        <button
+          type="button"
+          disabled={isDisabled}
+          onClick={() =>
+            onAction({
+              action_id: crypto.randomUUID(),
+              type:
+                card.id === "quick" ? "select_quick_plan" : "select_advanced_plan",
+            })
+          }
+          className={cn(
+            "inline-flex items-center rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors",
+            isDisabled
+              ? "cursor-not-allowed border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
+              : "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:bg-[color:color-mix(in_srgb,var(--accent)_92%,black)]",
+          )}
+        >
+          {card.cta_label || "Continue"}
+        </button>
+      </div>
+    </article>
   );
 }
 

@@ -2,9 +2,20 @@ export type ChatPlannerPhase =
   | "opening"
   | "collecting_requirements"
   | "shaping_trip"
-  | "awaiting_confirmation"
   | "enriching_modules"
   | "reviewing";
+export type PlannerPlanningMode = "quick" | "advanced";
+export type PlannerPlanningModeStatus =
+  | "not_selected"
+  | "selected"
+  | "advanced_unavailable_fallback";
+export type TripDetailsStepKey =
+  | "modules"
+  | "route"
+  | "timing"
+  | "travellers"
+  | "vibe"
+  | "budget";
 
 export type TripFieldKey =
   | "from_location"
@@ -41,12 +52,14 @@ export type TripSuggestionBoardMode =
   | "destination_suggestions"
   | "decision_cards"
   | "details_collection"
+  | "planning_mode_choice"
   | "helper";
 export type DestinationSuggestionSelectionStatus =
   | "suggested"
   | "leading"
   | "confirmed";
 export type PlannerChecklistStatus = "known" | "needed";
+export type PlanningModeCardStatus = "available" | "in_development";
 export type TripDetailsBoardActivityStyle =
   | "relaxed"
   | "adventure"
@@ -84,6 +97,16 @@ export type DestinationSuggestionCard = {
   selection_status: DestinationSuggestionSelectionStatus;
 };
 
+export type PlanningModeChoiceCard = {
+  id: PlannerPlanningMode;
+  title: string;
+  description: string;
+  bullets: string[];
+  status: PlanningModeCardStatus;
+  badge?: string | null;
+  cta_label?: string | null;
+};
+
 export type PlannerChecklistItem = {
   id: string;
   label: string;
@@ -113,8 +136,11 @@ export type TripSuggestionBoardState = {
   title?: string | null;
   subtitle?: string | null;
   cards: DestinationSuggestionCard[];
-  highlighted_details: PlannerChecklistItem[];
-  missing_details: PlannerChecklistItem[];
+  planning_mode_cards: PlanningModeChoiceCard[];
+  have_details: PlannerChecklistItem[];
+  need_details: PlannerChecklistItem[];
+  visible_steps: TripDetailsStepKey[];
+  required_steps: TripDetailsStepKey[];
   details_form?: TripDetailsCollectionFormState | null;
   confirm_cta_label?: string | null;
   own_choice_prompt?: string | null;
@@ -175,6 +201,8 @@ export type TripConversationMemory = {
 
 export type TripConversationState = {
   phase: ChatPlannerPhase;
+  planning_mode?: PlannerPlanningMode | null;
+  planning_mode_status: PlannerPlanningModeStatus;
   open_questions: ConversationQuestion[];
   decision_cards: PlannerDecisionCard[];
   last_turn_summary?: string | null;

@@ -1,6 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
+from app.graph.planner.details_collection import compute_scope_missing_fields
 from app.graph.planner.location_context import ResolvedPlannerLocationContext
 from app.graph.planner.provider_enrichment import has_any_module_output
 from app.graph.planner.suggestion_board import (
@@ -16,6 +17,8 @@ from app.schemas.trip_conversation import (
     ConversationOptionMemory,
     ConversationQuestion,
     ConversationTurnSummary,
+    PlannerPlanningMode,
+    PlannerPlanningModeStatus,
     PlannerDecisionCard,
     TripConversationMemory,
     TripConversationState,
@@ -33,26 +36,7 @@ def compute_missing_fields_with_context(
     configuration: TripConfiguration,
     resolved_location_context: ResolvedPlannerLocationContext | None = None,
 ) -> list[str]:
-    missing_fields: list[str] = []
-
-    if not configuration.from_location and not (
-        resolved_location_context and resolved_location_context.summary
-    ):
-        missing_fields.append("from_location")
-    if not configuration.to_location:
-        missing_fields.append("to_location")
-    if not configuration.start_date and not configuration.travel_window:
-        missing_fields.append("start_date")
-    if not configuration.end_date and not configuration.trip_length:
-        missing_fields.append("end_date")
-    if configuration.travelers.adults is None and configuration.travelers.children is None:
-        missing_fields.append("adults")
-    if not configuration.activity_styles:
-        missing_fields.append("activity_styles")
-    if configuration.budget_posture is None and configuration.budget_gbp is None:
-        missing_fields.append("budget_posture")
-
-    return missing_fields
+    return compute_scope_missing_fields(configuration, resolved_location_context)
 
 
 def build_conversation_state(
@@ -69,6 +53,8 @@ def build_conversation_state(
     resolved_location_context: ResolvedPlannerLocationContext | None = None,
     board_action: dict | None = None,
     brief_confirmed: bool = False,
+    planning_mode: PlannerPlanningMode | None = None,
+    planning_mode_status: PlannerPlanningModeStatus = "not_selected",
     record_memory: bool = True,
 ) -> TripConversationState:
     conversation = current.model_copy(deep=True)
@@ -81,9 +67,12 @@ def build_conversation_state(
         missing_fields=missing_fields,
         module_outputs=module_outputs,
         brief_confirmed=brief_confirmed,
+        planning_mode=planning_mode,
     )
 
     conversation.phase = phase
+    conversation.planning_mode = planning_mode
+    conversation.planning_mode_status = planning_mode_status
     conversation.open_questions = merge_open_questions(
         current.open_questions,
         llm_update,
@@ -98,7 +87,11 @@ def build_conversation_state(
     conversation.last_turn_summary = (
         llm_update.last_turn_summary.strip()
         if llm_update.last_turn_summary and llm_update.last_turn_summary.strip()
-        else build_last_turn_summary(next_configuration, missing_fields)
+        else build_last_turn_summary(
+            next_configuration,
+            missing_fields,
+            planning_mode=planning_mode,
+        )
     )
     conversation.active_goals = merge_active_goals(current.active_goals, llm_update.active_goals)
     conversation.suggestion_board = build_suggestion_board_state(
@@ -168,7 +161,13 @@ def determine_phase(
     missing_fields: list[str],
     module_outputs: TripModuleOutputs,
     brief_confirmed: bool,
+    planning_mode: PlannerPlanningMode | None,
 ) -> str:
+    active_modules = [
+        name
+        for name, enabled in configuration.selected_modules.model_dump(mode="json").items()
+        if enabled
+    ]
     has_route_signal = bool(configuration.from_location or configuration.to_location)
     has_timing_signal = bool(
         configuration.start_date
@@ -176,8 +175,12 @@ def determine_phase(
         or configuration.travel_window
         or configuration.trip_length
     )
+    travellers_relevant = any(
+        module in active_modules for module in ["flights", "hotels", "activities"]
+    )
     has_party_signal = (
-        configuration.travelers.adults is not None
+        not travellers_relevant
+        or configuration.travelers.adults is not None
         or configuration.travelers.children is not None
     )
     core_shape_ready = bool(configuration.to_location and has_timing_signal)
@@ -189,8 +192,8 @@ def determine_phase(
         return "collecting_requirements"
     if missing_fields:
         return "collecting_requirements"
-    if not brief_confirmed:
-        return "awaiting_confirmation"
+    if brief_confirmed and planning_mode is None:
+        return "shaping_trip"
     if provider_ready and has_any_module_output(module_outputs):
         return "reviewing" if not missing_fields else "enriching_modules"
     if provider_ready:
@@ -204,12 +207,12 @@ def is_trip_brief_confirmed(
     board_action: dict | None = None,
 ) -> bool:
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
-    if action and action.type == "confirm_trip_brief":
+    if action and action.type == "confirm_trip_details":
         return True
     if llm_update.confirmed_trip_brief:
         return True
     return any(
-        event.title.lower() == "trip brief confirmed"
+        event.title.lower() == "trip details confirmed"
         for event in conversation.memory.decision_history
     )
 
@@ -391,8 +394,14 @@ def merge_conversation_memory(
 def build_last_turn_summary(
     configuration: TripConfiguration,
     missing_fields: list[str],
+    planning_mode: PlannerPlanningMode | None = None,
 ) -> str:
     destination = configuration.to_location or "the destination"
+    if not missing_fields and planning_mode is None:
+        return (
+            f"The trip brief for {destination} is ready for a quick first draft, "
+            "and advanced planning can come later."
+        )
     if missing_fields:
         return f"The trip is leaning toward {destination}, but key planning details are still open."
     return f"The trip shape is stable enough to start building around {destination}."
@@ -486,30 +495,74 @@ def _merge_decision_history(
                     resolved_at=now,
                 )
             )
-    if action and action.type == "confirm_trip_brief":
-        confirmation_key = ("trip brief confirmed", tuple())
-        if confirmation_key not in seen:
+    if action and action.type == "select_quick_plan":
+        selection_key = ("planning mode selected", ("quick",))
+        if selection_key not in seen:
             merged.append(
                 ConversationDecisionEvent(
                     id=action.action_id,
-                    title="Trip brief confirmed",
-                    description="The user confirmed the full working trip brief.",
-                    options=[],
-                    selected_option="confirm_trip_brief",
+                    title="Planning mode selected",
+                    description="The user chose Quick Plan for a fast first-pass itinerary.",
+                    options=["quick"],
+                    selected_option="quick",
                     source_turn_id=turn_id,
                     resolved_at=now,
                 )
             )
-    elif llm_update.confirmed_trip_brief:
-        confirmation_key = ("trip brief confirmed", tuple())
+    if action and action.type == "select_advanced_plan":
+        selection_key = ("advanced planning fallback", ("quick",))
+        if selection_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=action.action_id,
+                    title="Advanced planning fallback",
+                    description="Advanced Planning is still in development, so Wandrix fell back to Quick Plan.",
+                    options=["advanced", "quick"],
+                    selected_option="quick",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+    if llm_update.confirmed_trip_brief and not (
+        action and action.type == "confirm_trip_details"
+    ):
+        confirmation_key = ("trip details confirmed", tuple())
         if confirmation_key not in seen:
             merged.append(
                 ConversationDecisionEvent(
                     id=f"decision_{uuid4().hex[:10]}",
-                    title="Trip brief confirmed",
-                    description="The user confirmed the full working trip brief in chat.",
+                    title="Trip details confirmed",
+                    description="The user confirmed the current working trip details in chat.",
                     options=[],
-                    selected_option="confirm_trip_brief",
+                    selected_option="confirm_trip_details",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+    if llm_update.requested_planning_mode == "quick" and not action:
+        selection_key = ("planning mode selected", ("quick",))
+        if selection_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=f"decision_{uuid4().hex[:10]}",
+                    title="Planning mode selected",
+                    description="The user asked Wandrix to generate a quick itinerary draft.",
+                    options=["quick"],
+                    selected_option="quick",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+    if llm_update.requested_planning_mode == "advanced" and not action:
+        selection_key = ("advanced planning fallback", ("quick",))
+        if selection_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=f"decision_{uuid4().hex[:10]}",
+                    title="Advanced planning fallback",
+                    description="The user asked for Advanced Planning, so Wandrix switched to Quick Plan for now.",
+                    options=["advanced", "quick"],
+                    selected_option="quick",
                     source_turn_id=turn_id,
                     resolved_at=now,
                 )

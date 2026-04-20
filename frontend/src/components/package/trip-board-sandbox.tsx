@@ -372,6 +372,8 @@ function buildSandboxWorkspace(
           },
           conversation: {
             phase: "enriching_modules",
+            planning_mode: "quick",
+            planning_mode_status: "selected",
             open_questions: [
               {
                 id: "question-barcelona-hotel",
@@ -387,8 +389,11 @@ function buildSandboxWorkspace(
             suggestion_board: {
               mode: "helper",
               cards: [],
-              highlighted_details: [],
-              missing_details: [],
+              planning_mode_cards: [],
+              have_details: [],
+              need_details: [],
+              visible_steps: [],
+              required_steps: [],
               details_form: null,
               confirm_cta_label: null,
             },
@@ -463,6 +468,8 @@ function buildSandboxWorkspace(
           },
           conversation: {
             phase: "collecting_requirements",
+            planning_mode: null,
+            planning_mode_status: "not_selected",
             open_questions: [
               {
                 id: "question-lisbon-origin",
@@ -494,8 +501,11 @@ function buildSandboxWorkspace(
               subtitle:
                 "These are the next choices that will sharpen the trip.",
               cards: [],
-              highlighted_details: [],
-              missing_details: [],
+              planning_mode_cards: [],
+              have_details: [],
+              need_details: [],
+              visible_steps: [],
+              required_steps: [],
               details_form: null,
               confirm_cta_label: null,
             },
@@ -772,6 +782,8 @@ function buildSandboxWorkspace(
           },
           conversation: {
             phase: "reviewing",
+            planning_mode: "quick",
+            planning_mode_status: "selected",
             open_questions: [],
             decision_cards: [],
             last_turn_summary: "The Kyoto trip is coherent enough to review as a full planner draft.",
@@ -779,8 +791,11 @@ function buildSandboxWorkspace(
             suggestion_board: {
               mode: "helper",
               cards: [],
-              highlighted_details: [],
-              missing_details: [],
+              planning_mode_cards: [],
+              have_details: [],
+              need_details: [],
+              visible_steps: [],
+              required_steps: [],
               details_form: null,
               confirm_cta_label: null,
             },

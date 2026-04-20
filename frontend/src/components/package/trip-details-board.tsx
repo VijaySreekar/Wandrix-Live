@@ -5,21 +5,24 @@ import { useMemo, useState } from "react";
 import {
   TripDetailsFooter,
   TripDetailsStepper,
-  getFirstIncompleteStep,
-  type TripDetailsStepKey,
 } from "@/components/package/trip-details-board-sections";
+import {
+  buildFocusNote,
+  canConfirmTripDetails,
+  getActiveModules,
+  getFirstIncompleteStep,
+  getVisibleSteps,
+} from "@/components/package/trip-details-board-model";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type {
-  ChatPlannerPhase,
+  TripDetailsStepKey,
   TripDetailsCollectionFormState,
   TripSuggestionBoardState,
 } from "@/types/trip-conversation";
-import type { TripModuleSelection } from "@/types/trip-draft";
 
 type TripDetailsBoardProps = {
   accessToken?: string;
   board: TripSuggestionBoardState;
-  phase: ChatPlannerPhase;
   disabled: boolean;
   onAction: (action: PlannerBoardActionIntent) => void;
 };
@@ -48,7 +51,6 @@ const EMPTY_FORM: TripDetailsCollectionFormState = {
 export function TripDetailsBoard({
   accessToken,
   board,
-  phase,
   disabled,
   onAction,
 }: TripDetailsBoardProps) {
@@ -66,7 +68,6 @@ export function TripDetailsBoard({
       disabled={disabled}
       initialForm={initialForm}
       onAction={onAction}
-      phase={phase}
     />
   );
 }
@@ -77,7 +78,6 @@ function TripDetailsBoardContent({
   disabled,
   initialForm,
   onAction,
-  phase,
 }: TripDetailsBoardProps & {
   initialForm: TripDetailsCollectionFormState;
 }) {
@@ -85,16 +85,17 @@ function TripDetailsBoardContent({
   const [activeStep, setActiveStep] = useState<TripDetailsStepKey>(
     getFirstIncompleteStep(initialForm),
   );
-
   const activeModules = useMemo(
-    () =>
-      Object.entries(form.selected_modules)
-        .filter(([, enabled]) => enabled)
-        .map(([moduleName]) => moduleName as keyof TripModuleSelection),
+    () => getActiveModules(form.selected_modules),
     [form.selected_modules],
   );
+  const visibleSteps = useMemo(() => getVisibleSteps(form), [form]);
+  const resolvedActiveStep = visibleSteps.includes(activeStep)
+    ? activeStep
+    : (visibleSteps[0] ?? "modules");
 
   const focusNote = buildFocusNote(activeModules);
+  const canConfirm = canConfirmTripDetails(form);
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-[var(--planner-board-bg)] px-8 pb-10 pt-8">
@@ -112,10 +113,11 @@ function TripDetailsBoardContent({
 
           <TripDetailsStepper
             accessToken={accessToken}
-            activeStep={activeStep}
+            activeStep={resolvedActiveStep}
             disabled={disabled}
             focusNote={focusNote}
             form={form}
+            visibleSteps={visibleSteps}
             onActiveStepChange={setActiveStep}
             onAdultsChange={(value) =>
               setForm((current) => ({
@@ -170,14 +172,11 @@ function TripDetailsBoardContent({
           <div className="mt-8">
             <TripDetailsFooter
               ctaLabel={board.confirm_cta_label || "Confirm trip details"}
-              disabled={disabled}
+              disabled={disabled || !canConfirm}
               onConfirm={() =>
                 onAction({
                   action_id: crypto.randomUUID(),
-                  type:
-                    phase === "awaiting_confirmation"
-                      ? "confirm_trip_brief"
-                      : "confirm_trip_details",
+                  type: "confirm_trip_details",
                   from_location: form.from_location ?? null,
                   to_location: form.to_location ?? null,
                   selected_modules: form.selected_modules,
@@ -214,23 +213,4 @@ function normalizeForm(
     },
     activity_styles: form?.activity_styles ?? [],
   };
-}
-
-function buildFocusNote(activeModules: Array<keyof TripModuleSelection>) {
-  if (activeModules.length === 0) {
-    return "If everything is turned off, Wandrix will have very little to shape. Keep at least one module active before confirming.";
-  }
-  if (activeModules.length === 1 && activeModules[0] === "activities") {
-    return "This keeps the trip centered on activities. Origin stays in the background unless you later expand back into flights.";
-  }
-  if (activeModules.length === 1 && activeModules[0] === "weather") {
-    return "This keeps the flow weather-first. Rough timing is enough to move forward cleanly from here.";
-  }
-  if (activeModules.length === 1 && activeModules[0] === "flights") {
-    return "This keeps the flow flight-first. Timing and traveller count will matter most right after confirmation.";
-  }
-  if (activeModules.length === 1 && activeModules[0] === "hotels") {
-    return "This keeps the flow hotel-first. Stay timing and traveller count will do most of the work next.";
-  }
-  return "Leave the full scope on if you want Wandrix to shape flights, stays, activities, and weather together.";
 }

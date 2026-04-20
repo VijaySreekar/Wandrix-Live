@@ -9,6 +9,241 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-20 - Restored The Richer Live Trip Board Layout For Quick Plan
+
+Technical Summary:
+- Reworked the Quick Plan live board so it uses the stronger previously designed board composition instead of the flatter interim layout.
+- Restored the richer structure inside the current board shell, including the destination hero, itinerary versus selections tabs, timeline rail treatment, and the right-side flight, weather, hotel, and highlights cards.
+- Kept the current planner runtime intact by mapping the restored board to the existing persisted trip draft, conversation summary, module outputs, and Quick Plan state rather than reviving old placeholder behavior.
+
+Plain-English Summary:
+- The main itinerary board on the right now looks and feels like the stronger earlier design again.
+- Instead of a plain list, it is back to being a more polished travel board with a destination image, clearer itinerary flow, and a better side panel for flights, weather, stay details, and highlights.
+- This only changes the board presentation. The current chat planning flow and saved trip data still work underneath it.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Restored Modules As A Required Details-Board Step
+
+Technical Summary:
+- Reverted the brief experiment that treated the modules section as an optional final refinement in the trip-details board model.
+- Restored the original required-step behavior so modules appear first again, remain part of the required confirmation path, and budget returns to requiring both posture and amount when that step is active.
+
+Plain-English Summary:
+- The modules section is no longer optional in the board flow.
+- It is back to being a required part of the trip brief, which matches the intended product behavior.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-model.ts`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Fixed Details-Board Confirmation Rules And Made Modules Truly Optional
+
+Technical Summary:
+- Updated the trip-details board model so the visible flow starts with core trip fields and keeps `modules` as an optional final step instead of a first required gate.
+- Adjusted confirmation rules so the board now requires at least one active module plus only the module-dependent required steps, rather than always treating the modules step itself as a blocker.
+- Relaxed budget completion so budget posture or a positive budget amount can satisfy the budget step when that step is required.
+- Restored the details-board form defaults so traveller counts normalize to `1` adult and `0` children even when persisted state contains nulls.
+
+Plain-English Summary:
+- The board was still blocking confirmation in cases where the form looked complete, especially after narrowing the trip to only a few modules.
+- Modules now behave like a real optional refinement: the trip can confirm with the default full scope, and changing modules no longer feels like a separate required hurdle.
+- I also made the budget step less brittle, so it matches the UI better and doesn’t quietly demand more than the board suggests.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-model.ts`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Added Quick Plan Mode After Trip Brief Confirmation
+
+Technical Summary:
+- Added persisted planning-mode state to the live planner conversation model with `planning_mode` and `planning_mode_status`, plus new board actions for `select_quick_plan` and `select_advanced_plan`.
+- Changed the planner runtime so confirming trip details no longer jumps straight into enrichment. It now moves into a dedicated post-confirmation `planning_mode_choice` board state.
+- Implemented Quick Plan runtime handling in the active planner runner: Quick Plan starts module enrichment and timeline generation immediately, while Advanced Planning requests now fall back to Quick Plan with explicit status tracking.
+- Updated the LLM structured turn contract so it can request quick or advanced planning in chat and generate fuller first-pass itinerary timelines once planning begins.
+- Added a real planning-mode choice UI on the right board with an active Quick Plan card and a disabled Advanced Planning card marked in development.
+- Replaced the old helper-only post-confirmation board behavior with a true live itinerary board once Quick Plan is active, using persisted timeline and module-output data already saved in the trip draft.
+- Kept the planner honest by relying on structured LLM output and provider enrichment only, without reintroducing deterministic trip parsing or fake placeholder module data.
+
+Plain-English Summary:
+- After the user confirms the trip basics, Wandrix now stops and asks one clean question: do you want a Quick Plan now, or a more advanced planning flow later.
+- Quick Plan works today and immediately builds a first draft itinerary that appears on the live board.
+- Advanced Planning is visible so the product direction is clear, but it is intentionally disabled and marked as still in development.
+- If the user asks for Advanced Planning in chat anyway, Wandrix now handles that gracefully, explains that it is not ready yet, switches to Quick Plan, and still generates the itinerary instead of getting stuck.
+- The right side no longer falls back to vague helper text after confirmation. It now becomes a real itinerary board once planning starts.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/runner.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Made Quick Plan Itineraries More Specific And Put Them Back In The Main Board Shell
+
+Technical Summary:
+- Added a dedicated Quick Plan itinerary drafting pass in the backend so Wandrix can generate a concrete first-pass itinerary from the confirmed brief and any provider-backed module outputs instead of relying only on a broad generic timeline preview.
+- Updated the Quick Plan drafting prompt to prefer named neighborhoods, landmarks, markets, and destination-specific pacing while staying honest when flight or hotel provider data is missing.
+- Adjusted timeline assembly so Quick Plan can use its richer generated itinerary blocks directly instead of always mixing them with the generic derived timeline.
+- Moved the live itinerary rendering back under the main `TripBoardPreview` shell so the quick-plan board uses the same primary board container instead of feeling like a separate board mode.
+
+Plain-English Summary:
+- Quick Plan should now feel less vague. Wandrix has a new itinerary-writing step that aims to produce more specific trip blocks instead of generic suggestions.
+- The live itinerary also sits back inside the main board layout, so it feels like the same travel board continuing into the itinerary stage rather than a completely different panel taking over.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/runner.py`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Tightened Quick Plan Coverage And Summary Quality
+
+Technical Summary:
+- Extended the dedicated Quick Plan itinerary schema to allow a longer board summary when needed.
+- Refined the Quick Plan drafting prompt so it explicitly covers the full trip span and avoids cutting the itinerary short before the final day.
+- Added a stricter summary rule so the board summary comes back as one clean complete sentence instead of an awkward clipped fragment.
+
+Plain-English Summary:
+- Quick Plan should now do a better job of covering the whole trip instead of stopping too early.
+- The short summary at the top of the board should also read more naturally instead of ending abruptly.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Smoothed The Advanced-Planning Fallback Label On The Live Board
+
+Technical Summary:
+- Adjusted the live board planning-mode badge so it always displays `Quick Plan` even when the user asked for Advanced Planning and Wandrix had to fall back.
+- Kept the fallback explanation in the live board summary line instead of splitting that nuance across both the badge and the summary.
+
+Plain-English Summary:
+- When someone asks for Advanced Planning before it exists, the trip board now stays calmer and clearer.
+- Wandrix still explains that it fell back to Quick Plan, but the mode label itself no longer changes into awkward wording like `Quick Plan fallback`.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Made Details Collection Module-First And More Human
+
+Technical Summary:
+- Replaced the old details-stage `Known` / `Still needed` contract with grouped `have_details` and `need_details` sections in the planner conversation schema.
+- Added a shared backend details-collection helper to drive active modules, visible steps, required steps, and scope-aware missing fields from one place.
+- Reworked the details board into a module-first adaptive stepper so the form changes by scope: full-trip, flights-only, hotels-only, activities-only, or weather-only.
+- Updated the planner response builder so the assistant now says `Here's what I have so far` and `To move this forward, I still need` instead of robotic status tags.
+- Tightened planner confirmation handling so `confirm_trip_details` is the primary structured board commit path and older trip-brief confirmation logic is no longer used by the main route-to-details flow.
+- Updated starter data, sandbox mocks, and board contracts to the new `have_details` / `need_details` / `visible_steps` / `required_steps` shape.
+- Live-tested the refreshed flow in the existing Chrome session, including the default route-to-details handoff and an `activities`-only module narrowing pass.
+
+Plain-English Summary:
+- Once Wandrix knows the route, it now asks for the remaining details in a much more natural way.
+- The assistant now tells you what it already has and what it still needs, instead of showing awkward `Known` tags in the chat.
+- The board now starts with module selection first, so it can adapt to what the user actually wants planned.
+- If the user only wants something like activities, the board immediately becomes lighter and stops pushing unrelated flight-heavy fields.
+- The whole route-to-details handoff now feels more like a real travel planner and less like a generic checklist form.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/details_collection.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/schemas/trip_conversation.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/components/package/trip-details-board-model.ts`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Added Review-And-Confirm Behavior For Fully-Specified Prompts
+
+Technical Summary:
+- Updated the details-collection board state so if all required fields are already present, the board switches from a fill-in prompt to a review-and-confirm surface with prefilled values.
+- Changed the assistant details-stage response so it stops asking for more details when nothing is missing and instead tells the user to confirm in chat or edit on the board before Wandrix proceeds.
+
+Plain-English Summary:
+- If a user gives Wandrix the full trip brief in one message, it will no longer keep asking for extra details unnecessarily.
+- Instead, Wandrix now shows the prefilled board for review and asks the user to either confirm in chat or make any edits first.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Relaxed Narrow-Scope Confirmation And Clarified Module Selection
+
+Technical Summary:
+- Relaxed the timing requirement for narrower board scopes so focused plans like `activities + weather` can confirm with a single usable timing signal instead of forcing both a window and a trip length.
+- Updated the backend details-collection helper to stop treating trip length as missing for narrow scopes where it is not actually required.
+- Refined the module step UI so it explains more clearly that every module is optional and that `full trip` is only the default starting point.
+- Adjusted the module step summary to read `Full trip` when all modules are active instead of listing all four names mechanically.
+- Re-tested the live board flow in Chrome and confirmed that an `activities + weather` configuration can now confirm after setting just a rough timing signal.
+
+Plain-English Summary:
+- The board was being too strict when only a few modules were selected.
+- If the user narrows the scope to something like activities and weather, they no longer have to overfill timing details just to unlock confirmation.
+- The module section is also easier to understand now because it explicitly says that all modules are optional and that full-trip planning is simply the default starting state.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/details_collection.py`
+- `frontend/src/components/package/trip-details-board-model.ts`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Fixed The Live Route-To-Details Flow
+
+Technical Summary:
+- Removed the fake one-adult default from the live details board and kept traveller counts nullable until the user explicitly sets them.
+- Changed the board confirm path so `Confirm trip details` is the real structured commit instead of an intermediate step that led into a second hidden confirmation flow.
+- Updated planner phase and board-visibility logic so the board collapses back to helper mode immediately after a successful details confirm.
+- Refreshed the assistant response builder with cleaner, warmer details-stage copy and a simpler post-confirmation response.
+- Reworked the budget step away from a misleading prefilled slider toward explicit amount entry while tightening confirmation gating so incomplete details cannot be submitted as valid.
+- Cleaned the board action message copy so the chat reflects structured board input in a more natural way.
+
+Plain-English Summary:
+- The trip-details board no longer pretends there is already one adult on the trip before the user sets that.
+- Clicking `Confirm trip details` now actually commits the details and gets out of the way, instead of leading into another awkward extra confirmation step.
+- The assistant now asks for missing trip details in a more natural, personal way.
+- The budget step is more honest and less confusing because it no longer shows a fake default amount.
+- Overall, the route-to-details stage now behaves more like a polished planner and less like a broken multi-step form.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `CHANGELOG.md`
+
 ## 2026-04-20 - Redesigned Budget Section And Separated Modules Into Optional Step
 
 Technical Summary:

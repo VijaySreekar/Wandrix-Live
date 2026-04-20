@@ -91,12 +91,16 @@ export function TravelPlannerBoardActions({
 }
 
 function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
-  if (action.type === "confirm_trip_details") {
-    return buildDetailsSummaryMessage(action);
+  if (action.type === "select_quick_plan") {
+    return "Use Quick Plan and generate the first draft itinerary now.";
   }
 
-  if (action.type === "confirm_trip_brief") {
-    return "Yes, this is the trip brief I want to move forward with. Please use it as the confirmed plan for the next step.";
+  if (action.type === "select_advanced_plan") {
+    return "I want Advanced Planning, but if it is not available yet then default to Quick Plan and start the itinerary.";
+  }
+
+  if (action.type === "confirm_trip_details") {
+    return buildDetailsSummaryMessage(action);
   }
 
   const destination = [action.destination_name, action.country_or_region]
@@ -140,5 +144,5 @@ function buildDetailsSummaryMessage(action: PlannerBoardActionIntent) {
     activeModules ? `modules ${activeModules}` : null,
   ].filter(Boolean);
 
-  return `Here are the trip details I want to use for now: ${detailBits.join(", ")}.`;
+  return `Please use these trip details as the current plan: ${detailBits.join(", ")}.`;
 }

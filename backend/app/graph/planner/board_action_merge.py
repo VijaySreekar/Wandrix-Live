@@ -15,7 +15,17 @@ def apply_board_action_updates(
         return llm_update
 
     action = ConversationBoardAction.model_validate(board_action)
-    if action.type not in {"confirm_trip_details", "confirm_trip_brief"}:
+    if action.type == "select_quick_plan":
+        merged_update = llm_update.model_copy(deep=True)
+        merged_update.requested_planning_mode = "quick"
+        return merged_update
+
+    if action.type == "select_advanced_plan":
+        merged_update = llm_update.model_copy(deep=True)
+        merged_update.requested_planning_mode = "advanced"
+        return merged_update
+
+    if action.type != "confirm_trip_details":
         return llm_update
 
     merged_update = llm_update.model_copy(deep=True)
@@ -70,8 +80,7 @@ def apply_board_action_updates(
         merged_update.budget_gbp = action.budget_gbp
         _mark_confirmed(merged_update, "budget_gbp")
 
-    if action.type == "confirm_trip_brief":
-        merged_update.confirmed_trip_brief = True
+    merged_update.confirmed_trip_brief = True
 
     return merged_update
 
