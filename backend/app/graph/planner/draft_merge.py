@@ -57,6 +57,14 @@ def merge_trip_configuration(
     ):
         configuration.trip_length = llm_update.trip_length
 
+    if llm_update.budget_posture and _should_apply_field(
+        field="budget_posture",
+        llm_update=llm_update,
+        current_value=configuration.budget_posture,
+        next_value=llm_update.budget_posture,
+    ):
+        configuration.budget_posture = llm_update.budget_posture
+
     if llm_update.budget_gbp is not None and _should_apply_field(
         field="budget_gbp",
         llm_update=llm_update,

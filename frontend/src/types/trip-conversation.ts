@@ -2,6 +2,7 @@ export type ChatPlannerPhase =
   | "opening"
   | "collecting_requirements"
   | "shaping_trip"
+  | "awaiting_confirmation"
   | "enriching_modules"
   | "reviewing";
 
@@ -12,6 +13,7 @@ export type TripFieldKey =
   | "end_date"
   | "travel_window"
   | "trip_length"
+  | "budget_posture"
   | "budget_gbp"
   | "adults"
   | "children"
@@ -38,11 +40,33 @@ export type TripSuggestionBoardMode =
   | "idle"
   | "destination_suggestions"
   | "decision_cards"
+  | "details_collection"
   | "helper";
 export type DestinationSuggestionSelectionStatus =
   | "suggested"
   | "leading"
   | "confirmed";
+export type PlannerChecklistStatus = "known" | "needed";
+export type TripDetailsBoardActivityStyle =
+  | "relaxed"
+  | "adventure"
+  | "luxury"
+  | "family"
+  | "culture"
+  | "nightlife"
+  | "romantic"
+  | "food"
+  | "outdoors";
+export type TripDetailsBoardBudgetPosture =
+  | "budget"
+  | "mid_range"
+  | "premium";
+export type TripDetailsBoardModuleSelection = {
+  flights: boolean;
+  weather: boolean;
+  activities: boolean;
+  hotels: boolean;
+};
 
 export type PlannerDecisionCard = {
   title: string;
@@ -60,12 +84,39 @@ export type DestinationSuggestionCard = {
   selection_status: DestinationSuggestionSelectionStatus;
 };
 
+export type PlannerChecklistItem = {
+  id: string;
+  label: string;
+  status: PlannerChecklistStatus;
+  value?: string | null;
+};
+
+export type TripDetailsCollectionFormState = {
+  from_location?: string | null;
+  to_location?: string | null;
+  selected_modules: TripDetailsBoardModuleSelection;
+  travel_window?: string | null;
+  trip_length?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  adults?: number | null;
+  children?: number | null;
+  activity_styles: TripDetailsBoardActivityStyle[];
+  custom_style?: string | null;
+  budget_posture?: TripDetailsBoardBudgetPosture | null;
+  budget_gbp?: number | null;
+};
+
 export type TripSuggestionBoardState = {
   mode: TripSuggestionBoardMode;
   source_context?: string | null;
   title?: string | null;
   subtitle?: string | null;
   cards: DestinationSuggestionCard[];
+  highlighted_details: PlannerChecklistItem[];
+  missing_details: PlannerChecklistItem[];
+  details_form?: TripDetailsCollectionFormState | null;
+  confirm_cta_label?: string | null;
   own_choice_prompt?: string | null;
 };
 

@@ -132,6 +132,7 @@ export function TripBoardSandbox() {
 
         <section className="min-h-0 bg-shell">
           <TripBoardPreview
+            authSnapshot={null}
             workspace={workspace}
             isBootstrapping={false}
             onAction={() => undefined}
@@ -254,6 +255,7 @@ function buildSandboxWorkspace(
               adults: 2,
               children: 2,
             },
+            budget_posture: "mid_range",
             budget_gbp: 2900,
             selected_modules: {
               flights: true,
@@ -385,6 +387,10 @@ function buildSandboxWorkspace(
             suggestion_board: {
               mode: "helper",
               cards: [],
+              highlighted_details: [],
+              missing_details: [],
+              details_form: null,
+              confirm_cta_label: null,
             },
             memory: {
               field_memory: {},
@@ -424,6 +430,7 @@ function buildSandboxWorkspace(
               adults: 2,
               children: 0,
             },
+            budget_posture: "mid_range",
             budget_gbp: 2200,
             selected_modules: {
               flights: true,
@@ -487,6 +494,10 @@ function buildSandboxWorkspace(
               subtitle:
                 "These are the next choices that will sharpen the trip.",
               cards: [],
+              highlighted_details: [],
+              missing_details: [],
+              details_form: null,
+              confirm_cta_label: null,
             },
             memory: {
               field_memory: {},
@@ -527,6 +538,7 @@ function buildSandboxWorkspace(
               adults: 2,
               children: 0,
             },
+            budget_posture: "premium",
             budget_gbp: 4800,
             selected_modules: {
               flights: true,
@@ -767,6 +779,10 @@ function buildSandboxWorkspace(
             suggestion_board: {
               mode: "helper",
               cards: [],
+              highlighted_details: [],
+              missing_details: [],
+              details_form: null,
+              confirm_cta_label: null,
             },
             memory: {
               field_memory: {},

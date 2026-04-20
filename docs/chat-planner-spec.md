@@ -79,8 +79,28 @@ It should drive the right-hand board directly instead of relying on freeform ass
 The board can be in one of these modes:
 - `helper`
 - `destination_suggestions`
+- `details_collection`
 - `decision_cards`
 - `idle`
+
+### Details Collection
+
+Once Wandrix has a usable route, the board can switch into a structured details-collection mode.
+
+Rules:
+- the assistant should send a short checklist message in chat
+- the user can keep typing in chat or use the board
+- the board should adapt to module scope
+- board confirm is the real structured commit for those values
+- after confirm, the board should return to helper mode until a later visual planning stage exists
+
+The board form should support:
+- module scope chips
+- flexible timing first
+- exact dates as optional
+- adults and children
+- trip style
+- budget posture and exact budget amount
 
 ### Destination Suggestions
 

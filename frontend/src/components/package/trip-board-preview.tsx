@@ -1,16 +1,20 @@
 "use client";
 
+import { TripDetailsBoard } from "@/components/package/trip-details-board";
 import { TripSuggestionBoard } from "@/components/package/trip-suggestion-board";
+import type { BrowserAuthSnapshot } from "@/lib/supabase/auth-snapshot";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
 
 type TripBoardPreviewProps = {
+  authSnapshot: BrowserAuthSnapshot | null;
   workspace: PlannerWorkspaceState | null;
   isBootstrapping: boolean;
   onAction: (action: PlannerBoardActionIntent) => void;
 };
 
 export function TripBoardPreview({
+  authSnapshot,
   workspace,
   isBootstrapping,
   onAction,
@@ -27,6 +31,19 @@ export function TripBoardPreview({
       <TripSuggestionBoard
         board={suggestionBoard}
         decisionCards={conversation?.decision_cards ?? []}
+        disabled={isBootstrapping}
+        onAction={onAction}
+      />
+    );
+  }
+
+  if (workspace && suggestionBoard?.mode === "details_collection") {
+    return (
+      <TripDetailsBoard
+        key={JSON.stringify(suggestionBoard.details_form ?? {})}
+        accessToken={authSnapshot?.accessToken}
+        board={suggestionBoard}
+        phase={conversation?.phase ?? "opening"}
         disabled={isBootstrapping}
         onAction={onAction}
       />

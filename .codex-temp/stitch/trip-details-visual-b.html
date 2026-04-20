@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Trip Details - Visual Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-tertiary-fixed-variant": "#72361b",
+                    "on-primary-fixed-variant": "#00504a",
+                    "tertiary": "#7f4025",
+                    "error": "#ba1a1a",
+                    "secondary-container": "#c5e6e1",
+                    "outline": "#6e7977",
+                    "on-background": "#191c1d",
+                    "tertiary-fixed": "#ffdbce",
+                    "surface-tint": "#006a63",
+                    "outline-variant": "#bdc9c6",
+                    "on-secondary-fixed-variant": "#2e4c48",
+                    "on-surface": "#191c1d",
+                    "on-primary-fixed": "#00201d",
+                    "secondary-fixed": "#c8e9e4",
+                    "on-error": "#ffffff",
+                    "tertiary-container": "#9c573a",
+                    "primary-container": "#0f766e",
+                    "error-container": "#ffdad6",
+                    "surface-container": "#edeeef",
+                    "surface-container-high": "#e7e8e9",
+                    "inverse-on-surface": "#f0f1f2",
+                    "on-tertiary": "#ffffff",
+                    "on-secondary-container": "#4a6864",
+                    "on-error-container": "#93000a",
+                    "background": "#f8f9fa",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-bright": "#f8f9fa",
+                    "primary-fixed-dim": "#80d5cb",
+                    "inverse-primary": "#80d5cb",
+                    "on-primary": "#ffffff",
+                    "on-surface-variant": "#3e4947",
+                    "inverse-surface": "#2e3132",
+                    "surface": "#f8f9fa",
+                    "secondary-fixed-dim": "#accdc8",
+                    "secondary": "#466460",
+                    "tertiary-fixed-dim": "#ffb598",
+                    "surface-container-low": "#f3f4f5",
+                    "on-primary-container": "#a3faef",
+                    "surface-dim": "#d9dadb",
+                    "surface-variant": "#e1e3e4",
+                    "primary": "#005c55",
+                    "on-tertiary-fixed": "#370e00",
+                    "on-tertiary-container": "#ffe5db",
+                    "surface-container-highest": "#e1e3e4",
+                    "on-secondary": "#ffffff",
+                    "on-secondary-fixed": "#00201d",
+                    "primary-fixed": "#9cf2e8"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px",
+                    "2xl": "1.5rem"
+            },
+            "spacing": {},
+            "fontFamily": {
+                    "headline": ["Plus Jakarta Sans"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style type="text/tailwindcss">
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .bg-gradient-primary {
+            background-image: linear-gradient(135deg, #005c55 0%, #0f766e 100%);
+        }
+        .ghost-border {
+            border: 1px solid rgba(189, 201, 198, 0.15);
+        }
+        .glass-panel {
+            background-color: rgba(248, 249, 250, 0.8);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #e1e3e4;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #bdc9c6;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body antialiased min-h-screen overflow-hidden flex flex-col">
+<header class="fixed top-0 w-full z-50 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl flex justify-between items-center px-8 py-4 h-16 shadow-[0_4px_30px_rgba(0,0,0,0.02)] border-b border-outline-variant/10">
+<div class="flex items-center gap-4">
+<h1 class="text-2xl font-bold tracking-tight text-teal-900 font-headline">Verdant Voyage</h1>
+</div>
+<div class="flex items-center gap-4 text-teal-700">
+<button class="p-2 rounded-full hover:bg-surface-container-high/50">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+<button class="p-2 rounded-full hover:bg-surface-container-high/50">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</header>
+<main class="flex-1 flex mt-16 h-[calc(100vh-64px)] w-full max-w-[1920px] mx-auto overflow-hidden">
+<section class="w-[380px] flex-shrink-0 flex flex-col bg-surface border-r border-outline-variant/10 relative z-10">
+<div class="p-6 border-b border-outline-variant/10 glass-panel z-20 flex flex-col gap-1">
+<h2 class="font-headline text-lg font-semibold text-on-surface">Concierge</h2>
+<p class="text-sm text-on-surface-variant">Planning your trip to Kyoto</p>
+</div>
+<div class="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+<div class="flex flex-col gap-2 max-w-[85%] self-start">
+<div class="flex items-center gap-2 mb-1">
+<div class="w-6 h-6 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+</div>
+<span class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">Verdant AI</span>
+</div>
+<div class="bg-surface-container-lowest text-on-surface p-5 rounded-2xl rounded-tl-sm ghost-border shadow-[0_8px_32px_rgba(25,28,29,0.04)] text-sm leading-relaxed">
+                        I'd love to help you plan your trip to Kyoto! To craft the perfect itinerary, I need a few details.
+                    </div>
+</div>
+<div class="flex flex-col gap-2 max-w-[85%] self-end">
+<div class="flex items-center gap-2 mb-1 justify-end">
+<span class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">You</span>
+</div>
+<div class="bg-secondary-fixed text-on-secondary-fixed-variant p-5 rounded-2xl rounded-tr-sm text-sm leading-relaxed text-right">
+                        I'm thinking a mix of culture and culinary.
+                    </div>
+</div>
+<div class="flex flex-col gap-2 max-w-[85%] self-start">
+<div class="flex items-center gap-2 mb-1">
+<div class="w-6 h-6 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+</div>
+<span class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">Verdant AI</span>
+</div>
+<div class="bg-surface-container-lowest text-on-surface p-5 rounded-2xl rounded-tl-sm ghost-border shadow-[0_8px_32px_rgba(25,28,29,0.04)] text-sm leading-relaxed">
+                        Excellent choice. You can use the dashboard on the right to dial in the specifics.
+                    </div>
+</div>
+</div>
+<div class="p-6 bg-surface z-20">
+<div class="relative flex items-center">
+<input class="w-full bg-surface-container-highest text-on-surface placeholder:text-on-surface-variant/60 rounded-2xl py-4 pl-5 pr-14 border-none focus:ring-1 focus:ring-primary outline-none text-sm" placeholder="Type a message..." type="text"/>
+<button class="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-primary text-on-primary hover:bg-primary/90">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">send</span>
+</button>
+</div>
+</div>
+</section>
+<section class="flex-1 bg-surface-container-low overflow-y-auto p-8 lg:p-12 relative">
+<div class="absolute inset-0 z-0 opacity-[0.03] pointer-events-none mix-blend-multiply" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuAd7N8v-jsT_kjSGc8IpX5_iCPJcEZrHt-vl1w6WA55OcEOEwWRkk3_1ENbytRxqFM_u1DbhheOu4ztTPuRg8F9LywOhKW_-nC4Ul63PMTtzxDj63UCQafFfi65edgxtfapetFLIofKT4adBKgDxaHeSBQjwQXjpt7Z9PcfshMDzUr8ApN1wHUl3RGoSW6PL0kwRTSc50fhOyOkUvY65h2ETo2c7NdkWtnN4Fz0JPaCp-5hQxHbmecCoE22lQ9gJkPaGSMKFblQg5U'); background-size: cover; background-position: center;"></div>
+<div class="max-w-5xl mx-auto relative z-10 flex flex-col gap-8">
+<nav class="flex items-center gap-3 text-sm font-medium">
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-base">location_on</span>
+<span>Japan</span>
+</div>
+<span class="material-symbols-outlined text-base text-outline-variant">chevron_right</span>
+<div class="flex items-center gap-2 text-primary font-semibold px-3 py-1 bg-primary-container/20 rounded-full">
+<span>Kyoto</span>
+</div>
+<div class="h-4 w-px bg-outline-variant/30 mx-2"></div>
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-base">group</span>
+<span>2 Travellers</span>
+</div>
+</nav>
+<header class="flex flex-col gap-2">
+<h1 class="font-headline text-4xl lg:text-5xl font-bold text-on-surface tracking-tight">Trip Details</h1>
+<p class="text-on-surface-variant max-w-2xl">Help us refine your journey for a truly bespoke experience.</p>
+</header>
+<div class="grid grid-cols-1 md:grid-cols-6 gap-6 auto-rows-min">
+<div class="bg-surface-container-lowest rounded-[24px] p-6 ghost-border shadow-[0_8px_32px_rgba(25,28,29,0.02)] md:col-span-4 flex flex-col gap-5">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">palette</span>
+<h3 class="font-headline text-lg font-semibold text-on-surface">Travel Vibe</h3>
+</div>
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl bg-secondary-container text-on-secondary-container transition-all group">
+<div class="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">restaurant</span>
+</div>
+<span class="text-xs font-medium uppercase tracking-tight">Culinary</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl bg-surface-container hover:bg-surface-container-high transition-all text-on-surface-variant group border border-transparent hover:border-outline-variant/30">
+<div class="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-[20px]">museum</span>
+</div>
+<span class="text-xs font-medium uppercase tracking-tight">Cultural</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl bg-surface-container hover:bg-surface-container-high transition-all text-on-surface-variant group border border-transparent hover:border-outline-variant/30">
+<div class="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-[20px]">self_improvement</span>
+</div>
+<span class="text-xs font-medium uppercase tracking-tight">Wellness</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl bg-surface-container hover:bg-surface-container-high transition-all text-on-surface-variant group border border-transparent hover:border-outline-variant/30">
+<div class="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-[20px]">hiking</span>
+</div>
+<span class="text-xs font-medium uppercase tracking-tight">Active</span>
+</button>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-[24px] p-6 ghost-border shadow-[0_8px_32px_rgba(25,28,29,0.02)] md:col-span-2 flex flex-col gap-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">group</span>
+<h3 class="font-headline text-lg font-semibold text-on-surface">Companions</h3>
+</div>
+<div class="flex-1 flex items-center justify-center">
+<div class="flex items-center gap-4 bg-surface-container rounded-full p-1.5 w-full justify-between">
+<button class="w-10 h-10 rounded-full bg-white flex items-center justify-center hover:shadow-md transition-all text-on-surface">
+<span class="material-symbols-outlined text-sm">remove</span>
+</button>
+<span class="font-headline text-2xl font-bold text-primary">2</span>
+<button class="w-10 h-10 rounded-full bg-white flex items-center justify-center hover:shadow-md transition-all text-on-surface">
+<span class="material-symbols-outlined text-sm">add</span>
+</button>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-[24px] p-6 ghost-border shadow-[0_8px_32px_rgba(25,28,29,0.02)] md:col-span-3 flex flex-col gap-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">speed</span>
+<h3 class="font-headline text-lg font-semibold text-on-surface">Daily Pace</h3>
+</div>
+<div class="flex gap-2 p-1 bg-surface-container rounded-2xl">
+<button class="flex-1 flex flex-col items-center gap-1 py-3 px-2 rounded-xl bg-white shadow-sm border border-outline-variant/10 text-primary font-medium">
+<span class="text-sm">Relaxed discovery</span>
+<span class="text-[10px] text-on-surface-variant/70 uppercase tracking-widest">Slow &amp; Easy</span>
+</button>
+<button class="flex-1 flex flex-col items-center gap-1 py-3 px-2 rounded-xl text-on-surface-variant hover:bg-surface-container-high transition-colors font-medium">
+<span class="text-sm">Action-packed</span>
+<span class="text-[10px] text-on-surface-variant/70 uppercase tracking-widest">See it all</span>
+</button>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-[24px] p-6 ghost-border shadow-[0_8px_32px_rgba(25,28,29,0.02)] md:col-span-3 flex flex-col gap-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">calendar_month</span>
+<h3 class="font-headline text-lg font-semibold text-on-surface">Travel Window</h3>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex flex-col group cursor-pointer border-r border-outline-variant/20 pr-4">
+<span class="text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest mb-1">Departure</span>
+<div class="flex items-baseline gap-1">
+<span class="font-headline text-2xl font-semibold text-on-surface group-hover:text-primary transition-colors">Oct 12</span>
+<span class="text-xs text-on-surface-variant">2024</span>
+</div>
+</div>
+<div class="flex flex-col group cursor-pointer pl-2">
+<span class="text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest mb-1">Return</span>
+<div class="flex items-baseline gap-1">
+<span class="font-headline text-2xl font-semibold text-on-surface group-hover:text-primary transition-colors">Oct 24</span>
+<span class="text-xs text-on-surface-variant">2024</span>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-[24px] p-8 ghost-border shadow-[0_8px_32px_rgba(25,28,29,0.02)] md:col-span-6 flex flex-col gap-6">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">payments</span>
+<h3 class="font-headline text-xl font-semibold text-on-surface">Budget Allocation</h3>
+</div>
+<span class="text-lg font-medium text-primary bg-primary-container/20 px-4 py-1 rounded-full">$500 - $800 / day</span>
+</div>
+<div class="flex w-full bg-surface-container rounded-2xl p-2 relative">
+<div class="absolute left-1/3 top-2 bottom-2 w-1/3 bg-white rounded-xl shadow-sm z-0"></div>
+<button class="flex-1 relative z-10 py-4 text-center rounded-xl text-on-surface-variant hover:text-on-surface transition-colors font-medium">
+                                Essential
+                            </button>
+<button class="flex-1 relative z-10 py-4 text-center rounded-xl text-primary font-semibold">
+                                Premium
+                            </button>
+<button class="flex-1 relative z-10 py-4 text-center rounded-xl text-on-surface-variant hover:text-on-surface transition-colors font-medium">
+                                Luxury
+                            </button>
+</div>
+</div>
+</div>
+<div class="flex justify-end pt-4 pb-12">
+<button class="bg-gradient-primary text-white font-medium text-lg px-10 py-4 rounded-[24px] shadow-[0_8px_24px_rgba(0,92,85,0.2)] hover:shadow-[0_12px_32px_rgba(0,92,85,0.3)] transition-all hover:-translate-y-1 flex items-center gap-3">
+<span>Generate Itinerary</span>
+<span class="material-symbols-outlined text-xl">arrow_forward</span>
+</button>
+</div>
+</div>
+</section>
+</main>
+
+</body></html>

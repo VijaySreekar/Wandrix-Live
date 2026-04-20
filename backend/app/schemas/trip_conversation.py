@@ -1,13 +1,16 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+from app.schemas.trip_planning import ActivityStyle, BudgetPosture, TripModuleSelection
 
 
 ChatPlannerPhase = Literal[
     "opening",
     "collecting_requirements",
     "shaping_trip",
+    "awaiting_confirmation",
     "enriching_modules",
     "reviewing",
 ]
@@ -15,6 +18,7 @@ TripSuggestionBoardMode = Literal[
     "idle",
     "destination_suggestions",
     "decision_cards",
+    "details_collection",
     "helper",
 ]
 DestinationSuggestionSelectionStatus = Literal[
@@ -30,6 +34,7 @@ TripFieldKey = Literal[
     "end_date",
     "travel_window",
     "trip_length",
+    "budget_posture",
     "budget_gbp",
     "adults",
     "children",
@@ -55,12 +60,20 @@ ConversationOptionKind = Literal[
 ]
 
 ConversationQuestionStatus = Literal["open", "answered", "dismissed"]
+PlannerChecklistStatus = Literal["known", "needed"]
 
 
 class PlannerDecisionCard(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
     description: str = Field(..., min_length=1, max_length=240)
     options: list[str] = Field(default_factory=list, max_length=5)
+
+
+class PlannerChecklistItem(BaseModel):
+    id: str
+    label: str = Field(..., min_length=1, max_length=80)
+    status: PlannerChecklistStatus = "needed"
+    value: str | None = Field(default=None, max_length=200)
 
 
 class DestinationSuggestionCard(BaseModel):
@@ -73,12 +86,31 @@ class DestinationSuggestionCard(BaseModel):
     selection_status: DestinationSuggestionSelectionStatus = "suggested"
 
 
+class TripDetailsCollectionFormState(BaseModel):
+    from_location: str | None = Field(default=None, max_length=160)
+    to_location: str | None = Field(default=None, max_length=160)
+    selected_modules: TripModuleSelection = Field(default_factory=TripModuleSelection)
+    travel_window: str | None = Field(default=None, max_length=120)
+    trip_length: str | None = Field(default=None, max_length=120)
+    start_date: date | None = None
+    end_date: date | None = None
+    adults: int | None = Field(default=None, ge=0)
+    children: int | None = Field(default=None, ge=0)
+    activity_styles: list[ActivityStyle] = Field(default_factory=list)
+    budget_posture: BudgetPosture | None = None
+    budget_gbp: float | None = Field(default=None, gt=0)
+
+
 class TripSuggestionBoardState(BaseModel):
     mode: TripSuggestionBoardMode = "helper"
     source_context: str | None = Field(default=None, max_length=240)
     title: str | None = Field(default=None, max_length=160)
     subtitle: str | None = Field(default=None, max_length=320)
     cards: list[DestinationSuggestionCard] = Field(default_factory=list, max_length=4)
+    highlighted_details: list[PlannerChecklistItem] = Field(default_factory=list)
+    missing_details: list[PlannerChecklistItem] = Field(default_factory=list)
+    details_form: TripDetailsCollectionFormState | None = None
+    confirm_cta_label: str | None = Field(default=None, max_length=120)
     own_choice_prompt: str | None = Field(default=None, max_length=240)
 
 

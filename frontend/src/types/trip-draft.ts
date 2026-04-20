@@ -16,6 +16,8 @@ export type ActivityStyle =
   | "food"
   | "outdoors";
 
+export type BudgetPosture = "budget" | "mid_range" | "premium";
+
 export type PlanningModuleKey = "flights" | "weather" | "activities" | "hotels";
 export type TimelineItemType =
   | "flight"
@@ -50,6 +52,7 @@ export type TripConfiguration = {
   travel_window: string | null;
   trip_length: string | null;
   travelers: PlannerTravelerDetails;
+  budget_posture: BudgetPosture | null;
   budget_gbp: number | null;
   selected_modules: TripModuleSelection;
   activity_styles: ActivityStyle[];

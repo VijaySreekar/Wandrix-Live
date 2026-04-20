@@ -26,9 +26,18 @@ from app.schemas.trip_planning import TripConfiguration, TripModuleOutputs
 
 
 def compute_missing_fields(configuration: TripConfiguration) -> list[str]:
+    return compute_missing_fields_with_context(configuration)
+
+
+def compute_missing_fields_with_context(
+    configuration: TripConfiguration,
+    resolved_location_context: ResolvedPlannerLocationContext | None = None,
+) -> list[str]:
     missing_fields: list[str] = []
 
-    if not configuration.from_location:
+    if not configuration.from_location and not (
+        resolved_location_context and resolved_location_context.summary
+    ):
         missing_fields.append("from_location")
     if not configuration.to_location:
         missing_fields.append("to_location")
@@ -38,6 +47,10 @@ def compute_missing_fields(configuration: TripConfiguration) -> list[str]:
         missing_fields.append("end_date")
     if configuration.travelers.adults is None and configuration.travelers.children is None:
         missing_fields.append("adults")
+    if not configuration.activity_styles:
+        missing_fields.append("activity_styles")
+    if configuration.budget_posture is None and configuration.budget_gbp is None:
+        missing_fields.append("budget_posture")
 
     return missing_fields
 
@@ -55,14 +68,19 @@ def build_conversation_state(
     now: datetime,
     resolved_location_context: ResolvedPlannerLocationContext | None = None,
     board_action: dict | None = None,
+    brief_confirmed: bool = False,
     record_memory: bool = True,
 ) -> TripConversationState:
     conversation = current.model_copy(deep=True)
-    missing_fields = compute_missing_fields(next_configuration)
+    missing_fields = compute_missing_fields_with_context(
+        next_configuration,
+        resolved_location_context,
+    )
     phase = determine_phase(
         configuration=next_configuration,
         missing_fields=missing_fields,
         module_outputs=module_outputs,
+        brief_confirmed=brief_confirmed,
     )
 
     conversation.phase = phase
@@ -86,6 +104,7 @@ def build_conversation_state(
     conversation.suggestion_board = build_suggestion_board_state(
         current=conversation,
         configuration=next_configuration,
+        phase=phase,
         llm_update=llm_update,
         resolved_location_context=resolved_location_context,
         board_action=board_action or {},
@@ -115,10 +134,14 @@ def build_status(
     conversation: TripConversationState,
     module_outputs: TripModuleOutputs,
     now: datetime,
+    resolved_location_context: ResolvedPlannerLocationContext | None = None,
 ) -> TripDraftStatus:
     status = current.model_copy(deep=True)
     status.phase = conversation.phase
-    status.missing_fields = compute_missing_fields(configuration)
+    status.missing_fields = compute_missing_fields_with_context(
+        configuration,
+        resolved_location_context,
+    )
 
     confirmed_fields: list[TripFieldKey] = []
     inferred_fields: list[TripFieldKey] = []
@@ -144,6 +167,7 @@ def determine_phase(
     configuration: TripConfiguration,
     missing_fields: list[str],
     module_outputs: TripModuleOutputs,
+    brief_confirmed: bool,
 ) -> str:
     has_route_signal = bool(configuration.from_location or configuration.to_location)
     has_timing_signal = bool(
@@ -163,11 +187,31 @@ def determine_phase(
         return "opening"
     if not core_shape_ready or not has_party_signal:
         return "collecting_requirements"
+    if missing_fields:
+        return "collecting_requirements"
+    if not brief_confirmed:
+        return "awaiting_confirmation"
     if provider_ready and has_any_module_output(module_outputs):
         return "reviewing" if not missing_fields else "enriching_modules"
     if provider_ready:
         return "enriching_modules"
     return "shaping_trip"
+
+
+def is_trip_brief_confirmed(
+    conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
+    board_action: dict | None = None,
+) -> bool:
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action and action.type == "confirm_trip_brief":
+        return True
+    if llm_update.confirmed_trip_brief:
+        return True
+    return any(
+        event.title.lower() == "trip brief confirmed"
+        for event in conversation.memory.decision_history
+    )
 
 
 def merge_open_questions(
@@ -180,6 +224,7 @@ def merge_open_questions(
         question.question.strip().lower(): question
         for question in current_questions
         if question.status == "open"
+        and _question_is_still_relevant(question, configuration, missing_fields)
     }
     merged: list[ConversationQuestion] = list(normalized_existing.values())
 
@@ -313,8 +358,10 @@ def merge_conversation_memory(
     memory.decision_history = _merge_decision_history(
         current=memory.decision_history,
         decision_cards=decision_cards,
+        llm_update=llm_update,
         turn_id=turn_id,
         now=now,
+        board_action=board_action,
     )
     memory.turn_summaries = _merge_turn_summaries(
         current=memory.turn_summaries,
@@ -397,8 +444,10 @@ def _merge_decision_history(
     *,
     current: list[ConversationDecisionEvent],
     decision_cards: list[PlannerDecisionCard],
+    llm_update: TripTurnUpdate,
     turn_id: str,
     now: datetime,
+    board_action: dict,
 ) -> list[ConversationDecisionEvent]:
     merged = list(current)
     seen = {
@@ -421,6 +470,50 @@ def _merge_decision_history(
                 resolved_at=now,
             )
         )
+
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action and action.type == "confirm_trip_details":
+        confirmation_key = ("trip details confirmed", tuple())
+        if confirmation_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=action.action_id,
+                    title="Trip details confirmed",
+                    description="The user confirmed the structured trip details from the board.",
+                    options=[],
+                    selected_option="confirm_trip_details",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+    if action and action.type == "confirm_trip_brief":
+        confirmation_key = ("trip brief confirmed", tuple())
+        if confirmation_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=action.action_id,
+                    title="Trip brief confirmed",
+                    description="The user confirmed the full working trip brief.",
+                    options=[],
+                    selected_option="confirm_trip_brief",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+    elif llm_update.confirmed_trip_brief:
+        confirmation_key = ("trip brief confirmed", tuple())
+        if confirmation_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=f"decision_{uuid4().hex[:10]}",
+                    title="Trip brief confirmed",
+                    description="The user confirmed the full working trip brief in chat.",
+                    options=[],
+                    selected_option="confirm_trip_brief",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
 
     return merged[-12:]
 
@@ -463,6 +556,8 @@ def _build_default_open_questions(
             else "Roughly how many days or nights should I plan around?"
         ),
         "adults": "How many people should I plan for?",
+        "activity_styles": "What kind of trip do you want this to feel like?",
+        "budget_posture": "Should I keep this budget, mid-range, or premium?",
     }
     return [questions[field] for field in missing_fields if field in questions]
 
@@ -479,6 +574,8 @@ def _guess_question_field(question: str) -> TripFieldKey | None:
         return "trip_length"
     if "people" in normalized:
         return "adults"
+    if "budget" in normalized or "premium" in normalized:
+        return "budget_posture"
     return None
 
 
@@ -511,4 +608,30 @@ def _field_to_option_candidate(field: TripFieldKey, value: object) -> Conversati
         return ConversationOptionCandidate(kind="timing_window", value=str(value))
     if field in {"end_date", "trip_length"}:
         return ConversationOptionCandidate(kind="trip_length", value=str(value))
+    if field == "budget_posture":
+        return ConversationOptionCandidate(kind="budget_posture", value=str(value))
     return None
+
+
+def _question_is_still_relevant(
+    question: ConversationQuestion,
+    configuration: TripConfiguration,
+    missing_fields: list[str],
+) -> bool:
+    if question.field is None:
+        return True
+
+    if question.field == "from_location":
+        return "from_location" in missing_fields
+    if question.field == "to_location":
+        return "to_location" in missing_fields
+    if question.field in {"start_date", "travel_window"}:
+        return "start_date" in missing_fields
+    if question.field in {"end_date", "trip_length"}:
+        return "end_date" in missing_fields
+    if question.field == "adults":
+        return "adults" in missing_fields
+    if question.field == "budget_posture":
+        return configuration.budget_posture is None
+
+    return True

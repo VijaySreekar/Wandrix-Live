@@ -9,6 +9,457 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-20 - Redesigned Budget Section And Separated Modules Into Optional Step
+
+Technical Summary:
+- Split the combined "Budget & Scope" step into two separate steps: "Budget" and "Modules".
+- Redesigned budget section with a prominent card showing total budget with CircleDollarSign icon.
+- Budget style buttons now use card-based design with selection states and checkmarks.
+- Created modules step as an optional step (always marked complete) with "Optional" badge.
+- Each module now displays in a card with icon, name, description, and selection state.
+- Added module icons: Plane (flights), Hotel (hotels), Sparkles (activities), Cloud (weather).
+- Created `getModuleConfig` helper function to map modules to their icons and descriptions.
+- Updated step completion logic to treat budget and modules as separate steps.
+- Modules step is always complete since all modules are enabled by default.
+- Updated step order, titles, icons, and summaries for the new structure.
+
+Plain-English Summary:
+- The budget and modules settings are now in separate steps instead of being combined.
+- The budget section has a cleaner, more prominent design with a large card showing your total budget.
+- Budget style options (Budget/Mid-range/Premium) now look like the other selection cards with proper highlighting.
+- The modules step is now optional and clearly marked with an "Optional" badge.
+- Each module (Flights, Hotels, Activities, Weather) has its own card with an icon and description.
+- Since all modules are enabled by default, you can skip this step entirely if you want everything planned.
+- The flow is now: Route → Timing → Travellers → Style → Budget → Modules (optional).
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Fixed Null Traveller State Overriding The One-Adult Default
+
+Technical Summary:
+- Updated the trip-details board form normalizer so persisted `null` traveller values no longer override the board's default of `1` adult and `0` children.
+- This keeps the rendered traveller count and the actual completion state in sync when a fresh or partially-filled board is loaded.
+
+Plain-English Summary:
+- The traveller step could still behave like it was empty even when the UI showed one adult.
+- That happened because old null values from saved state were quietly overwriting the new default.
+- The board now treats one adult as the real starting state, so the step unlocks properly without needing a workaround.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Redesigned Trip Style Section With Custom Input
+
+Technical Summary:
+- Redesigned the trip style/vibe section with a modern card-based layout featuring icons for each style.
+- Added unique icons for each style: UtensilsCrossed (food), Compass (culture), Palmtree (relaxed), Wine (luxury), Heart (romantic), UsersRound (family), Mountain (adventure/outdoors), Sparkles (nightlife).
+- Implemented visual selection states with CTA color highlights, checkmarks, and subtle background tints.
+- Added custom style input field allowing users to describe their own preferences (e.g., "photography-focused", "wellness retreat").
+- Cards show hover effects and smooth transitions between selected/unselected states.
+- Added `custom_style` field to TripDetailsCollectionFormState type and form default state.
+- Created `getStyleConfig` helper function to map styles to their icon configurations.
+
+Plain-English Summary:
+- The trip style section now has a much more visual, engaging design with icons representing each style.
+- Each style is displayed in its own card with a relevant icon (fork/knife for food, compass for culture, etc.).
+- When you select a style, the card lights up with the CTA color and shows a checkmark.
+- Added a custom input field below the style cards where you can type your own preferences if the preset styles don't fit.
+- The whole section feels more interactive with smooth hover effects and clear visual feedback.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Defaulted Traveller Count To One Adult In The Details Board
+
+Technical Summary:
+- Updated the trip-details board's empty form defaults so the traveller step now initializes with `1` adult and `0` children instead of null values.
+- This aligns the underlying form state with the intended UI default, so the traveller step can be treated as complete immediately when the board starts at one adult.
+
+Plain-English Summary:
+- The board was acting like `1 adult` was only a visual placeholder, so the user sometimes had to change the control and change it back before the step would unlock.
+- It now starts with a real default of one adult, so the traveller step works properly from the beginning.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Constrained End-Date Selection To Valid Future Dates
+
+Technical Summary:
+- Extended the shared date-picker component to accept disabled-day matchers and passed a start-date-based constraint into the timing step's end-date picker.
+- The end-date calendar now disables every date before the selected start date, and the board clears an existing end date automatically if the start date is moved past it.
+
+Plain-English Summary:
+- The trip board now behaves like a proper date range picker.
+- Once someone picks a start date, the end-date calendar stops them from choosing earlier dates, and it also clears the old end date if it becomes invalid.
+
+Files / Areas Touched:
+- `frontend/src/components/ui/date-picker.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Redesigned Traveller Count Section
+
+Technical Summary:
+- Redesigned the traveller count section with a modern card-based layout instead of simple counter fields.
+- Added visual icons (Users for adults, Baby for children) with colored circular backgrounds.
+- Implemented gradient backgrounds and hover effects on cards for better visual appeal.
+- Increased counter number size to 2xl and made them bold for better readability.
+- Added descriptive text ("18 years and older" / "Under 18 years") for clarity.
+- Used a 2-column grid layout on larger screens for better space utilization.
+- Fixed null safety issues by providing default values (1 for adults, 0 for children).
+
+Plain-English Summary:
+- The traveller count section now has a much more polished, modern look.
+- Each traveller type (adults and children) is displayed in its own card with an icon and description.
+- The cards have subtle gradients and hover effects that make them feel more interactive.
+- The counter numbers are larger and easier to read.
+- Everything is laid out in a clean 2-column grid that looks great on all screen sizes.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Allowed Exact Dates To Complete The Timing Step
+
+Technical Summary:
+- Updated the trip-details timing-step completion rule so users can move forward with either a rough timing plus trip length, or a full exact-date range.
+- This removes the unintended frontend dependency on selecting a rough travel window when both `start_date` and `end_date` are already present.
+
+Plain-English Summary:
+- The timing step was blocking people even when they had already picked exact start and end dates.
+- It now works the way it should: either rough timing or exact dates is enough to continue.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Replaced Default Date Inputs With shadcn Studio Calendar Component
+
+Technical Summary:
+- Installed `react-day-picker@^9.0.0` and `date-fns` dependencies to support modern calendar functionality with React 19.
+- Installed shadcn studio calendar component (calendar-09) which provides a polished calendar with built-in month/year dropdown navigation.
+- Created Popover component wrapper using @radix-ui/react-popover for the calendar dropdown interaction.
+- Built a DatePicker component that combines the Calendar and Popover into a reusable date selection interface with proper formatting using date-fns.
+- Replaced the ugly default HTML date inputs in the timing step with the new DatePicker component that shows a beautiful calendar popup.
+- Configured calendar to use `captionLayout="dropdown"` for clean month and year selection dropdowns.
+- Added auto-close functionality so the calendar popup closes immediately after selecting a date for better UX.
+- Fixed weekend selection bug by explicitly setting `disabled={false}` to ensure all days including weekends are selectable.
+- Fixed timezone bug where selected dates would shift by one day due to UTC conversion - now uses local date formatting to preserve the exact selected date.
+- Calendar uses shadcn's design system with proper styling, spacing, and interactions out of the box.
+
+Plain-English Summary:
+- The default HTML date inputs looked ugly and inconsistent with the rest of the interface.
+- I've replaced them with a beautiful calendar component from shadcn studio that pops up when you click the date field.
+- The calendar has a clean, professional design with dropdown selectors for month and year, making it easy to quickly jump to any date.
+- When you click a date, the calendar automatically closes and confirms your selection - no extra clicks needed.
+- Fixed a bug where weekends couldn't be selected - now all days are clickable including Saturdays and Sundays.
+- Everything is properly styled and matches modern UI standards.
+- This new calendar component is now the default for all date selection across the app.
+
+Files / Areas Touched:
+- `frontend/package.json`
+- `frontend/src/components/ui/popover.tsx` (new)
+- `frontend/src/components/ui/calendar.tsx` (new)
+- `frontend/src/components/ui/date-picker.tsx` (new)
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Completely Redesigned Trip Details Board With Cleaner Interface
+
+Technical Summary:
+- Removed all nested card-within-card patterns that created visual clutter and excessive borders throughout the details board.
+- Simplified the step card design to use minimal borders with subtle dividers instead of heavy shadowed containers, reducing visual weight by ~60%.
+- Replaced gradient backgrounds and complex nested containers with clean white/50 backgrounds and simple border treatments.
+- Streamlined all form components (CounterField, ChoiceButton, ToggleRow) to remove unnecessary card wrappers and use consistent border/background patterns.
+- Removed the RouteTerminal component entirely and replaced it with standard FieldBlock inputs for a more uniform interface.
+- Updated input styling to use cleaner borders with focus states that highlight with the CTA color instead of accent-soft.
+- Simplified button styling across continue actions and the main CTA to use consistent rounded-lg treatment instead of mixed rounded-full/rounded-2xl.
+- Reduced spacing complexity by standardizing on space-y-5 for step content and removing variable padding throughout nested components.
+
+Plain-English Summary:
+- The trip details board had too many cards inside cards, making it feel cluttered and heavy. The entire interface has been redesigned with a much cleaner, more breathable layout.
+- Instead of multiple layers of borders, shadows, and backgrounds, everything now uses simple, consistent styling that feels lighter and more modern.
+- All the form controls (counters, choice buttons, toggles) have been simplified to remove unnecessary decoration while keeping them easy to use.
+- The overall feel is now more like a clean form and less like a dashboard with lots of panels, which makes it easier to focus on filling in trip details.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Added Clean Location Suggestions To The Route Inputs
+
+Technical Summary:
+- Added a dedicated route-location input component with a lightweight suggestion dropdown for the `From` and `To` fields in the trip-details step flow.
+- Introduced a typed location-suggestion helper so the route autocomplete stays isolated from the board layout code and does not bloat the step component.
+- Simplified the visible suggestion labels to city-first values instead of airport-style strings, removed the duplicated value line above each input, and deduplicated repeated locations like `London`.
+
+Plain-English Summary:
+- The route fields now suggest locations as you type, which makes the first step feel faster and more polished.
+- I also cleaned up the route inputs so they stop repeating the city name above the field and stop showing airport-heavy labels that made the UI feel messy.
+- The result is a simpler city-style autocomplete that fits the board much better.
+
+Files / Areas Touched:
+- `frontend/src/components/package/route-location-input.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/lib/location-suggestions.ts`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Replaced Hardcoded Route Suggestions With Live Provider Search
+
+Technical Summary:
+- Removed the frontend-only hardcoded route suggestion list and replaced it with a real authenticated FastAPI location-search route backed by Mapbox geocoding.
+- Added typed backend schemas and a dedicated location-search service so the route autocomplete now returns live place results without baking location data into the UI.
+- Updated the route input component to debounce live provider search, thread the auth token through the board preview into the details board, and render live results instead of static seeded values.
+
+Plain-English Summary:
+- The route autocomplete was fake before because it was just showing a fixed list.
+- It now searches live locations through the backend, so the suggestions can change based on what the user actually types.
+- I also removed the hardcoded suggestion source entirely so this part of the UI is no longer pretending to be dynamic.
+
+Files / Areas Touched:
+- `backend/app/api/routes/providers.py`
+- `backend/app/schemas/location_search.py`
+- `backend/app/services/location_search_service.py`
+- `frontend/src/components/package/route-location-input.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/lib/api/providers.ts`
+- `frontend/src/types/location-suggestions.ts`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Redesigned Timing Step With Cleaner Single-Column Layout
+
+Technical Summary:
+- Redesigned the timing step from a cramped two-column grid to a cleaner single-column layout with better spacing and visual hierarchy.
+- Changed the button grid from 2 columns to 3 columns for both travel window and trip length, making each option more readable and easier to tap.
+- Replaced the nested card container for exact dates with a simple border-top divider, reducing visual clutter while maintaining clear separation.
+- Removed the FieldBlock wrappers around date inputs and used direct Input components for a lighter feel.
+- Updated the exact dates section label from "Optional exact dates" to "Or set exact dates" for clearer language.
+
+Plain-English Summary:
+- The timing step felt cramped with two columns of small buttons side by side.
+- It now uses a cleaner single-column layout where each section has more breathing room and the buttons are arranged in 3 columns instead of 2.
+- The exact dates section is now separated with a simple line instead of a heavy card, making the whole step feel lighter and easier to scan.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Simplified The Timing Step By Removing Extra Custom Inputs
+
+Technical Summary:
+- Removed the extra `Custom window` and `Custom length` inputs from the timing step after the quick-pick timing redesign.
+- Kept the guided timing chips and the optional exact-date block, so the step still captures the important timing detail without introducing extra visual clutter.
+
+Plain-English Summary:
+- The timing step had started to feel too busy because it offered too many ways to enter the same information.
+- It is cleaner now: users pick from the main timing options, and exact dates remain available if needed.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Rebuilt The Details Board Into A Structured Step Flow
+
+Technical Summary:
+- Replaced the cluttered multi-card details dashboard with a single guided step flow that uses collapsible sections for route, timing, travellers, trip style, and budget/module scope.
+- Reworked the details-board container to reset cleanly per board payload without effect-driven state sync, keeping the local step form stable while still reflecting persisted planner state.
+- Tightened the UI system so the details board uses the same planner-board tokens, typography, and interaction palette as the destination suggestion board, including the budget slider and module toggles.
+- Downloaded the Stitch `Trip Details - Structured Flow` reference into `.codex-temp/stitch/` and used it as the layout direction for the new accordion-style hierarchy.
+
+Plain-English Summary:
+- The old details board still felt messy and overcrowded, so it has been rebuilt into a much cleaner step-by-step flow.
+- Instead of showing everything at once, Wandrix now guides the user through one section at a time, which gives each part of the trip setup more space and makes the board feel calmer.
+- The details board now feels much closer to the destination suggestion board instead of looking like a separate interface.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `.codex-temp/stitch/trip-details-structured-flow.html`
+- `.codex-temp/stitch/trip-details-structured-flow.png`
+- `CHANGELOG.md`
+
+## 2026-04-20 - Polished The Route Step And Primary Actions In The Details Board
+
+Technical Summary:
+- Redesigned the route step so it now reads as a terminal-to-terminal layout instead of two plain stacked inputs, with a calmer route shell, clearer `From` / `To` presentation, and a centered connector treatment.
+- Added a dedicated `RouteTerminal` component inside the details-board sections file so the route step has stronger hierarchy without making the rest of the step flow heavier.
+- Tightened the continue and confirm button styling to feel more deliberate and less generic, and cleaned up the lingering summary/budget encoding artifacts in the same pass.
+
+Plain-English Summary:
+- The route card was still feeling too basic, so it now looks more like a travel step and less like a raw form.
+- I also polished the main action buttons so the board feels more intentional overall instead of just functional.
+- This pass mainly improves the first impression of the details flow without changing how the planner works.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Restyled The Details Board To Match The Stitch Stepped Layout
+
+Technical Summary:
+- Rebuilt the trip-details board into a stepped travel-brief layout based on the Stitch screen `Trip Details - Stepped Layout`.
+- Split the oversized board file into a smaller container component and a new sections/primitives file so the stepped UI, counters, chips, summary strip, and footer CTA each have a clearer responsibility.
+- Replaced the previous stacked form-card treatment with a stitched layout: large board shell, compact working-brief strip, numbered steps for route, timing, party, vibe, and module focus, plus a stronger confirmation footer action.
+- Kept all existing board behavior and action payloads intact while updating only the presentation layer and field ergonomics.
+
+Plain-English Summary:
+- The trip-details board looked too generic and cluttered, so it has been redesigned to feel much closer to the Stitch concept you pointed me to.
+- It now reads like a guided travel brief with clear numbered steps instead of a pile of form blocks, while still using Wandrix’s own data and flow.
+- I also split the code up so we do not keep growing one huge frontend file every time the board changes.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Unified The Details Board With The Suggestion-Board Visual System
+
+Technical Summary:
+- Reworked the details board again so it now shares the same visual system as the destination suggestion board: the same teal-led heading treatment, soft grey board background, white rounded cards, and the same display/body typography balance.
+- Removed the interim `working brief` strip completely and replaced the form layout with a cleaner dashboard-style arrangement inspired by the Stitch visual-dashboard references.
+- Replaced the old budget input block with a slider-driven budget card plus segmented posture controls, and tightened the card structure around route, vibe, companions, timing, and module focus.
+- Added dedicated budget-slider track/thumb styling in `globals.css` and kept the implementation split into a board container plus reusable board sections so the file size stays under control.
+
+Plain-English Summary:
+- The first redesign still looked like a separate UI from the destination suggestion board, so it has been rebuilt again to feel like the same product stage instead of a different theme.
+- The board is now cleaner, more visual, and closer to the Stitch references you shared, especially in the card treatment, spacing, and overall hierarchy.
+- Budget is now handled with a proper slider instead of another plain form field, which makes the board feel more deliberate and easier to use.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Tightened Board Hierarchy And Moved Board Styling Onto Shared Tokens
+
+Technical Summary:
+- Simplified the route card so it no longer repeats the route summary as both a heading and a card title, replacing it with a calmer `Route details` block plus a directional field layout.
+- Reduced timing clutter by separating rough timing from optional exact dates, so the main travel-window card is easier to scan.
+- Replaced module chips with toggle-style rows and moved board hover/selection colors onto shared planner-board CSS variables so the details board and suggestion board now draw from the same palette.
+- Updated both board modes to use the shared planner-board tokens for background, card surface, borders, muted text, accent states, and CTA color.
+
+Plain-English Summary:
+- The details board was still feeling messy, especially in the route and timing sections, and the interaction colors were too one-off.
+- It now has a cleaner route card, a less crowded timing section, and module controls that feel more deliberate.
+- The destination suggestions board and the details board now share the same visual language much more closely instead of feeling like two different products.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Fixed Conversational Trip-Brief Confirmation Runtime
+
+Technical Summary:
+- Fixed the planner runtime after the new route-to-details confirmation work by replacing stale `origin_summary` references with the actual resolved location-context `summary` field.
+- Finished the conversational brief-confirmation flow so destination-card clicks, board detail confirms, and final brief confirms all appear as visible user-style chat turns while still going through the typed board-action path.
+- Extended the details board with editable `from` and `to` fields, kept the board in helper mode until all required trip parameters are present, and only allowed module enrichment after the trip brief is explicitly confirmed.
+- Verified the updated flow end to end in the live browser: broad destination suggestions, destination-card handoff, details collection, final recap, partial chat-only updates, and final confirmation.
+
+Plain-English Summary:
+- Wandrix had a backend crash right in the middle of the new planning flow because the planner was reading the wrong location field name.
+- That crash is fixed now, and the trip setup flow feels more conversational: choosing a destination, filling details on the board, and confirming the final brief all show up cleanly in chat instead of feeling like hidden system actions.
+- I also verified that if you give only one detail in chat, Wandrix now acknowledges just that piece and keeps asking only for what is still missing.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Polished Destination-Suggestion Reply Copy
+
+Technical Summary:
+- Adjusted the destination-suggestion response builder so greeting text and location-source sentences are stitched together more cleanly.
+- Removed an extra punctuation join that could produce doubled sentence endings like `..` in the assistant reply.
+
+Plain-English Summary:
+- The destination suggestion reply sounded awkward and sometimes showed a double full stop when it mentioned browser location.
+- Wandrix now phrases that opening more cleanly so the first suggestion message reads like a real assistant instead of glued-together system text.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/response_builder.py`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Fixed Details-Stage Chat Handoff And Hid Synthetic Board Messages
+
+Technical Summary:
+- Reordered planner response composition so structured board-aware replies for `destination_suggestions` and `details_collection` take precedence over generic LLM fallback text.
+- Added a frontend message filter in the chat renderer so synthetic board-triggered helper messages used to drive backend actions are no longer shown as normal user bubbles in the transcript.
+- Kept the underlying board-action runtime behavior intact, so destination-card clicks and board confirms still go through the same typed backend path without cluttering the visible chat.
+
+Plain-English Summary:
+- Wandrix was opening the details board, but the chat was still showing a generic freeform reply instead of the promised checklist-style handoff.
+- The board was also leaking awkward system-like messages into the conversation, which made the helper feel intrusive.
+- Now the assistant shows the proper checklist response when the details stage starts, and board actions stay behind the scenes instead of making the chat look messy.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/response_builder.py`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-19 - Added Route-To-Details Collection Stage In Chat
+
+Technical Summary:
+- Extended the planner state with a new `details_collection` board mode, checklist items, a structured details-form payload, and a typed `confirm_trip_details` board action.
+- Added `budget_posture` to trip configuration and planner turn models, then wired explicit board-confirm payloads into the planner merge path so board-confirmed values become structured confirmed inputs without relying on heuristic parsing.
+- Updated board-state construction and assistant response composition so once Wandrix has a usable route, chat sends a checklist-style message and the right board becomes an adaptive details form for timing, travelers, style, budget, and module scope.
+- Added a new frontend details-board component, connected its confirm action through the existing conversation route, and returned the right board to helper mode after the board-confirm event.
+- Updated the chat planner spec to document the new details-collection stage.
+
+Plain-English Summary:
+- Once Wandrix has the route, it can now move into a cleaner “fill in the rest” stage instead of jumping straight toward itinerary output.
+- The assistant now gives a short checklist in chat, and the board on the right can collect the same details in a structured way if the user prefers clicking instead of typing.
+- When the user confirms the board, Wandrix treats those values as real trip inputs, recaps them in chat, and then hides the board again until a later stage.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/draft_merge.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `docs/chat-planner-spec.md`
+- `CHANGELOG.md`
+
 ## 2026-04-19 - Removed Markdown Emphasis Markers From Assistant Chat Replies
 
 Technical Summary:

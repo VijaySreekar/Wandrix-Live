@@ -2,6 +2,11 @@ import type {
   ChatPlannerPhase,
   CheckpointConversationMessage,
 } from "@/types/trip-conversation";
+import type {
+  ActivityStyle,
+  BudgetPosture,
+  TripModuleSelection,
+} from "@/types/trip-draft";
 import type { TripDraft } from "@/types/trip-draft";
 
 export type PlannerProfileContext = {
@@ -29,10 +34,26 @@ export type PlannerLocationContext = {
 
 export type ConversationBoardAction = {
   action_id: string;
-  type: "select_destination_suggestion" | "own_choice";
+  type:
+    | "select_destination_suggestion"
+    | "own_choice"
+    | "confirm_trip_details"
+    | "confirm_trip_brief";
   destination_name?: string | null;
   country_or_region?: string | null;
   suggestion_id?: string | null;
+  from_location?: string | null;
+  to_location?: string | null;
+  selected_modules?: TripModuleSelection;
+  travel_window?: string | null;
+  trip_length?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  adults?: number | null;
+  children?: number | null;
+  activity_styles?: ActivityStyle[];
+  budget_posture?: BudgetPosture | null;
+  budget_gbp?: number | null;
 };
 
 export type TripConversationMessageRequest = {

@@ -15,6 +15,7 @@ ActivityStyle = Literal[
     "food",
     "outdoors",
 ]
+BudgetPosture = Literal["budget", "mid_range", "premium"]
 
 PlanningModuleKey = Literal["flights", "weather", "activities", "hotels"]
 TimelineItemType = Literal[
@@ -49,6 +50,7 @@ class TripConfiguration(BaseModel):
     travel_window: str | None = Field(default=None, max_length=120)
     trip_length: str | None = Field(default=None, max_length=120)
     travelers: PlannerTravelerDetails = Field(default_factory=PlannerTravelerDetails)
+    budget_posture: BudgetPosture | None = None
     budget_gbp: float | None = Field(default=None, gt=0)
     selected_modules: TripModuleSelection = Field(default_factory=TripModuleSelection)
     activity_styles: list[ActivityStyle] = Field(default_factory=list)

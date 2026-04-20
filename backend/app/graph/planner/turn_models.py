@@ -7,7 +7,12 @@ from app.schemas.trip_conversation import (
     PlannerDecisionCard,
     TripFieldKey,
 )
-from app.schemas.trip_planning import ActivityStyle, PlanningModuleKey, TimelineItemType
+from app.schemas.trip_planning import (
+    ActivityStyle,
+    BudgetPosture,
+    PlanningModuleKey,
+    TimelineItemType,
+)
 
 
 class TripModuleSelectionUpdate(BaseModel):
@@ -49,6 +54,7 @@ class TripTurnUpdate(BaseModel):
     end_date: date | None = Field(default=None)
     travel_window: str | None = Field(default=None, max_length=120)
     trip_length: str | None = Field(default=None, max_length=120)
+    budget_posture: BudgetPosture | None = None
     budget_gbp: float | None = None
     adults: int | None = Field(default=None, ge=0)
     children: int | None = Field(default=None, ge=0)
@@ -72,4 +78,5 @@ class TripTurnUpdate(BaseModel):
         default_factory=list,
         max_length=4,
     )
+    confirmed_trip_brief: bool = False
     assistant_response: str = ""

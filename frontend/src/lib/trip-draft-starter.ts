@@ -22,6 +22,7 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
         adults: null,
         children: null,
       },
+      budget_posture: null,
       budget_gbp: null,
       selected_modules: {
         flights: true,
@@ -55,6 +56,10 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
       suggestion_board: {
         mode: "helper",
         cards: [],
+        highlighted_details: [],
+        missing_details: [],
+        details_form: null,
+        confirm_cta_label: null,
         own_choice_prompt: null,
         source_context: null,
         title: null,

@@ -3,17 +3,14 @@ import {
   Cormorant_Garamond,
   Geist_Mono,
   Manrope,
-  Sora,
-} from "next/font/google";
+  Sora, Geist } from "next/font/google";
 import Script from "next/script";
 
 import { AppTopNav } from "@/components/app/app-top-nav";
 import "./globals.css";
+import { cn } from "@/lib/utils";
 
-const manrope = Manrope({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 const cormorant = Cormorant_Garamond({
   variable: "--font-display",
@@ -46,7 +43,7 @@ export default async function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${manrope.variable} ${cormorant.variable} ${geistMono.variable} ${sora.variable} h-full antialiased`}
+      className={cn("h-full", "antialiased", cormorant.variable, geistMono.variable, sora.variable, "font-sans", geist.variable)}
     >
       <head>
         <Script id="theme-init" strategy="beforeInteractive">{`

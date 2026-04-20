@@ -22,15 +22,15 @@ type TripSuggestionBoardProps = {
 
 const BADGE_STYLES: Record<string, string> = {
   "top weather":
-    "bg-[#ffe5db] text-[#72361b]",
+    "bg-[var(--planner-board-soft)] text-[var(--planner-board-accent-text)]",
   culture:
-    "bg-[#c5e6e1] text-[#305651]",
+    "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]",
   history:
-    "bg-[#d9f0ec] text-[#244742]",
+    "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]",
   nature:
-    "bg-[#e9efd4] text-[#446037]",
+    "bg-[var(--planner-board-soft)] text-[var(--planner-board-accent-text)]",
   shorthaul:
-    "bg-[#d9f0ec] text-[#244742]",
+    "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]",
 };
 
 export function TripSuggestionBoard({
@@ -46,31 +46,31 @@ export function TripSuggestionBoard({
 
   if (board.mode === "decision_cards" && cards.length === 0) {
     return (
-      <section className="flex h-full flex-col bg-[#f3f4f4]">
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
         <div className="px-8 pb-4 pt-8">
-          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[#155e59]">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
             {title}
           </h2>
-          <p className="mt-1 text-sm text-[#687270]">{subtitle}</p>
+          <p className="mt-1 text-sm text-[var(--planner-board-muted)]">{subtitle}</p>
         </div>
         <div className="flex-1 overflow-y-auto px-8 pb-10">
           <div className="space-y-4">
             {decisionCards.map((card) => (
               <article
                 key={card.title}
-                className="rounded-[1.75rem] bg-white px-6 py-5 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_10px_24px_rgba(0,0,0,0.05)]"
+                className="rounded-[1.75rem] bg-[var(--planner-board-card)] px-6 py-5 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_10px_24px_rgba(0,0,0,0.05)]"
               >
-                <h3 className="font-display text-lg font-bold text-[#182322]">
+                <h3 className="font-display text-lg font-bold text-[var(--planner-board-text)]">
                   {card.title}
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-[#626b68]">
+                <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
                   {card.description}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {card.options.map((option) => (
                     <span
                       key={option}
-                      className="rounded-md bg-[#f2f4f3] px-3 py-1.5 text-xs font-semibold text-[#4f5b58]"
+                      className="rounded-md bg-[var(--planner-board-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--planner-board-muted)]"
                     >
                       {option}
                     </span>
@@ -85,14 +85,14 @@ export function TripSuggestionBoard({
   }
 
   return (
-    <section className="flex h-full flex-col bg-[#f3f4f4]">
+    <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
       <div className="px-8 pb-4 pt-8">
-        <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[#155e59]">
+        <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
           {title}
         </h2>
-        <p className="mt-1 text-sm text-[#687270]">{subtitle}</p>
+        <p className="mt-1 text-sm text-[var(--planner-board-muted)]">{subtitle}</p>
         {board.source_context ? (
-          <p className="mt-3 max-w-xl text-sm leading-6 text-[#5c6663]">
+          <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--planner-board-muted)]">
             {board.source_context}
           </p>
         ) : null}
@@ -123,22 +123,22 @@ export function TripSuggestionBoard({
             })
           }
           className={cn(
-            "mt-6 flex w-full items-center justify-between rounded-[1.75rem] border border-[#d7dddb] bg-white px-6 py-5 text-left shadow-[0_1px_1px_rgba(0,0,0,0.04),0_10px_24px_rgba(0,0,0,0.05)] transition-colors duration-150",
+            "mt-6 flex w-full items-center justify-between rounded-[1.75rem] border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-6 py-5 text-left shadow-[0_1px_1px_rgba(0,0,0,0.04),0_10px_24px_rgba(0,0,0,0.05)] transition-colors duration-150",
             disabled
               ? "cursor-wait opacity-70"
-              : "hover:border-[#bfd1cc] hover:bg-[#fbfcfc]",
+              : "hover:border-[var(--planner-board-border)] hover:bg-[var(--planner-board-card-hover)]",
           )}
         >
           <div>
-            <p className="font-display text-lg font-bold text-[#182322]">
+            <p className="font-display text-lg font-bold text-[var(--planner-board-text)]">
               Use your own destination
             </p>
-            <p className="mt-1 text-sm leading-6 text-[#626b68]">
+            <p className="mt-1 text-sm leading-6 text-[var(--planner-board-muted)]">
               Already have somewhere in mind? Type it in chat and Wandrix will
               shape the trip around it.
             </p>
           </div>
-          <ArrowRight className="h-5 w-5 shrink-0 text-[#0d6c65]" />
+          <ArrowRight className="h-5 w-5 shrink-0 text-[var(--planner-board-cta)]" />
         </button>
       </div>
     </section>
@@ -167,7 +167,7 @@ function badgeLabel(card: DestinationSuggestionCard) {
 
 function badgeClassName(card: DestinationSuggestionCard) {
   const normalized = badgeLabel(card).toLowerCase();
-  return BADGE_STYLES[normalized] ?? "bg-[#d9f0ec] text-[#244742]";
+  return BADGE_STYLES[normalized] ?? "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]";
 }
 
 function DestinationSuggestionOption({
@@ -214,13 +214,13 @@ function DestinationSuggestionOption({
         });
       }}
       className={cn(
-        "group flex h-full cursor-pointer flex-col overflow-hidden rounded-[1.75rem] bg-white text-left shadow-[0_1px_1px_rgba(0,0,0,0.04),0_10px_24px_rgba(0,0,0,0.05)] transition-[transform,box-shadow] duration-200",
+        "group flex h-full cursor-pointer flex-col overflow-hidden rounded-[1.75rem] bg-[var(--planner-board-card)] text-left shadow-[0_1px_1px_rgba(0,0,0,0.04),0_10px_24px_rgba(0,0,0,0.05)] transition-[transform,box-shadow,background-color] duration-200",
         disabled
           ? "cursor-wait opacity-70"
-          : "hover:-translate-y-0.5 hover:shadow-[0_1px_1px_rgba(0,0,0,0.04),0_16px_30px_rgba(0,0,0,0.08)]",
+          : "hover:-translate-y-0.5 hover:bg-[var(--planner-board-card-hover)] hover:shadow-[0_1px_1px_rgba(0,0,0,0.04),0_16px_30px_rgba(0,0,0,0.08)]",
       )}
     >
-      <div className="h-44 overflow-hidden bg-[#eef2f1]">
+      <div className="h-44 overflow-hidden bg-[var(--planner-board-soft)]">
         <img
           src={resolvedImage}
           alt={card.destination_name}
@@ -237,15 +237,15 @@ function DestinationSuggestionOption({
           >
             {badgeLabel(card)}
           </span>
-          <span className="text-xs text-[#7a8381]">{card.country_or_region}</span>
+          <span className="text-xs text-[var(--planner-board-muted-strong)]">{card.country_or_region}</span>
         </div>
-        <h3 className="font-display text-[1.8rem] font-bold leading-none tracking-[-0.03em] text-[#182322]">
+        <h3 className="font-display text-[1.8rem] font-bold leading-none tracking-[-0.03em] text-[var(--planner-board-text)]">
           {card.destination_name}
         </h3>
-        <p className="mb-6 mt-3 flex-1 text-sm leading-7 text-[#626b68]">
+        <p className="mb-6 mt-3 flex-1 text-sm leading-7 text-[var(--planner-board-muted)]">
           {card.short_reason}
         </p>
-        <span className="inline-flex items-center gap-2 text-sm font-bold text-[#0d6c65]">
+        <span className="inline-flex items-center gap-2 text-sm font-bold text-[var(--planner-board-cta)]">
           Explore this
           <ArrowRight className="h-4 w-4" />
         </span>

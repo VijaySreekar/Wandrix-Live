@@ -357,6 +357,7 @@ export function TravelPackageWorkspace() {
 
       <div className="min-h-0 bg-shell">
         <TripBoardPreview
+          authSnapshot={authSnapshot}
           workspace={workspace}
           isBootstrapping={isBootstrapping || (Boolean(activeTripId) && workspace?.trip.trip_id !== activeTripId)}
           onAction={setPendingBoardAction}
