@@ -112,7 +112,7 @@ export function readRecentTripsCache(cacheKey: string) {
               : 0,
         } satisfies TripListItemResponse;
 
-      return shouldKeepRecentTrip(trip) ? [trip] : [];
+      return isMeaningfulRecentTrip(trip) ? [trip] : [];
     });
   } catch {
     return [] satisfies TripListItemResponse[];
@@ -125,34 +125,78 @@ export function writeRecentTripsCache(
 ) {
   window.localStorage.setItem(
     cacheKey,
-    JSON.stringify(trips.filter(shouldKeepRecentTrip)),
+    JSON.stringify(sortRecentTripsByActivity(filterMeaningfulRecentTrips(trips))),
   );
 }
 
-function shouldKeepRecentTrip(trip: TripListItemResponse) {
-  const hasTripSignal = Boolean(
-    trip.from_location ||
-      trip.to_location ||
-      trip.start_date ||
-      trip.end_date ||
-      trip.travel_window ||
-      trip.trip_length ||
-      trip.selected_modules.length > 0 ||
-      trip.timeline_item_count > 0 ||
-      trip.brochure_ready,
-  );
+export function filterMeaningfulRecentTrips(trips: TripListItemResponse[]) {
+  return trips.filter(isMeaningfulRecentTrip);
+}
 
-  if (hasTripSignal) {
-    return true;
+export function sortRecentTripsByActivity(trips: TripListItemResponse[]) {
+  return [...trips].sort(compareRecentTripActivity);
+}
+
+export function mergeRecentTripsForSidebarRefresh(
+  currentTrips: TripListItemResponse[],
+  nextTrips: TripListItemResponse[],
+) {
+  const filteredNextTrips = filterMeaningfulRecentTrips(nextTrips);
+
+  if (currentTrips.length === 0) {
+    return sortRecentTripsByActivity(filteredNextTrips);
   }
 
-  const normalizedTitle = trip.title.trim().toLowerCase();
-  const looksGeneric =
-    normalizedTitle === "trip planner" || /^trip [0-9a-f]{6}$/i.test(trip.title.trim());
-
-  return !(
-    looksGeneric &&
-    trip.phase === "opening" &&
-    trip.created_at === trip.updated_at
+  const nextTripById = new Map(
+    filteredNextTrips.map((trip) => [trip.trip_id, trip] as const),
   );
+  const preservedTrips = currentTrips.flatMap((trip) => {
+    const refreshedTrip = nextTripById.get(trip.trip_id);
+    return refreshedTrip ? [refreshedTrip] : [];
+  });
+  const unseenTrips = sortRecentTripsByActivity(
+    filteredNextTrips.filter(
+      (trip) => !currentTrips.some((currentTrip) => currentTrip.trip_id === trip.trip_id),
+    ),
+  );
+
+  return [...preservedTrips, ...unseenTrips];
+}
+
+export function isMeaningfulRecentTrip(trip: TripListItemResponse) {
+  if (
+    trip.trip_id.startsWith("draft_trip_") ||
+    trip.browser_session_id.startsWith("draft_browser_session_") ||
+    trip.thread_id.startsWith("draft_thread_")
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function compareRecentTripActivity(
+  left: TripListItemResponse,
+  right: TripListItemResponse,
+) {
+  const updatedAtDifference =
+    toRecentTripTimestamp(right.updated_at) - toRecentTripTimestamp(left.updated_at);
+
+  if (updatedAtDifference !== 0) {
+    return updatedAtDifference;
+  }
+
+  const createdAtDifference =
+    toRecentTripTimestamp(right.created_at) - toRecentTripTimestamp(left.created_at);
+
+  if (createdAtDifference !== 0) {
+    return createdAtDifference;
+  }
+
+  return right.trip_id.localeCompare(left.trip_id);
+}
+
+function toRecentTripTimestamp(value: string) {
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }

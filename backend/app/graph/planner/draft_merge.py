@@ -16,6 +16,15 @@ def merge_trip_configuration(
         next_value=llm_update.from_location,
     ):
         configuration.from_location = llm_update.from_location
+        configuration.from_location_flexible = None
+
+    if llm_update.from_location_flexible and _should_apply_field(
+        field="from_location_flexible",
+        llm_update=llm_update,
+        current_value=configuration.from_location_flexible,
+        next_value=llm_update.from_location_flexible,
+    ):
+        configuration.from_location_flexible = True
 
     if llm_update.to_location and _should_apply_field(
         field="to_location",
@@ -40,6 +49,14 @@ def merge_trip_configuration(
         next_value=llm_update.trip_length,
     ):
         configuration.trip_length = llm_update.trip_length
+
+    if llm_update.weather_preference and _should_apply_field(
+        field="weather_preference",
+        llm_update=llm_update,
+        current_value=configuration.weather_preference,
+        next_value=llm_update.weather_preference,
+    ):
+        configuration.weather_preference = llm_update.weather_preference
 
     if _should_clear_exact_timing_field(
         exact_field="start_date",
@@ -103,7 +120,7 @@ def merge_trip_configuration(
     ):
         configuration.budget_gbp = llm_update.budget_gbp
 
-    if llm_update.adults is not None and _should_apply_field(
+    if llm_update.adults is not None and llm_update.adults > 0 and _should_apply_field(
         field="adults",
         llm_update=llm_update,
         current_value=configuration.travelers.adults,
@@ -111,13 +128,21 @@ def merge_trip_configuration(
     ):
         configuration.travelers.adults = llm_update.adults
 
-    if llm_update.children is not None and _should_apply_field(
+    if llm_update.children is not None and llm_update.children > 0 and _should_apply_field(
         field="children",
         llm_update=llm_update,
         current_value=configuration.travelers.children,
         next_value=llm_update.children,
     ):
         configuration.travelers.children = llm_update.children
+
+    if llm_update.travelers_flexible is not None and _should_apply_field(
+        field="travelers_flexible",
+        llm_update=llm_update,
+        current_value=configuration.travelers_flexible,
+        next_value=llm_update.travelers_flexible,
+    ):
+        configuration.travelers_flexible = llm_update.travelers_flexible
 
     if llm_update.activity_styles:
         if (
@@ -126,6 +151,14 @@ def merge_trip_configuration(
             or configuration.activity_styles == llm_update.activity_styles
         ):
             configuration.activity_styles = list(dict.fromkeys(llm_update.activity_styles))
+
+    if llm_update.custom_style and _should_apply_field(
+        field="custom_style",
+        llm_update=llm_update,
+        current_value=configuration.custom_style,
+        next_value=llm_update.custom_style,
+    ):
+        configuration.custom_style = llm_update.custom_style
 
     if _has_selected_module_changes(llm_update):
         if (

@@ -3,6 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field
 
 from app.schemas.trip_conversation import (
+    PlannerAdvancedAnchor,
     ConversationFieldConfidence,
     ConversationFieldSource,
     ConversationOptionKind,
@@ -82,19 +83,23 @@ class TripOpenQuestionUpdate(BaseModel):
 class TripTurnUpdate(BaseModel):
     title: str | None = None
     from_location: str | None = None
+    from_location_flexible: bool | None = None
     to_location: str | None = None
     start_date: date | None = Field(default=None)
     end_date: date | None = Field(default=None)
     travel_window: str | None = Field(default=None, max_length=120)
     trip_length: str | None = Field(default=None, max_length=120)
+    weather_preference: str | None = Field(default=None, max_length=80)
     budget_posture: BudgetPosture | None = None
     budget_gbp: float | None = None
     adults: int | None = Field(default=None, ge=0)
     children: int | None = Field(default=None, ge=0)
+    travelers_flexible: bool | None = None
     selected_modules: TripModuleSelectionUpdate = Field(
         default_factory=TripModuleSelectionUpdate
     )
     activity_styles: list[ActivityStyle] = Field(default_factory=list)
+    custom_style: str | None = Field(default=None, max_length=160)
     confirmed_fields: list[TripFieldKey] = Field(default_factory=list)
     inferred_fields: list[TripFieldKey] = Field(default_factory=list)
     field_confidences: list[TripFieldConfidenceUpdate] = Field(default_factory=list)
@@ -116,5 +121,6 @@ class TripTurnUpdate(BaseModel):
     )
     planner_intent: PlannerIntent = "none"
     requested_planning_mode: PlannerPlanningMode | None = None
+    requested_advanced_anchor: PlannerAdvancedAnchor | None = None
     confirmed_trip_brief: bool = False
     assistant_response: str = ""

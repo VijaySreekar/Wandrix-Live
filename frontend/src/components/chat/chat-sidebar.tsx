@@ -6,11 +6,24 @@ import {
   ChevronDown,
   PanelLeftClose,
   PanelLeftOpen,
+  PencilLine,
   Plus,
   Search,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/animate-ui/components/radix/dialog";
+import { Button } from "@/components/ui/button";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { TripListItemResponse } from "@/types/trip";
 
@@ -20,10 +33,15 @@ const LOAD_MORE_COUNT = 5;
 type ChatSidebarProps = {
   activeTripId: string | null;
   collapsed: boolean;
-  onSelectTrip: () => void;
+  onSelectTrip: (tripId: string) => void;
+  onPrefetchTrip: (tripId: string) => void;
   onToggleCollapsed: () => void;
   onCreateTrip: () => void;
+  onRenameTrip: (tripId: string, nextTitle: string) => Promise<void>;
+  onDeleteTrip: (tripId: string) => Promise<void>;
   isCreatingTrip: boolean;
+  renamingTripId: string | null;
+  deletingTripId: string | null;
   workspace: PlannerWorkspaceState | null;
   recentTrips: TripListItemResponse[];
 };
@@ -32,9 +50,14 @@ export function ChatSidebar({
   activeTripId,
   collapsed,
   onSelectTrip,
+  onPrefetchTrip,
   onToggleCollapsed,
   onCreateTrip,
+  onRenameTrip,
+  onDeleteTrip,
   isCreatingTrip,
+  renamingTripId,
+  deletingTripId,
   workspace,
   recentTrips,
 }: ChatSidebarProps) {
@@ -59,9 +82,14 @@ export function ChatSidebar({
         })),
     [currentTripId, query, recentTrips, workspace],
   );
+  const currentSessionIndex = recentSessions.findIndex((session) => session.isCurrent);
+  const effectiveVisibleCount =
+    currentSessionIndex >= 0
+      ? Math.max(visibleCount, currentSessionIndex + 1)
+      : visibleCount;
 
-  const visibleSessions = recentSessions.slice(0, visibleCount);
-  const hasMore = recentSessions.length > visibleCount;
+  const visibleSessions = recentSessions.slice(0, effectiveVisibleCount);
+  const hasMore = recentSessions.length > effectiveVisibleCount;
 
   function handleNewChat() {
     onCreateTrip();
@@ -148,37 +176,61 @@ export function ChatSidebar({
             <div className="space-y-0.5">
               {visibleSessions.length > 0 ? (
                 visibleSessions.map((session) => (
-                  <button
+                  <div
                     key={session.id}
-                    type="button"
-                    onClick={() => {
-                      onSelectTrip();
-                      router.push(`${pathname}?trip=${session.id}`);
-                    }}
                     className={[
-                      "group flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent)]/40",
+                      "group flex items-start gap-1 rounded-lg px-1 py-0.5",
                       session.isCurrent
                         ? "bg-[color:var(--sidebar-surface-strong)]"
                         : "hover:bg-[color:var(--sidebar-surface)]",
                     ].join(" ")}
                   >
-                    <span
-                      className={[
-                        "mt-[0.4rem] h-1.5 w-1.5 shrink-0 rounded-full transition-colors",
-                        session.isCurrent
-                          ? "bg-[color:var(--accent)]"
-                          : "bg-[color:var(--sidebar-shell-border)] group-hover:bg-[color:var(--sidebar-muted-text)]",
-                      ].join(" ")}
+                    <button
+                      type="button"
+                      onMouseEnter={() => onPrefetchTrip(session.id)}
+                      onFocus={() => onPrefetchTrip(session.id)}
+                      onClick={() => {
+                        if (session.isCurrent) {
+                          return;
+                        }
+
+                        onSelectTrip(session.id);
+                        router.push(`${pathname}?trip=${session.id}`);
+                      }}
+                      className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent)]/40"
+                    >
+                      <span
+                        className={[
+                          "mt-[0.4rem] h-1.5 w-1.5 shrink-0 rounded-full transition-colors",
+                          session.isCurrent
+                            ? "bg-[color:var(--accent)]"
+                            : "bg-[color:var(--sidebar-shell-border)] group-hover:bg-[color:var(--sidebar-muted-text)]",
+                        ].join(" ")}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[0.8rem] font-medium leading-snug text-[color:var(--sidebar-text)]">
+                          {session.title}
+                        </div>
+                        <div className="mt-0.5 truncate text-[0.7rem] leading-normal text-[color:var(--sidebar-muted-text)]">
+                          {session.activityTime}
+                        </div>
+                      </div>
+                    </button>
+                    <RenameTripDialogButton
+                      tripId={session.id}
+                      tripTitle={session.title}
+                      disabled={Boolean(deletingTripId || renamingTripId)}
+                      isRenaming={renamingTripId === session.id}
+                      onRenameTrip={onRenameTrip}
                     />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[0.8rem] font-medium leading-snug text-[color:var(--sidebar-text)]">
-                        {session.title}
-                      </div>
-                      <div className="mt-0.5 truncate text-[0.7rem] leading-normal text-[color:var(--sidebar-muted-text)]">
-                        {session.activityTime}
-                      </div>
-                    </div>
-                  </button>
+                    <DeleteTripDialogButton
+                      tripId={session.id}
+                      tripTitle={session.title}
+                      disabled={Boolean(deletingTripId || renamingTripId)}
+                      isDeleting={deletingTripId === session.id}
+                      onDeleteTrip={onDeleteTrip}
+                    />
+                  </div>
                 ))
               ) : (
                 <p className="px-2.5 py-6 text-center text-[0.78rem] leading-relaxed text-[color:var(--sidebar-muted-text)]">
@@ -205,8 +257,14 @@ export function ChatSidebar({
                 <button
                   key={session.id}
                   type="button"
+                  onMouseEnter={() => onPrefetchTrip(session.id)}
+                  onFocus={() => onPrefetchTrip(session.id)}
                   onClick={() => {
-                    onSelectTrip();
+                    if (session.isCurrent) {
+                      return;
+                    }
+
+                    onSelectTrip(session.id);
                     router.push(`${pathname}?trip=${session.id}`);
                   }}
                   className={[
@@ -251,6 +309,161 @@ export function ChatSidebar({
         </button>
       </div>
     </aside>
+  );
+}
+
+function RenameTripDialogButton({
+  tripId,
+  tripTitle,
+  disabled,
+  isRenaming,
+  onRenameTrip,
+}: {
+  tripId: string;
+  tripTitle: string;
+  disabled: boolean;
+  isRenaming: boolean;
+  onRenameTrip: (tripId: string, nextTitle: string) => Promise<void>;
+}) {
+  const [draftTitle, setDraftTitle] = useState(tripTitle);
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setDraftTitle(tripTitle)}
+          className={[
+            "mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all",
+            "text-[color:var(--sidebar-muted-text)]/55 opacity-0",
+            "group-hover:opacity-100 focus-visible:opacity-100",
+            "hover:bg-[color:var(--sidebar-shell-bg)] hover:text-[color:var(--sidebar-text)]",
+            "disabled:cursor-wait disabled:opacity-60",
+            isRenaming ? "opacity-100" : "",
+          ].join(" ")}
+          aria-label={`Rename ${tripTitle}`}
+          title="Rename trip"
+        >
+          {isRenaming ? (
+            <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+          ) : (
+            <PencilLine className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Rename this trip</DialogTitle>
+          <DialogDescription>
+            Give this saved chat a clearer name so it is easier to find later.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <label
+            htmlFor={`rename-trip-${tripId}`}
+            className="text-sm font-medium text-foreground"
+          >
+            Trip name
+          </label>
+          <input
+            id={`rename-trip-${tripId}`}
+            type="text"
+            value={draftTitle}
+            onChange={(event) => setDraftTitle(event.target.value)}
+            placeholder="Spring Kyoto food week"
+            className="w-full rounded-xl border border-[color:var(--sidebar-shell-border)] bg-[color:var(--sidebar-surface)] px-3 py-2.5 text-sm text-[color:var(--sidebar-text)] outline-none transition-colors focus:border-[color:var(--accent)]/35"
+          />
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline" size="lg">
+              Cancel
+            </Button>
+          </DialogClose>
+          <DialogClose asChild>
+            <Button
+              type="button"
+              size="lg"
+              disabled={!draftTitle.trim() || isRenaming}
+              onClick={() => void onRenameTrip(tripId, draftTitle)}
+            >
+              <PencilLine className="h-4 w-4" />
+              Save name
+            </Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteTripDialogButton({
+  tripId,
+  tripTitle,
+  disabled,
+  isDeleting,
+  onDeleteTrip,
+}: {
+  tripId: string;
+  tripTitle: string;
+  disabled: boolean;
+  isDeleting: boolean;
+  onDeleteTrip: (tripId: string) => Promise<void>;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className={[
+            "mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all",
+            "text-[color:var(--sidebar-muted-text)]/55 opacity-0",
+            "group-hover:opacity-100 focus-visible:opacity-100",
+            "hover:bg-[color:var(--sidebar-shell-bg)] hover:text-destructive",
+            "disabled:cursor-wait disabled:opacity-60",
+            isDeleting ? "opacity-100" : "",
+          ].join(" ")}
+          aria-label={`Delete ${tripTitle}`}
+          title="Delete trip"
+        >
+          {isDeleting ? (
+            <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete this trip?</DialogTitle>
+          <DialogDescription>
+            This will permanently delete {tripTitle} from Wandrix, including its
+            chat history, live board state, and brochure snapshots. This action
+            cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline" size="lg">
+              Cancel
+            </Button>
+          </DialogClose>
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="destructive"
+              size="lg"
+              onClick={() => void onDeleteTrip(tripId)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete trip
+            </Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

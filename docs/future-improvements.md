@@ -220,6 +220,198 @@ Improve:
 Why:
 - the product is inherently multi-turn and iterative
 
+## Advanced Planning Roadmap
+
+This section captures the intended product direction for `Advanced Planning`.
+
+Core rule:
+- `Quick Plan` should stay the fast first-draft mode
+- `Advanced Planning` should become the full trip-building and trip-organizing mode
+- Wandrix should remain a `selection and organization` product, not a booking platform
+- real checkout, payment, and reservation confirmation should happen outside Wandrix
+
+### Make Advanced Planning a Real Planning Mode
+
+Right now Advanced Planning still falls back to Quick Plan behavior.
+
+That is acceptable temporarily, but it is not the intended end state.
+
+Advanced Planning should mean:
+- Wandrix helps choose real flights, hotels, activities, events, and practical trip structure
+- Wandrix resolves tradeoffs more deliberately instead of jumping straight to a first draft
+- Wandrix keeps a clear record of what is recommended, what is selected, and what is still undecided
+- Wandrix never implies that a selected option is already booked unless the user explicitly confirms that later
+
+Advanced Planning should proceed in stages:
+
+1. Confirm the trip brief
+- destination
+- timing
+- origin
+- travelers
+- trip style
+- budget posture
+- module scope
+- any hard constraints
+
+2. Choose the planning anchor
+- flights-first for short or origin-sensitive trips
+- stay-area-first for city breaks where neighborhood choice shapes the trip
+- event-first when one date-bound activity should anchor the itinerary
+- activity-style-first when the user mostly cares about trip tone and pacing
+
+3. Build the trip skeleton before full detail
+- arrival and departure shape
+- likely stay strategy
+- rough day themes
+- pacing level
+- optional day trip logic
+
+4. Resolve major tradeoffs one by one
+- central but pricier stay vs calmer but farther stay
+- direct but earlier flight vs slower cheaper option
+- packed highlights vs slower local pace
+- one-base trip vs split-area trip
+
+5. Enrich modules in sequence instead of all at once
+- flights when flight practicality matters most
+- hotels when stay choice shapes the trip
+- activities and events once the structure is stable
+- transport and local movement once the selected components are clearer
+
+6. Re-plan around real selected components
+- late-arrival flight should soften Day 1
+- selected hotel area should influence activity ranking
+- fixed event timing should shift nearby day structure
+- return timing should affect the final evening and final morning
+
+7. Present a reviewed plan before finalization
+- what is selected
+- what is still flexible
+- what alternatives were rejected
+- what tradeoffs were chosen
+- what the user should confirm before locking the brochure-ready trip
+
+Why this matters:
+- this is how Wandrix becomes more than an itinerary generator
+- the user should feel like the agent is helping them build the actual trip, not just sketching one
+
+### Keep Booking External
+
+Advanced Planning should help the user decide what to choose, but not complete the booking inside Wandrix.
+
+That means Wandrix should do:
+- ranking and comparison
+- recommendation rationale
+- option selection
+- trip organization after the user chooses an option
+
+That means Wandrix should not do:
+- checkout
+- payment capture
+- reservation creation
+- provider-side booking confirmation
+- wording that suggests a selected option is already a completed booking
+
+The intended product flow is:
+1. Wandrix recommends strong options.
+2. The user selects the one they want.
+3. The real booking happens outside Wandrix.
+4. Wandrix remembers that choice as the selected option.
+5. Later, the user may confirm that they booked it, if we add that state and UX.
+
+Why this matters:
+- it keeps the product boundary honest
+- it avoids pretending Wandrix is an OTA or checkout platform
+- it lets Advanced Planning stay focused on decision support and organization
+
+### Add Selected, Booked, And Organizer Semantics
+
+To support real Advanced Planning, the planner should stop treating all provider output as the same kind of object.
+
+We should eventually distinguish:
+- `recommended`
+- `shortlisted`
+- `selected`
+- `booked`
+- `rejected`
+- `manual`
+
+This should apply to:
+- flights
+- hotels
+- activities
+- events
+- transport items later
+
+Why:
+- the trip should show what Wandrix suggested
+- what the user actually chose
+- and, later, what has become a real-world commitment after user confirmation
+
+This will likely require future trip-draft structure improvements so the planner can store:
+- the chosen option id or normalized payload
+- selection state
+- booking-confirmed-later state
+- selection rationale
+- fallback options
+- organizer notes
+
+State semantics should stay clear:
+- `selected` means the user chose this option inside Wandrix
+- `booked` should be reserved for a later user-confirmed state, not inferred automatically
+- `manual` should cover user-entered outside bookings and trip items once that organizer layer exists
+
+### Add Manual Trip Organizer Inputs
+
+This is a later but very important improvement.
+
+Advanced Planning should eventually support manually added trip items for things the user booked or arranged outside Wandrix after leaving Wandrix to complete those bookings.
+
+Examples:
+- a hotel booked elsewhere
+- a specific flight chosen manually
+- an Airbnb address
+- a restaurant reservation
+- a concert ticket
+- a train booking
+- a transfer booking
+- a host contact or check-in note
+
+The user should be able to provide details like:
+- name
+- address
+- contact details
+- confirmation number
+- check-in instructions
+- notes
+- timing
+- external link or reference
+
+Wandrix should then:
+- store the item in structured form
+- place it into the trip timeline
+- treat it as a real trip anchor
+- plan around it instead of ignoring it
+- surface it on the board and in the brochure
+
+Why this matters:
+- many users will not book everything through Wandrix
+- the product gets much stronger when it can organize the whole trip, not just the parts it suggested
+
+Longer-term product goal:
+- `Advanced Planning` becomes both a planning mode and a trip organizer workspace
+- the right-hand board becomes a single place where selected, booked-later, and manually added trip details live together
+- the brochure can later reflect both editorial itinerary flow and practical logistics
+
+Suggested implementation order:
+1. add `recommended` vs `selected` semantics for flights, hotels, and activities
+2. add selection actions and memory for chosen components
+3. make the board show `recommended / selected / booked later / still deciding`
+4. add manual-entry support for outside bookings
+5. add organizer fields for contacts, addresses, notes, and confirmations
+6. update brochure output so it can reflect both planned and externally booked trip structure
+
 ## Provider and Data Improvements
 
 ### 14. Add Wikimedia and Editorial Travel Context

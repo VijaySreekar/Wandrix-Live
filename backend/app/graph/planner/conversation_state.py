@@ -22,6 +22,8 @@ from app.schemas.trip_conversation import (
     ConversationFieldSource,
     ConversationOptionMemory,
     PlannerConfirmationStatus,
+    PlannerAdvancedStep,
+    PlannerAdvancedAnchor,
     PlannerFinalizedVia,
     ConversationQuestion,
     ConversationTurnSummary,
@@ -44,8 +46,15 @@ def compute_missing_fields(configuration: TripConfiguration) -> list[str]:
 def compute_missing_fields_with_context(
     configuration: TripConfiguration,
     resolved_location_context: ResolvedPlannerLocationContext | None = None,
+    *,
+    planning_mode: PlannerPlanningMode | None = None,
 ) -> list[str]:
-    return compute_scope_missing_fields(configuration, resolved_location_context)
+    return compute_scope_missing_fields(
+        configuration,
+        resolved_location_context,
+        allow_flexible_origin=planning_mode == "advanced",
+        allow_flexible_travelers=planning_mode == "advanced",
+    )
 
 
 def build_conversation_state(
@@ -64,6 +73,9 @@ def build_conversation_state(
     brief_confirmed: bool = False,
     planning_mode: PlannerPlanningMode | None = None,
     planning_mode_status: PlannerPlanningModeStatus = "not_selected",
+    advanced_step: PlannerAdvancedStep | None = None,
+    advanced_anchor: PlannerAdvancedAnchor | None = None,
+    planning_mode_choice_required: bool = False,
     confirmation_status: PlannerConfirmationStatus = "unconfirmed",
     finalized_at: datetime | None = None,
     finalized_via: PlannerFinalizedVia | None = None,
@@ -73,6 +85,7 @@ def build_conversation_state(
     missing_fields = compute_missing_fields_with_context(
         next_configuration,
         resolved_location_context,
+        planning_mode=planning_mode,
     )
     phase = determine_phase(
         configuration=next_configuration,
@@ -86,6 +99,8 @@ def build_conversation_state(
     conversation.phase = phase
     conversation.planning_mode = planning_mode
     conversation.planning_mode_status = planning_mode_status
+    conversation.advanced_step = advanced_step
+    conversation.advanced_anchor = advanced_anchor
     conversation.confirmation_status = confirmation_status
     conversation.finalized_at = finalized_at
     conversation.finalized_via = finalized_via
@@ -118,6 +133,9 @@ def build_conversation_state(
         resolved_location_context=resolved_location_context,
         board_action=board_action or {},
         brief_confirmed=brief_confirmed,
+        advanced_step=advanced_step,
+        advanced_anchor=advanced_anchor,
+        planning_mode_choice_required=planning_mode_choice_required,
     )
     if record_memory:
         conversation.memory = merge_conversation_memory(
@@ -134,6 +152,7 @@ def build_conversation_state(
             board_action=board_action or {},
             planning_mode=planning_mode,
             planning_mode_status=planning_mode_status,
+            advanced_anchor=advanced_anchor,
             open_questions=conversation.open_questions,
             active_goals=conversation.active_goals,
             last_turn_summary=conversation.last_turn_summary,
@@ -162,6 +181,7 @@ def build_status(
     status.missing_fields = compute_missing_fields_with_context(
         configuration,
         resolved_location_context,
+        planning_mode=conversation.planning_mode,
     )
 
     confirmed_fields: list[TripFieldKey] = []
@@ -387,6 +407,7 @@ def merge_conversation_memory(
     board_action: dict,
     planning_mode: PlannerPlanningMode | None,
     planning_mode_status: PlannerPlanningModeStatus,
+    advanced_anchor: PlannerAdvancedAnchor | None,
     open_questions: list[ConversationQuestion],
     active_goals: list[str],
     last_turn_summary: str | None,
@@ -404,7 +425,9 @@ def merge_conversation_memory(
 
     for field in sorted(set([*llm_update.confirmed_fields, *llm_update.inferred_fields])):
         value = _get_configuration_value(next_configuration, field)
-        if value in (None, "", [], {}):
+        if not _field_value_has_signal(field, value):
+            if field in {"from_location_flexible", "travelers_flexible"}:
+                memory.field_memory.pop(field, None)
             continue
         source = _resolve_field_source(
             field=field,
@@ -471,6 +494,7 @@ def merge_conversation_memory(
         corrected_fields=corrected_fields,
         planning_mode=planning_mode,
         planning_mode_status=planning_mode_status,
+        advanced_anchor=advanced_anchor,
     )
     memory.turn_summaries = _merge_turn_summaries(
         current=memory.turn_summaries,
@@ -658,11 +682,17 @@ def _merge_decision_history(
     corrected_fields: list[TripFieldKey],
     planning_mode: PlannerPlanningMode | None,
     planning_mode_status: PlannerPlanningModeStatus,
+    advanced_anchor: PlannerAdvancedAnchor | None,
 ) -> list[ConversationDecisionEvent]:
     merged = list(current)
     seen = {
         (item.title.lower(), tuple(option.lower() for option in item.options))
         for item in merged
+    }
+    existing_advanced_anchor_selections = {
+        item.selected_option.lower()
+        for item in merged
+        if item.title.lower() == "advanced anchor selected" and item.selected_option
     }
 
     for card in decision_cards:
@@ -719,9 +749,8 @@ def _merge_decision_history(
     accepted_quick_selection = (
         planning_mode == "quick" and planning_mode_status == "selected"
     )
-    accepted_advanced_fallback = (
-        planning_mode == "quick"
-        and planning_mode_status == "advanced_unavailable_fallback"
+    accepted_advanced_selection = (
+        planning_mode == "advanced" and planning_mode_status == "selected"
     )
 
     if action and action.type == "select_quick_plan" and accepted_quick_selection:
@@ -738,16 +767,16 @@ def _merge_decision_history(
                     resolved_at=now,
                 )
             )
-    if action and action.type == "select_advanced_plan" and accepted_advanced_fallback:
-        selection_key = ("advanced planning fallback", ("quick",))
+    if action and action.type == "select_advanced_plan" and accepted_advanced_selection:
+        selection_key = ("planning mode selected", ("advanced",))
         if selection_key not in seen:
             merged.append(
                 ConversationDecisionEvent(
                     id=action.action_id,
-                    title="Advanced planning fallback",
-                    description="Advanced Planning is still in development, so Wandrix fell back to Quick Plan.",
-                    options=["advanced", "quick"],
-                    selected_option="quick",
+                    title="Planning mode selected",
+                    description="The user chose Advanced Planning for a more guided trip-building flow.",
+                    options=["quick", "advanced"],
+                    selected_option="advanced",
                     source_turn_id=turn_id,
                     resolved_at=now,
                 )
@@ -789,20 +818,66 @@ def _merge_decision_history(
     if (
         llm_update.requested_planning_mode == "advanced"
         and not action
-        and accepted_advanced_fallback
+        and accepted_advanced_selection
     ):
-        selection_key = ("advanced planning fallback", ("quick",))
+        selection_key = ("planning mode selected", ("advanced",))
         if selection_key not in seen:
             merged.append(
                 ConversationDecisionEvent(
                     id=f"decision_{uuid4().hex[:10]}",
-                    title="Advanced planning fallback",
-                    description="The user asked for Advanced Planning, so Wandrix switched to Quick Plan for now.",
-                    options=["advanced", "quick"],
-                    selected_option="quick",
+                    title="Planning mode selected",
+                    description="The user asked for Advanced Planning in chat.",
+                    options=["quick", "advanced"],
+                    selected_option="advanced",
                     source_turn_id=turn_id,
                     resolved_at=now,
                 )
+            )
+    if action and action.type == "select_advanced_anchor" and advanced_anchor:
+        selection_key = ("advanced anchor selected", (advanced_anchor,))
+        if advanced_anchor not in existing_advanced_anchor_selections:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=action.action_id,
+                    title="Advanced anchor selected",
+                    description=(
+                        f"The user chose {advanced_anchor.replace('_', ' ')} to lead the next Advanced Planning step."
+                    ),
+                    options=["flight", "stay", "trip_style", "activities"],
+                    selected_option=advanced_anchor,
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+            seen.add(selection_key)
+            existing_advanced_anchor_selections.add(advanced_anchor)
+    if (
+        llm_update.requested_advanced_anchor
+        and not action
+        and planning_mode == "advanced"
+        and planning_mode_status == "selected"
+    ):
+        selection_key = (
+            "advanced anchor selected",
+            (llm_update.requested_advanced_anchor,),
+        )
+        if llm_update.requested_advanced_anchor not in existing_advanced_anchor_selections:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=f"decision_{uuid4().hex[:10]}",
+                    title="Advanced anchor selected",
+                    description=(
+                        f"The user chose {llm_update.requested_advanced_anchor.replace('_', ' ')} to lead the next Advanced Planning step."
+                    ),
+                    options=["flight", "stay", "trip_style", "activities"],
+                    selected_option=llm_update.requested_advanced_anchor,
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+            seen.add(selection_key)
+            existing_advanced_anchor_selections.add(
+                llm_update.requested_advanced_anchor
             )
     if action and action.type == "finalize_quick_plan":
         finalization_key = ("trip plan finalized", ("board",))
@@ -1007,6 +1082,12 @@ def _build_default_open_questions(
             step="timing",
             why="A rough trip length helps me pace the itinerary without forcing exact dates.",
         ),
+        "weather_preference": TripOpenQuestionUpdate(
+            question="What kind of weather are you hoping for on this trip?",
+            field="weather_preference",
+            step="timing",
+            why="Weather preference helps Wandrix shape timing and destination fit earlier in the planning flow.",
+        ),
         "adults": TripOpenQuestionUpdate(
             question="Who's travelling, and do I need to plan for any children?",
             field="adults",
@@ -1048,16 +1129,20 @@ def _build_trip_detail_correction_description(
 def _field_history_label(field: TripFieldKey) -> str:
     return {
         "from_location": "the departure point",
+        "from_location_flexible": "departure flexibility",
         "to_location": "the destination",
         "start_date": "the start date",
         "end_date": "the end date",
         "travel_window": "the travel window",
         "trip_length": "the trip length",
+        "weather_preference": "the weather preference",
         "budget_posture": "the budget posture",
         "budget_gbp": "the budget amount",
         "adults": "the adult count",
         "children": "the child count",
+        "travelers_flexible": "traveller flexibility",
         "activity_styles": "the trip style",
+        "custom_style": "the custom trip style",
         "selected_modules": "the selected modules",
     }[field]
 
@@ -1065,16 +1150,20 @@ def _field_history_label(field: TripFieldKey) -> str:
 def _field_resume_label(field: TripFieldKey) -> str:
     return {
         "from_location": "departure point",
+        "from_location_flexible": "departure flexibility",
         "to_location": "destination",
         "start_date": "start date",
         "end_date": "end date",
         "travel_window": "travel window",
         "trip_length": "trip length",
+        "weather_preference": "weather preference",
         "budget_posture": "budget",
         "budget_gbp": "budget",
         "adults": "traveller count",
         "children": "child traveller count",
+        "travelers_flexible": "traveller flexibility",
         "activity_styles": "trip style",
+        "custom_style": "custom trip style",
         "selected_modules": "module scope",
     }[field]
 
@@ -1108,16 +1197,24 @@ def _guess_question_field(question: str) -> TripFieldKey | None:
         return "selected_modules"
     if "from" in normalized or "travelling from" in normalized:
         return "from_location"
+    if "flexible departure" in normalized or "departure can stay flexible" in normalized:
+        return "from_location_flexible"
     if "destination" in normalized or "trip around" in normalized:
         return "to_location"
     if "month" in normalized or "window" in normalized:
         return "travel_window"
+    if "weather" in normalized or "warm" in normalized or "sun" in normalized or "snow" in normalized:
+        return "weather_preference"
     if "days" in normalized or "nights" in normalized or "long" in normalized:
         return "trip_length"
+    if "traveller count is flexible" in normalized or "group is still flexible" in normalized:
+        return "travelers_flexible"
     if "people" in normalized:
         return "adults"
     if "feel like" in normalized or "trip style" in normalized:
         return "activity_styles"
+    if "custom style" in normalized or "describe your own style" in normalized:
+        return "custom_style"
     if "budget" in normalized or "premium" in normalized:
         return "budget_posture"
     return None
@@ -1125,7 +1222,7 @@ def _guess_question_field(question: str) -> TripFieldKey | None:
 
 def _field_has_value(configuration: TripConfiguration, field: TripFieldKey) -> bool:
     value = _get_configuration_value(configuration, field)
-    return value not in (None, "", [], {})
+    return _field_value_has_signal(field, value)
 
 
 def _get_configuration_value(
@@ -1143,6 +1240,14 @@ def _get_configuration_value(
     return getattr(configuration, field)
 
 
+def _field_value_has_signal(field: TripFieldKey, value: object) -> bool:
+    if field in {"from_location_flexible", "travelers_flexible"}:
+        return value is True
+    if field == "adults":
+        return isinstance(value, int) and value > 0
+    return value not in (None, "", [], {})
+
+
 def _field_to_option_candidate(field: TripFieldKey, value: object) -> ConversationOptionCandidate | None:
     if field == "to_location" and isinstance(value, str):
         return ConversationOptionCandidate(kind="destination", value=value)
@@ -1150,6 +1255,14 @@ def _field_to_option_candidate(field: TripFieldKey, value: object) -> Conversati
         return ConversationOptionCandidate(kind="origin", value=value)
     if field in {"start_date", "travel_window"}:
         return ConversationOptionCandidate(kind="timing_window", value=str(value))
+    if field == "weather_preference":
+        return None
+    if field == "from_location_flexible":
+        return None
+    if field == "custom_style":
+        return None
+    if field == "travelers_flexible":
+        return None
     if field in {"end_date", "trip_length"}:
         return ConversationOptionCandidate(kind="trip_length", value=str(value))
     if field == "budget_posture":
@@ -1308,16 +1421,24 @@ def _question_is_still_relevant(
         return "selected_modules" in missing_fields
     if question.field == "from_location":
         return "from_location" in missing_fields
+    if question.field == "from_location_flexible":
+        return False
     if question.field == "to_location":
         return "to_location" in missing_fields
     if question.field in {"start_date", "travel_window"}:
         return "start_date" in missing_fields
+    if question.field == "weather_preference":
+        return configuration.weather_preference is None
     if question.field in {"end_date", "trip_length"}:
         return "end_date" in missing_fields
     if question.field == "adults":
         return "adults" in missing_fields
     if question.field == "budget_posture":
         return configuration.budget_posture is None
+    if question.field == "custom_style":
+        return configuration.custom_style is None and not configuration.activity_styles
+    if question.field == "travelers_flexible":
+        return False
 
     return True
 
@@ -1420,13 +1541,21 @@ def _default_question_priority_for_field(
         return 2 if has_destination else 3
     if field == "from_location":
         return 2 if has_destination else 4
+    if field == "from_location_flexible":
+        return 3
     if field in {"travel_window", "start_date"}:
         return 2
+    if field == "weather_preference":
+        return 3
     if field in {"trip_length", "end_date"}:
         return 3 if has_timing else 2
     if field in {"adults", "children"}:
         return 3 if has_route else 4
+    if field == "travelers_flexible":
+        return 3 if has_route else 4
     if field == "activity_styles":
+        return 4
+    if field == "custom_style":
         return 4
     if field in {"budget_posture", "budget_gbp"}:
         return 5
@@ -1449,11 +1578,19 @@ def _default_question_step(field: TripFieldKey | None) -> TripDetailsStepKey | N
         return "modules"
     if field in {"from_location", "to_location"}:
         return "route"
+    if field == "from_location_flexible":
+        return "route"
     if field in {"start_date", "end_date", "travel_window", "trip_length"}:
+        return "timing"
+    if field == "weather_preference":
         return "timing"
     if field in {"adults", "children"}:
         return "travellers"
+    if field == "travelers_flexible":
+        return "travellers"
     if field == "activity_styles":
+        return "vibe"
+    if field == "custom_style":
         return "vibe"
     if field in {"budget_posture", "budget_gbp"}:
         return "budget"
@@ -1470,14 +1607,22 @@ def _default_question_reason(
         return "The destination is the highest-value planning decision right now."
     if field == "from_location":
         return "The likely departure point changes route practicality and flight options."
+    if field == "from_location_flexible":
+        return "Departure can stay flexible for now, so Wandrix should avoid treating it as fixed too early."
     if field in {"start_date", "travel_window"}:
         return "Rough timing is enough to keep the trip moving without locking exact dates."
+    if field == "weather_preference":
+        return "Weather preference helps Wandrix steer timing and destination fit earlier in the planning flow."
     if field in {"end_date", "trip_length"}:
         return "A rough length helps pace the itinerary before exact dates are chosen."
     if field in {"adults", "children"}:
         return "Group makeup changes rooms, flights, pace, and whether children need special consideration."
+    if field == "travelers_flexible":
+        return "The traveller count can stay flexible during intake, but later booking-grade planning will still need firmer numbers."
     if field == "activity_styles":
         return "Trip style helps Wandrix shape the right pace and experiences."
+    if field == "custom_style":
+        return "A custom trip-style note can carry nuance that preset style chips cannot."
     if field in {"budget_posture", "budget_gbp"}:
         return "Budget narrows realistic flight and hotel options, but the posture is often nuanced."
     if step == "route":

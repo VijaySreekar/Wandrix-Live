@@ -44,16 +44,20 @@ class TripModuleSelection(BaseModel):
 
 class TripConfiguration(BaseModel):
     from_location: str | None = Field(default=None, max_length=160)
+    from_location_flexible: bool | None = None
     to_location: str | None = Field(default=None, max_length=160)
     start_date: date | None = None
     end_date: date | None = None
     travel_window: str | None = Field(default=None, max_length=120)
     trip_length: str | None = Field(default=None, max_length=120)
+    weather_preference: str | None = Field(default=None, max_length=80)
     travelers: PlannerTravelerDetails = Field(default_factory=PlannerTravelerDetails)
+    travelers_flexible: bool | None = None
     budget_posture: BudgetPosture | None = None
     budget_gbp: float | None = Field(default=None, gt=0)
     selected_modules: TripModuleSelection = Field(default_factory=TripModuleSelection)
     activity_styles: list[ActivityStyle] = Field(default_factory=list)
+    custom_style: str | None = Field(default=None, max_length=160)
 
 
 class FlightDetail(BaseModel):

@@ -73,6 +73,10 @@ export function writeCachedThreadMessages(
   );
 }
 
+export function removeCachedThreadMessages(tripId: string) {
+  window.localStorage.removeItem(`${CHAT_HISTORY_STORAGE_PREFIX}${tripId}`);
+}
+
 export function normalizeHistoryMessages(
   messages: CheckpointConversationMessage[],
 ) {

@@ -15,10 +15,14 @@ import {
   ThreadPrimitive,
   useThread,
   useLocalRuntime,
+  useMessage,
+  useThreadRuntime,
   type ChatModelAdapter,
+  type ThreadMessage,
 } from "@assistant-ui/react";
 
 import { TravelPlannerBoardActions } from "@/components/assistant/travel-planner-board-actions";
+import { AgentThinkingTyping } from "@/components/assistant/agent-thinking-indicator";
 import {
   getTripConversationHistory,
   sendTripConversationMessage,
@@ -40,6 +44,8 @@ type TravelPlannerAssistantProps = {
   activeTripId: string | null;
   authSnapshot: BrowserAuthSnapshot | null;
   skipInitialHistorySync: boolean;
+  isSwitchingTrips: boolean;
+  requestedTripId: string | null;
   onEnsurePersistedTrip: () => Promise<PlannerWorkspaceState | null>;
   onActivatePersistedTrip: (workspace: PlannerWorkspaceState) => void;
   workspace: PlannerWorkspaceState | null;
@@ -50,10 +56,58 @@ type TravelPlannerAssistantProps = {
   onDraftUpdated: (tripDraft: TripDraft) => void;
 };
 
+function buildThreadSeedMessages(messages: PersistedThreadMessage[]) {
+  return messages.map((message) => ({
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    createdAt: message.createdAt ? new Date(message.createdAt) : undefined,
+  }));
+}
+
+function extractPersistedThreadMessages(
+  messages: readonly ThreadMessage[],
+): PersistedThreadMessage[] {
+  return messages.flatMap((message) => {
+    const textContent = message.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+
+    if (!textContent) {
+      return [];
+    }
+
+    return [
+      {
+        id: message.id,
+        role: message.role,
+        content: textContent,
+        createdAt:
+          message.createdAt instanceof Date
+            ? message.createdAt.toISOString()
+            : undefined,
+      } satisfies PersistedThreadMessage,
+    ];
+  });
+}
+
+function serializePersistedThreadMessages(messages: PersistedThreadMessage[]) {
+  return JSON.stringify(
+    messages.map((message) => ({
+      ...message,
+      createdAt: message.createdAt ?? null,
+    })),
+  );
+}
+
 export function TravelPlannerAssistant({
   activeTripId,
   authSnapshot,
   skipInitialHistorySync,
+  isSwitchingTrips,
+  requestedTripId,
   onEnsurePersistedTrip,
   onActivatePersistedTrip,
   workspace,
@@ -80,8 +134,14 @@ export function TravelPlannerAssistant({
   const hasActiveWorkspace = Boolean(
     tripId && workspace && workspace.trip.trip_id === tripId,
   );
+  const immediateCachedMessages = useMemo(
+    () => (tripId ? readCachedThreadMessages(tripId) : []),
+    [tripId],
+  );
   const savedMessages =
-    savedThreadState.tripId === tripId ? savedThreadState.messages : null;
+    savedThreadState.tripId === tripId
+      ? (savedThreadState.messages ?? immediateCachedMessages)
+      : immediateCachedMessages;
 
   useEffect(() => {
     let cancelled = false;
@@ -255,21 +315,13 @@ export function TravelPlannerAssistant({
 
         boardActionRef.current = null;
 
-        let cumulativeText = "";
-
-        for (const chunk of chunkResponse(response)) {
-          if (abortSignal.aborted) {
-            return;
-          }
-
-          cumulativeText = cumulativeText ? `${cumulativeText} ${chunk}` : chunk;
-
-          yield {
-            content: [{ type: "text", text: cumulativeText }],
-          };
-
-          await sleep(120, abortSignal);
+        if (abortSignal.aborted) {
+          return;
         }
+
+        yield {
+          content: [{ type: "text", text: response }],
+        };
       },
     }),
     [
@@ -286,36 +338,19 @@ export function TravelPlannerAssistant({
     ],
   );
 
-  if (tripId && savedMessages === null) {
-    return (
-      <section className="relative flex h-full min-h-0 flex-col bg-[color:var(--chat-pane-bg)]">
-        <div className="flex min-h-0 flex-1 items-center justify-center px-8">
-          <div className="max-w-md text-center">
-            <p className="text-sm font-medium text-foreground">
-              Restoring this trip conversation
-            </p>
-            <p className="mt-2 text-sm leading-7 text-muted-foreground">
-              Pulling the most recent local thread state back into the workspace so
-              the chat and live board feel connected again.
-            </p>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
   return (
     <TravelPlannerAssistantRuntime
-      key={tripId ?? "wandrix-chat-empty"}
       adapter={adapter}
       tripId={tripId}
-      initialMessages={savedMessages ?? []}
+      initialMessages={savedMessages}
       isSyncingHistory={isSyncingHistory}
+      isSwitchingTrips={isSwitchingTrips}
       profileContext={profileContext}
       isBootstrapping={isBootstrapping}
       hasWorkspace={hasActiveWorkspace}
       hasError={Boolean(workspaceError)}
       pendingBoardAction={pendingBoardAction}
+      requestedTripId={requestedTripId}
       onBoardActionHandled={onBoardActionHandled}
       onBoardActionReadyForBackend={(action) => {
         boardActionRef.current = action;
@@ -344,11 +379,13 @@ function TravelPlannerAssistantRuntime({
   tripId,
   initialMessages,
   isSyncingHistory,
+  isSwitchingTrips,
   profileContext,
   isBootstrapping,
   hasWorkspace,
   hasError,
   pendingBoardAction,
+  requestedTripId,
   onBoardActionHandled,
   onBoardActionReadyForBackend,
   onDirectBoardActionSubmit,
@@ -357,45 +394,61 @@ function TravelPlannerAssistantRuntime({
   tripId: string | null;
   initialMessages: PersistedThreadMessage[];
   isSyncingHistory: boolean;
+  isSwitchingTrips: boolean;
   profileContext: PlannerProfileContext | null;
   isBootstrapping: boolean;
   hasWorkspace: boolean;
   hasError: boolean;
   pendingBoardAction: PlannerBoardActionIntent | null;
+  requestedTripId: string | null;
   onBoardActionHandled: (actionId: string) => void;
   onBoardActionReadyForBackend: (action: ConversationBoardAction) => void;
   onDirectBoardActionSubmit: (action: ConversationBoardAction) => Promise<string>;
 }) {
+  const hydratedMessages = useMemo(
+    () => buildThreadSeedMessages(initialMessages),
+    [initialMessages],
+  );
+  const showInitialWorkspaceShell =
+    isBootstrapping && !tripId && !hasWorkspace && !hasError;
+
   const runtime = useLocalRuntime(adapter, {
-    initialMessages: initialMessages.map((message) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
-      createdAt: message.createdAt ? new Date(message.createdAt) : undefined,
-    })),
+    initialMessages: hydratedMessages,
   });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <ThreadHydrationSync
+        tripId={tripId}
+        initialMessages={initialMessages}
+        hydratedMessages={hydratedMessages}
+      />
       <PersistedThreadStateSync tripId={tripId} />
       <TravelPlannerBoardActions
         pendingBoardAction={pendingBoardAction}
-        disabled={isBootstrapping || !hasWorkspace || hasError}
+        disabled={isBootstrapping || isSwitchingTrips || !hasWorkspace || hasError}
         onHandled={onBoardActionHandled}
         onActionReadyForBackend={onBoardActionReadyForBackend}
         onDirectActionSubmit={onDirectBoardActionSubmit}
       />
       <section className="relative flex h-full min-h-0 flex-col bg-[color:var(--chat-pane-bg)]">
-        <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <ThreadPrimitive.Root
+          data-switching={isSwitchingTrips ? "true" : "false"}
+          className="trip-switch-content flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
         <ThreadPrimitive.Viewport className="chat-workspace-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-8">
           {isSyncingHistory ? <ConversationSyncBanner /> : null}
             <ThreadPrimitive.Empty>
-              <AssistantWelcome
-                disabled={isBootstrapping}
-                hasWorkspace={hasWorkspace}
-                hasError={hasError}
-                profileContext={profileContext}
-              />
+              {showInitialWorkspaceShell ? (
+                <InitialAssistantShell />
+              ) : (
+                <AssistantWelcome
+                  disabled={isBootstrapping || isSwitchingTrips}
+                  hasWorkspace={hasWorkspace}
+                  hasError={hasError}
+                  profileContext={profileContext}
+                />
+              )}
             </ThreadPrimitive.Empty>
 
             <div className="mx-auto mt-auto flex w-full max-w-[52rem] flex-col gap-6 pb-40">
@@ -409,54 +462,132 @@ function TravelPlannerAssistantRuntime({
           </ThreadPrimitive.Viewport>
 
           <Composer
-            disabled={isBootstrapping || !hasWorkspace || hasError}
+            disabled={isBootstrapping || isSwitchingTrips || !hasWorkspace || hasError}
             disabledPlaceholder={
-              isBootstrapping
-                ? "Attaching the planner workspace..."
-                : !hasWorkspace
-                  ? "Opening this trip..."
-                  : "Resolve the workspace issue before sending."
+              showInitialWorkspaceShell
+                ? "Preparing your travel planning workspace..."
+                : isBootstrapping
+                  ? "Attaching the planner workspace..."
+                : isSwitchingTrips
+                  ? "Opening the selected trip..."
+                  : !hasWorkspace
+                    ? "Opening this trip..."
+                    : "Resolve the workspace issue before sending."
             }
           />
         </ThreadPrimitive.Root>
+        {isSwitchingTrips ? (
+          <TripSwitchOverlay requestedTripId={requestedTripId} />
+        ) : null}
       </section>
     </AssistantRuntimeProvider>
   );
 }
 
+function ThreadHydrationSync({
+  tripId,
+  initialMessages,
+  hydratedMessages,
+}: {
+  tripId: string | null;
+  initialMessages: PersistedThreadMessage[];
+  hydratedMessages: ReturnType<typeof buildThreadSeedMessages>;
+}) {
+  const runtime = useThreadRuntime();
+  const runtimeMessages = useThread((state) => state.messages);
+  const didInitializeRef = useRef(false);
+  const activeTripIdRef = useRef<string | null>(tripId);
+  const lastHydratedSnapshotRef = useRef(
+    serializePersistedThreadMessages(initialMessages),
+  );
+  const initialSnapshot = useMemo(
+    () => serializePersistedThreadMessages(initialMessages),
+    [initialMessages],
+  );
+  const runtimeSnapshot = useMemo(
+    () =>
+      serializePersistedThreadMessages(
+        extractPersistedThreadMessages(runtimeMessages),
+      ),
+    [runtimeMessages],
+  );
+
+  useEffect(() => {
+    if (!didInitializeRef.current) {
+      didInitializeRef.current = true;
+      activeTripIdRef.current = tripId;
+      lastHydratedSnapshotRef.current = initialSnapshot;
+      return;
+    }
+
+    const tripChanged = activeTripIdRef.current !== tripId;
+
+    if (tripChanged) {
+      activeTripIdRef.current = tripId;
+      lastHydratedSnapshotRef.current = initialSnapshot;
+      runtime.reset(hydratedMessages);
+      void runtime.composer.reset();
+      return;
+    }
+
+    const historySeedChanged =
+      initialSnapshot !== lastHydratedSnapshotRef.current &&
+      runtimeSnapshot === lastHydratedSnapshotRef.current;
+
+    if (!historySeedChanged) {
+      return;
+    }
+
+    lastHydratedSnapshotRef.current = initialSnapshot;
+    runtime.reset(hydratedMessages);
+  }, [hydratedMessages, initialSnapshot, runtime, runtimeSnapshot, tripId]);
+
+  return null;
+}
+
 function PersistedThreadStateSync({ tripId }: { tripId: string | null }) {
   const messages = useThread((state) => state.messages);
+  const persistTimeoutRef = useRef<number | null>(null);
+  const lastPersistedSnapshotRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (persistTimeoutRef.current !== null) {
+      window.clearTimeout(persistTimeoutRef.current);
+      persistTimeoutRef.current = null;
+    }
+
+    lastPersistedSnapshotRef.current = null;
+  }, [tripId]);
 
   useEffect(() => {
     if (!tripId) {
       return;
     }
 
-    const persistedMessages = messages.flatMap((message) => {
-      const textContent = message.content
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n")
-        .trim();
+    const persistedMessages = extractPersistedThreadMessages(messages);
+    const serializedMessages =
+      serializePersistedThreadMessages(persistedMessages);
 
-      if (!textContent) {
-        return [];
+    if (serializedMessages === lastPersistedSnapshotRef.current) {
+      return;
+    }
+
+    if (persistTimeoutRef.current !== null) {
+      window.clearTimeout(persistTimeoutRef.current);
+    }
+
+    persistTimeoutRef.current = window.setTimeout(() => {
+      writeCachedThreadMessages(tripId, persistedMessages);
+      lastPersistedSnapshotRef.current = serializedMessages;
+      persistTimeoutRef.current = null;
+    }, 220);
+
+    return () => {
+      if (persistTimeoutRef.current !== null) {
+        window.clearTimeout(persistTimeoutRef.current);
+        persistTimeoutRef.current = null;
       }
-
-      return [
-        {
-          id: message.id,
-          role: message.role,
-          content: textContent,
-          createdAt:
-            message.createdAt instanceof Date
-              ? message.createdAt.toISOString()
-              : undefined,
-        } satisfies PersistedThreadMessage,
-      ];
-    });
-
-    writeCachedThreadMessages(tripId, persistedMessages);
+    };
   }, [messages, tripId]);
 
   return null;
@@ -468,6 +599,62 @@ function ConversationSyncBanner() {
       <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/88 px-3 py-1.5 text-[0.72rem] text-muted-foreground shadow-[var(--chat-shadow-soft)]">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[color:var(--accent)]" />
         <span>Syncing this conversation in the background.</span>
+      </div>
+    </div>
+  );
+}
+
+function TripSwitchOverlay({
+  requestedTripId,
+}: {
+  requestedTripId: string | null;
+}) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center px-6 pt-8">
+      <div className="trip-switch-overlay-card inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/94 px-3 py-1.5 text-[0.78rem] text-muted-foreground shadow-[var(--chat-shadow-soft)]">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--accent)]" />
+        <span>
+          Opening {requestedTripId ? "the selected trip" : "the next trip"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function InitialAssistantShell() {
+  return (
+    <div className="mx-auto flex h-full min-h-[24rem] w-full max-w-[52rem] flex-col justify-end gap-6 px-1 pt-2">
+      <div className="space-y-3">
+        <div className="text-xs font-medium uppercase tracking-[0.22em] text-[color:var(--accent)]">
+          Wandrix planner
+        </div>
+        <div className="max-w-2xl space-y-3">
+          <div className="h-4 w-40 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]" />
+          <div className="space-y-2">
+            <div className="h-3 w-full animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/90" />
+            <div className="h-3 w-[88%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/75" />
+            <div className="h-3 w-[62%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/60" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div
+            key={index}
+            className="rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 shadow-[var(--chat-shadow-soft)]"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="h-9 w-9 animate-pulse rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)]" />
+              <div className="h-3 w-3 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/80" />
+            </div>
+            <div className="mt-4 space-y-2">
+              <div className="h-4 w-32 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/90" />
+              <div className="h-3 w-full animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/70" />
+              <div className="h-3 w-[82%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/55" />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -631,6 +818,9 @@ function UserMessage() {
 }
 
 function AssistantMessage() {
+  const status = useMessage((m) => m.status);
+  const isRunning = status?.type === "running";
+
   return (
     <MessagePrimitive.Root className="flex flex-col items-start gap-3">
       <div className="flex items-start gap-3">
@@ -638,11 +828,17 @@ function AssistantMessage() {
           <Bot className="h-4 w-4" />
         </div>
         <div className="max-w-[min(100%,48rem)]">
-          <div className="overflow-hidden rounded-[1rem] border border-border/70 bg-background/92 shadow-[var(--chat-shadow-soft)] dark:bg-card/96">
-            <div className="px-5 py-4 text-[length:var(--chat-size-body)] leading-[var(--chat-line-body)] text-foreground">
-              <MessagePrimitive.Parts />
+          {isRunning ? (
+            <div className="flex items-center py-2">
+              <AgentThinkingTyping />
             </div>
-          </div>
+          ) : (
+            <div className="overflow-hidden rounded-[1rem] border border-border/70 bg-background/92 shadow-[var(--chat-shadow-soft)] dark:bg-card/96">
+              <div className="px-5 py-4 text-[length:var(--chat-size-body)] leading-[var(--chat-line-body)] text-foreground">
+                <MessagePrimitive.Parts />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </MessagePrimitive.Root>
@@ -656,18 +852,10 @@ function Composer({
   disabled: boolean;
   disabledPlaceholder: string;
 }) {
-  const isRunning = useThread((state) => state.isRunning);
-
   return (
     <ComposerPrimitive.Root className="border-t border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)] px-4 pb-4 pt-3 sm:px-8">
       <div className="mx-auto w-full max-w-[52rem]">
         <div className="overflow-hidden rounded-xl border border-[color:var(--chat-rail-border-strong)] bg-[color:var(--chat-rail-surface-strong)] p-2">
-          {isRunning ? (
-            <div className="flex items-center gap-2 px-2 pb-2 text-xs text-muted-foreground">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--accent)]" />
-              <span>Wandrix is thinking through the next planning step...</span>
-            </div>
-          ) : null}
           <div className="flex items-end gap-2">
             <div className="flex min-w-0 flex-1 rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] px-3 py-2.5 transition-colors focus-within:border-[color:var(--accent)]/45">
               <ComposerPrimitive.Input
@@ -703,39 +891,6 @@ function Composer({
       </div>
     </ComposerPrimitive.Root>
   );
-}
-
-function chunkResponse(text: string) {
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-
-  return sentences.length > 0 ? sentences : [text];
-}
-
-async function sleep(ms: number, signal: AbortSignal) {
-  await new Promise<void>((resolve, reject) => {
-    const timeout = window.setTimeout(resolve, ms);
-
-    const onAbort = () => {
-      window.clearTimeout(timeout);
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-
-    if (signal.aborted) {
-      onAbort();
-      return;
-    }
-
-    signal.addEventListener("abort", onAbort, { once: true });
-  }).catch((error: unknown) => {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return;
-    }
-
-    throw error;
-  });
 }
 
 async function buildAssistantReply({

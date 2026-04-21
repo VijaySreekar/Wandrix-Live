@@ -12,6 +12,16 @@ export type PlannerPlanningModeStatus =
   | "not_selected"
   | "selected"
   | "advanced_unavailable_fallback";
+export type PlannerAdvancedStep =
+  | "intake"
+  | "choose_anchor"
+  | "anchor_flow"
+  | "review";
+export type PlannerAdvancedAnchor =
+  | "flight"
+  | "stay"
+  | "trip_style"
+  | "activities";
 export type TripDetailsStepKey =
   | "modules"
   | "route"
@@ -22,16 +32,20 @@ export type TripDetailsStepKey =
 
 export type TripFieldKey =
   | "from_location"
+  | "from_location_flexible"
   | "to_location"
   | "start_date"
   | "end_date"
   | "travel_window"
   | "trip_length"
+  | "weather_preference"
   | "budget_posture"
   | "budget_gbp"
   | "adults"
   | "children"
+  | "travelers_flexible"
   | "activity_styles"
+  | "custom_style"
   | "selected_modules";
 
 export type ConversationFieldSource =
@@ -58,6 +72,8 @@ export type TripSuggestionBoardMode =
   | "decision_cards"
   | "details_collection"
   | "planning_mode_choice"
+  | "advanced_anchor_choice"
+  | "advanced_next_step"
   | "helper";
 export type DestinationSuggestionSelectionStatus =
   | "suggested"
@@ -112,6 +128,16 @@ export type PlanningModeChoiceCard = {
   cta_label?: string | null;
 };
 
+export type AdvancedAnchorChoiceCard = {
+  id: PlannerAdvancedAnchor;
+  title: string;
+  description: string;
+  bullets: string[];
+  recommended: boolean;
+  badge?: string | null;
+  cta_label?: string | null;
+};
+
 export type PlannerChecklistItem = {
   id: string;
   label: string;
@@ -121,14 +147,17 @@ export type PlannerChecklistItem = {
 
 export type TripDetailsCollectionFormState = {
   from_location?: string | null;
+  from_location_flexible?: boolean | null;
   to_location?: string | null;
   selected_modules: TripDetailsBoardModuleSelection;
   travel_window?: string | null;
   trip_length?: string | null;
+  weather_preference?: string | null;
   start_date?: string | null;
   end_date?: string | null;
   adults?: number | null;
   children?: number | null;
+  travelers_flexible?: boolean | null;
   activity_styles: TripDetailsBoardActivityStyle[];
   custom_style?: string | null;
   budget_posture?: TripDetailsBoardBudgetPosture | null;
@@ -142,6 +171,7 @@ export type TripSuggestionBoardState = {
   subtitle?: string | null;
   cards: DestinationSuggestionCard[];
   planning_mode_cards: PlanningModeChoiceCard[];
+  advanced_anchor_cards?: AdvancedAnchorChoiceCard[];
   have_details: PlannerChecklistItem[];
   need_details: PlannerChecklistItem[];
   visible_steps: TripDetailsStepKey[];
@@ -211,6 +241,8 @@ export type TripConversationState = {
   phase: ChatPlannerPhase;
   planning_mode?: PlannerPlanningMode | null;
   planning_mode_status: PlannerPlanningModeStatus;
+  advanced_step?: PlannerAdvancedStep | null;
+  advanced_anchor?: PlannerAdvancedAnchor | null;
   confirmation_status: PlannerConfirmationStatus;
   finalized_at?: string | null;
   finalized_via?: PlannerFinalizedVia | null;

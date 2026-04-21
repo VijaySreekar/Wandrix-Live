@@ -21,6 +21,8 @@ from app.schemas.conversation import ConversationBoardAction
 from app.schemas.trip_conversation import (
     CheckpointConversationMessage,
     ConversationFieldMemory,
+    PlannerAdvancedAnchor,
+    PlannerAdvancedStep,
     PlannerConfirmationStatus,
     PlannerFinalizedVia,
     PlannerIntent,
@@ -120,6 +122,26 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         board_action=state.get("board_action", {}),
         brief_confirmed=brief_confirmed,
     )
+    planning_mode_choice_required = _should_require_planning_mode_choice(
+        current_conversation=current_conversation,
+        llm_update=effective_input_update,
+        board_action=state.get("board_action", {}),
+        user_input=user_input,
+    )
+    advanced_anchor = _resolve_advanced_anchor(
+        current_conversation=current_conversation,
+        board_action=state.get("board_action", {}),
+        llm_update=effective_input_update,
+        planning_mode=planning_mode,
+        brief_confirmed=brief_confirmed,
+    )
+    advanced_step = _resolve_advanced_step(
+        current_conversation=current_conversation,
+        planning_mode=planning_mode,
+        brief_confirmed=brief_confirmed,
+        board_action=state.get("board_action", {}),
+        advanced_anchor=advanced_anchor,
+    )
     preserve_existing_quick_plan = _should_preserve_existing_quick_plan(
         current_conversation=current_conversation,
         llm_update=effective_input_update,
@@ -215,6 +237,9 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         brief_confirmed=brief_confirmed,
         planning_mode=planning_mode,
         planning_mode_status=planning_mode_status,
+        advanced_step=advanced_step,
+        advanced_anchor=advanced_anchor,
+        planning_mode_choice_required=planning_mode_choice_required,
         confirmation_status=confirmation_status,
         finalized_at=finalized_at,
         finalized_via=finalized_via,
@@ -231,6 +256,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         provider_activation=provider_activation,
         profile_context=state.get("profile_context", {}),
         board_action=state.get("board_action", {}),
+        planning_mode_choice_required=planning_mode_choice_required,
         confirmation_status=confirmation_status,
         finalized_via=finalized_via,
         confirmation_transition=confirmation_transition,
@@ -250,6 +276,9 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         brief_confirmed=brief_confirmed,
         planning_mode=planning_mode,
         planning_mode_status=planning_mode_status,
+        advanced_step=advanced_step,
+        advanced_anchor=advanced_anchor,
+        planning_mode_choice_required=planning_mode_choice_required,
         confirmation_status=confirmation_status,
         finalized_at=finalized_at,
         finalized_via=finalized_via,
@@ -339,7 +368,7 @@ def _hydrate_conversation_memory_from_status(
         if field in field_memory:
             continue
         value = _get_configuration_value(configuration, field)
-        if value in (None, "", [], {}):
+        if not _snapshot_value_has_signal(field, value):
             continue
         field_memory[field] = ConversationFieldMemory(
             field=field,
@@ -353,7 +382,7 @@ def _hydrate_conversation_memory_from_status(
         if field in field_memory:
             continue
         value = _get_configuration_value(configuration, field)
-        if value in (None, "", [], {}):
+        if not _snapshot_value_has_signal(field, value):
             continue
         field_memory[field] = ConversationFieldMemory(
             field=field,
@@ -405,9 +434,6 @@ def _resolve_next_planning_mode(
     board_action: dict,
     brief_confirmed: bool,
 ) -> tuple[str | None, str]:
-    if not brief_confirmed:
-        return (current_conversation.planning_mode, current_conversation.planning_mode_status)
-
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
     current_mode = current_conversation.planning_mode
     current_status = current_conversation.planning_mode_status
@@ -415,16 +441,65 @@ def _resolve_next_planning_mode(
     if action and action.type == "select_quick_plan":
         return ("quick", "selected")
     if action and action.type == "select_advanced_plan":
-        return ("quick", "advanced_unavailable_fallback")
-    if llm_update.requested_planning_mode == "quick":
+        return ("advanced", "selected")
+    if llm_update.requested_planning_mode == "quick" and _chat_planning_mode_request_is_actionable(
+        current_conversation=current_conversation,
+        brief_confirmed=brief_confirmed,
+    ):
         return ("quick", "selected")
-    if llm_update.requested_planning_mode == "advanced":
-        return ("quick", "advanced_unavailable_fallback")
+    if llm_update.requested_planning_mode == "advanced" and _chat_planning_mode_request_is_actionable(
+        current_conversation=current_conversation,
+        brief_confirmed=brief_confirmed,
+    ):
+        return ("advanced", "selected")
     if current_mode == "quick":
         return ("quick", current_status or "selected")
     if current_mode == "advanced":
         return ("advanced", current_status or "selected")
+    if not brief_confirmed:
+        return (None, "not_selected")
     return (None, "not_selected")
+
+
+def _should_require_planning_mode_choice(
+    *,
+    current_conversation: TripConversationState,
+    llm_update,
+    board_action: dict,
+    user_input: str,
+) -> bool:
+    if current_conversation.planning_mode in {"quick", "advanced"}:
+        return False
+
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action and action.type in {"select_quick_plan", "select_advanced_plan"}:
+        return False
+
+    if llm_update.requested_planning_mode in {"quick", "advanced"} and _chat_planning_mode_request_is_actionable(
+        current_conversation=current_conversation,
+        brief_confirmed=False,
+    ):
+        return False
+
+    if user_input.strip():
+        return True
+
+    return bool(current_conversation.memory.turn_summaries)
+
+
+def _chat_planning_mode_request_is_actionable(
+    *,
+    current_conversation: TripConversationState,
+    brief_confirmed: bool,
+) -> bool:
+    if brief_confirmed:
+        return True
+
+    return bool(
+        current_conversation.memory.turn_summaries
+        or current_conversation.memory.field_memory
+        or current_conversation.last_turn_summary
+    )
 
 
 def _should_preserve_existing_quick_plan(
@@ -452,9 +527,70 @@ def _prepare_effective_llm_update(
     effective_update = llm_update.model_copy(deep=True)
     effective_update.timeline_preview = []
     effective_update.last_turn_summary = (
-        "Advanced Planning is still in development, so Wandrix kept the current Quick Plan draft in place."
+        "Advanced Planning is selected, so Wandrix kept the current Quick Plan draft in place while moving into the guided flow."
     )
     return effective_update
+
+
+def _resolve_advanced_step(
+    *,
+    current_conversation: TripConversationState,
+    planning_mode: str | None,
+    brief_confirmed: bool,
+    board_action: dict,
+    advanced_anchor: PlannerAdvancedAnchor | None,
+) -> PlannerAdvancedStep | None:
+    if planning_mode != "advanced":
+        return None
+
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    prior_advanced_step = current_conversation.advanced_step
+
+    if (
+        not brief_confirmed
+        and prior_advanced_step not in {"choose_anchor", "anchor_flow", "review"}
+    ):
+        return "intake"
+
+    if prior_advanced_step in {"anchor_flow", "review"}:
+        return prior_advanced_step
+
+    if (
+        action
+        and action.type == "select_advanced_anchor"
+        and advanced_anchor
+    ) or advanced_anchor:
+        return "anchor_flow"
+
+    if advanced_anchor and current_conversation.advanced_step == "anchor_flow":
+        return "anchor_flow"
+
+    return "choose_anchor"
+
+
+def _resolve_advanced_anchor(
+    *,
+    current_conversation: TripConversationState,
+    board_action: dict,
+    llm_update,
+    planning_mode: str | None,
+    brief_confirmed: bool,
+) -> PlannerAdvancedAnchor | None:
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action and action.type == "select_advanced_anchor" and action.advanced_anchor:
+        return action.advanced_anchor
+
+    if (
+        planning_mode == "advanced"
+        and (
+            brief_confirmed
+            or current_conversation.advanced_step in {"choose_anchor", "anchor_flow", "review"}
+        )
+        and llm_update.requested_advanced_anchor is not None
+    ):
+        return llm_update.requested_advanced_anchor
+
+    return current_conversation.advanced_anchor
 
 
 def _prepare_locked_turn_update(llm_update) -> TripTurnUpdate:
@@ -482,6 +618,12 @@ def _evaluate_provider_activation(
         configuration=configuration,
         field="from_location",
     )
+    origin_flexibility_snapshot = _projected_field_snapshot(
+        current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
+        field="from_location_flexible",
+    )
     timing_snapshots = [
         _projected_field_snapshot(
             current_conversation=current_conversation,
@@ -491,10 +633,26 @@ def _evaluate_provider_activation(
         )
         for field in ["start_date", "end_date", "travel_window", "trip_length"]
     ]
+    adults_snapshot = _projected_field_snapshot(
+        current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
+        field="adults",
+    )
+    traveler_flexibility_snapshot = _projected_field_snapshot(
+        current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
+        field="travelers_flexible",
+    )
 
     destination_ready = _is_destination_ready(destination_snapshot)
     timing_ready = _is_timing_ready(timing_snapshots)
-    origin_ready = _is_origin_ready(origin_snapshot)
+    origin_ready = _is_origin_ready(
+        origin_snapshot,
+        origin_flexibility_snapshot=origin_flexibility_snapshot,
+    )
+    traveler_ready = _is_traveler_ready(adults_snapshot)
 
     if not brief_confirmed:
         base_reasons = ["trip brief is not confirmed yet"]
@@ -518,6 +676,8 @@ def _evaluate_provider_activation(
         blockers = list(base_reasons)
         if not blockers and module_name == "flights" and not origin_ready:
             blockers.append("departure point is not reliable enough yet")
+        if not blockers and module_name in {"flights", "hotels"} and not traveler_ready:
+            blockers.append("traveller count is not reliable enough yet")
 
         if blockers:
             blocked_modules[module_name] = blockers
@@ -532,12 +692,16 @@ def _evaluate_provider_activation(
         "destination_ready": destination_ready,
         "timing_ready": timing_ready,
         "origin_ready": origin_ready,
+        "traveler_ready": traveler_ready,
         "quick_plan_ready": bool(allowed_modules),
         "allowed_modules": allowed_modules,
         "blocked_modules": blocked_modules,
         "field_readiness": {
             "destination": destination_snapshot,
             "origin": origin_snapshot,
+            "origin_flexibility": origin_flexibility_snapshot,
+            "travellers": adults_snapshot,
+            "traveller_flexibility": traveler_flexibility_snapshot,
             "timing": timing_snapshots,
         },
     }
@@ -565,7 +729,7 @@ def _projected_field_snapshot(
 
     return {
         "field": field,
-        "has_value": value not in (None, "", [], {}),
+        "has_value": _snapshot_value_has_signal(field, value),
         "value": value,
         "source": source,
         "confidence_level": confidence_level,
@@ -582,7 +746,13 @@ def _is_destination_ready(snapshot: dict) -> bool:
     return False
 
 
-def _is_origin_ready(snapshot: dict) -> bool:
+def _is_origin_ready(
+    snapshot: dict,
+    *,
+    origin_flexibility_snapshot: dict | None = None,
+) -> bool:
+    if origin_flexibility_snapshot and origin_flexibility_snapshot["has_value"]:
+        return False
     if not snapshot["has_value"]:
         return False
     if snapshot["source"] in {"user_explicit", "board_action"}:
@@ -600,6 +770,16 @@ def _is_timing_ready(snapshots: list[dict]) -> bool:
             return True
         if snapshot["source"] == "user_inferred" and snapshot["confidence_level"] in {"medium", "high"}:
             return True
+    return False
+
+
+def _is_traveler_ready(snapshot: dict) -> bool:
+    if not snapshot["has_value"]:
+        return False
+    if snapshot["source"] in {"user_explicit", "board_action"}:
+        return True
+    if snapshot["source"] == "user_inferred" and snapshot["confidence_level"] in {"medium", "high"}:
+        return True
     return False
 
 
@@ -632,9 +812,13 @@ def _build_planner_observability_snapshot(
         "preserved_existing_quick_plan": preserve_existing_quick_plan,
         "configuration_snapshot": {
             "from_location": configuration.from_location,
+            "from_location_flexible": configuration.from_location_flexible,
             "to_location": configuration.to_location,
             "travel_window": configuration.travel_window,
             "trip_length": configuration.trip_length,
+            "adults": configuration.travelers.adults,
+            "children": configuration.travelers.children,
+            "travelers_flexible": configuration.travelers_flexible,
             "selected_modules": configuration.selected_modules.model_dump(mode="json"),
         },
         "provider_activation": provider_activation,
@@ -654,6 +838,14 @@ def _get_configuration_value(
     if field == "selected_modules":
         return configuration.selected_modules.model_dump(mode="json")
     return getattr(configuration, field)
+
+
+def _snapshot_value_has_signal(field: str, value: object) -> bool:
+    if field in {"from_location_flexible", "travelers_flexible"}:
+        return value is True
+    if field == "adults":
+        return isinstance(value, int) and value > 0
+    return value not in (None, "", [], {})
 
 
 def _is_reopen_requested(*, llm_update, board_action: dict) -> bool:

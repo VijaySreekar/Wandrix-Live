@@ -29,6 +29,7 @@ type TripDetailsBoardProps = {
 
 const EMPTY_FORM: TripDetailsCollectionFormState = {
   from_location: null,
+  from_location_flexible: null,
   to_location: null,
   selected_modules: {
     flights: true,
@@ -38,10 +39,12 @@ const EMPTY_FORM: TripDetailsCollectionFormState = {
   },
   travel_window: null,
   trip_length: null,
+  weather_preference: null,
   start_date: null,
   end_date: null,
-  adults: 1,
-  children: 0,
+  adults: null,
+  children: null,
+  travelers_flexible: null,
   activity_styles: [],
   custom_style: null,
   budget_posture: null,
@@ -122,7 +125,7 @@ function TripDetailsBoardContent({
             onAdultsChange={(value) =>
               setForm((current) => ({
                 ...current,
-                adults: value,
+                adults: value && value > 0 ? value : null,
               }))
             }
             onBudgetAmountChange={(value) =>
@@ -141,7 +144,13 @@ function TripDetailsBoardContent({
             onChildrenChange={(value) =>
               setForm((current) => ({
                 ...current,
-                children: value,
+                children: value && value > 0 ? value : null,
+              }))
+            }
+            onTravelersFlexibleToggle={() =>
+              setForm((current) => ({
+                ...current,
+                travelers_flexible: !current.travelers_flexible,
               }))
             }
             onFieldChange={(field, value) =>
@@ -182,11 +191,24 @@ function TripDetailsBoardContent({
                   selected_modules: form.selected_modules,
                   travel_window: form.travel_window ?? null,
                   trip_length: form.trip_length ?? null,
+                  weather_preference: form.weather_preference ?? null,
                   start_date: form.start_date ?? null,
                   end_date: form.end_date ?? null,
-                  adults: form.adults ?? null,
-                  children: form.children ?? null,
+                  adults:
+                    form.adults !== null &&
+                    form.adults !== undefined &&
+                    form.adults > 0
+                      ? form.adults
+                      : null,
+                  children:
+                    form.children !== null &&
+                    form.children !== undefined &&
+                    form.children > 0
+                      ? form.children
+                      : null,
+                  travelers_flexible: form.travelers_flexible ?? null,
                   activity_styles: form.activity_styles,
+                  custom_style: form.custom_style ?? null,
                   budget_posture: form.budget_posture ?? null,
                   budget_gbp: form.budget_gbp ?? null,
                 })

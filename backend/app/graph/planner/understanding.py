@@ -43,6 +43,7 @@ Rules:
 - If the user says they are a couple or says "the two of us", you may infer `adults=2` as an inferred field when the meaning is clear.
 - If the user says family, travelling with kids, toddler, child, or similar family context without giving counts, do not invent exact adult or child numbers.
 - If child presence is implied but counts are missing, prefer an open question about the group makeup instead of false precision.
+- If the user explicitly says the traveller count is still flexible, not final, or still being decided, preserve that in travelers_flexible instead of forcing exact adult or child counts.
 - If the user has not chosen a destination and their ask is broad, you may proactively suggest destination options.
 - When you suggest destinations, return exactly 4 destination_suggestions with image_url, short_reason, and one practicality_label each.
 - For each destination suggestion image_url, use a real HTTPS image URL. A good default format is https://source.unsplash.com/1200x900/?DESTINATION+travel
@@ -78,13 +79,18 @@ Rules:
 - If origin wording is soft, like "probably from London" or "Manchester could work too", keep route language provisional and do not hard-confirm the origin.
 - If the user gives a likely or fallback origin, you may keep one working origin in from_location as an inferred field, but only when the wording supports "most likely" rather than "confirmed".
 - If the user mentions an origin conditionally, preserve the fallback or comparison origin in mentioned_options instead of collapsing to one hard answer.
+- If the user explicitly says their departure point is still flexible, open, or not decided yet, preserve that in from_location_flexible instead of treating from_location as a required next fact.
+- If departure is explicitly flexible, do not hard-confirm an origin just because flights are active in the module scope.
 - If traveler wording is soft, like "maybe a couple of us" or "possibly with friends", do not hard-set adult or child counts.
 - Use travel_window for rough timing like "late September".
 - Use trip_length for rough duration like "4 or 5 nights".
+- Use weather_preference for desired conditions like warm, sunny, mild, cool, snowy, dry, or similar weather-led preferences when the user expresses them.
 - If the user gives seasonal, holiday, relative-month, or soft timing language like "early October", "around Easter", "sometime in spring", or "late September", keep that in travel_window unless they gave exact calendar dates.
 - If the user gives rough duration language like "long weekend", "five-ish days", "about a week", or "4 or 5 nights", keep that in trip_length unless they gave exact fixed dates.
 - Only use exact start_date or end_date when the user gave fixed dates.
 - Do not auto-convert rough timing into exact dates just to be helpful.
+- If the user clearly cares about the weather outcome of the trip, keep that preference structured in weather_preference instead of leaving it buried only in assistant_response text.
+- Do not invent a weather preference if the user did not indicate one.
 - Budget language is often nuanced and mixed.
 - If the user says things like "not too expensive", "keep hotels sensible", "happy to splurge on food", or "don't need luxury but don't want it cheap", interpret budget posture carefully and keep it inferred unless they made the posture explicit.
 - Do not map simple budget adjectives directly into a hard final budget label without considering the full sentence.
@@ -94,6 +100,10 @@ Rules:
 - If the user says something is already booked or they do not need help with it, turn that module off unless the same turn clearly re-enables it.
 - If the user says something like "hotels later" or "we can sort flights ourselves", keep the scope narrow for now rather than forcing every module back on.
 - Do not leave all modules active by default when the user clearly narrowed the scope.
+- If the user is already in Advanced Planning and says something like "stay first", "start with hotels", "let's do flights first", or "activities first", set requested_advanced_anchor to the matching anchor.
+- If the user says something like "stay first, flights later", treat that as sequencing guidance. Prefer requested_advanced_anchor over turning flights off unless the user clearly said flights are out of scope.
+- Use activity_styles for recognized preset trip directions like food, culture, relaxed, luxury, romantic, family, adventure, outdoors, or nightlife.
+- If the user describes a style or vibe that matters but does not fit cleanly into those preset labels, preserve that nuance in custom_style instead of dropping it.
 - Keep open_question_updates short, useful, and structured.
 - Prefer open_question_updates over the legacy open_questions string list.
 - For each open_question_update, include question, field, step, priority, and why whenever you can.
@@ -130,12 +140,18 @@ Ambiguity examples:
   Good result: do not confirm a single origin; keep the origin provisional and preserve the alternative.
 - User: "I'd probably leave from London unless Manchester ends up much easier."
   Good result: London can be a provisional working origin, while Manchester stays preserved as an alternative rather than being discarded.
+- User: "My departure point is still flexible for now."
+  Good result: keep from_location_flexible true and avoid acting like a departure city must already be locked.
 - User: "Maybe a long weekend in late September."
   Good result: use travel_window and trip_length, not exact calendar dates.
+- User: "It might be two of us, maybe three if a friend joins."
+  Good result: do not hard-lock the traveller count; keep the group size flexible until the user confirms it.
 - User: "Maybe me and a friend, not fully sure yet."
   Good result: do not hard-set adults or children counts.
 - User: "Maybe early October for five-ish days."
   Good result: keep `travel_window` as early October and `trip_length` as five-ish days instead of inventing fixed dates.
+- User: "I want this to feel warm and sunny."
+  Good result: keep that in `weather_preference` without pretending the exact dates are already chosen.
 - User: "I don't need luxury, but I don't want it to feel cheap either."
   Good result: keep budget posture balanced and provisional, and clarify if needed rather than hard-setting `budget`.
 - User: "It's a family trip to Portugal."
@@ -144,9 +160,13 @@ Ambiguity examples:
   Good result: you may infer `adults=2` softly if the meaning is clear.
 - User: "I already booked flights. Just help me with what to do in Kyoto."
   Good result: narrow module scope toward activities instead of keeping flights active.
+- User: "Kyoto or Osaka, not sure yet."
+  Good result: keep both destinations alive in mentioned_options instead of forcing one place into to_location.
+- User: "Stay first, flights later."
+  Good result: keep requested_advanced_anchor on stay instead of acting like flights must either happen now or disappear entirely.
 
 Allowed field keys:
-["from_location", "to_location", "start_date", "end_date", "travel_window", "trip_length", "budget_posture", "budget_gbp", "adults", "children", "activity_styles", "selected_modules"]
+["from_location", "from_location_flexible", "to_location", "start_date", "end_date", "travel_window", "trip_length", "weather_preference", "budget_posture", "budget_gbp", "adults", "children", "travelers_flexible", "activity_styles", "custom_style", "selected_modules"]
 
 Current draft title:
 {title}

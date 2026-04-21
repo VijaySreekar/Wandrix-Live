@@ -55,12 +55,14 @@ type TripDetailsStepperProps = {
   onBudgetAmountChange: (value: number | null) => void;
   onBudgetPostureToggle: (posture: BudgetPosture) => void;
   onChildrenChange: (value: number | null) => void;
+  onTravelersFlexibleToggle: () => void;
   onFieldChange: (
     field:
       | "from_location"
       | "to_location"
       | "travel_window"
       | "trip_length"
+      | "weather_preference"
       | "start_date"
       | "end_date"
       | "custom_style",
@@ -156,6 +158,15 @@ const TRIP_LENGTH_OPTIONS = [
   "2 weeks",
 ] as const;
 
+const WEATHER_PREFERENCE_OPTIONS = [
+  "Warm",
+  "Sunny",
+  "Mild",
+  "Cool",
+  "Snowy",
+  "Dry",
+] as const;
+
 const BUDGET_OPTIONS: Array<{ value: BudgetPosture; label: string }> = [
   { value: "budget", label: "Budget" },
   { value: "mid_range", label: "Mid-range" },
@@ -174,6 +185,7 @@ export function TripDetailsStepper({
   onBudgetAmountChange,
   onBudgetPostureToggle,
   onChildrenChange,
+  onTravelersFlexibleToggle,
   onFieldChange,
   onModuleToggle,
   onStyleToggle,
@@ -278,7 +290,9 @@ export function TripDetailsStepper({
               <div className="space-y-5">
                 <StepIntro>
                   {flightsActive
-                    ? "Lock the route you want to plan around. Departure and destination both matter once flights are in scope."
+                    ? form.from_location_flexible
+                      ? "Keep the destination clear and leave departure flexible for now if you are not ready to lock the route yet."
+                      : "Lock the route you want to plan around. Departure and destination both matter once flights are in scope."
                     : "Keep the destination clear. Departure can stay in the background until you add flights back in."}
                 </StepIntro>
                 <div className={cn("grid gap-4", flightsActive && "sm:grid-cols-2")}>
@@ -309,6 +323,19 @@ export function TripDetailsStepper({
                       </Label>
                       <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
                         Optional for the current scope. If you bring flights back in later, Wandrix will surface this again.
+                      </p>
+                    </div>
+                  ) : null}
+                  {flightsActive && form.from_location_flexible ? (
+                    <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)]/55 p-4 sm:col-span-2">
+                      <Label className="text-sm font-medium text-[var(--planner-board-text)]">
+                        Departure point
+                      </Label>
+                      <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                        Wandrix has this marked as flexible for now, so you can
+                        keep building the brief without locking a departure city
+                        yet. If you add one here, later flight comparisons can
+                        become more precise.
                       </p>
                     </div>
                   ) : null}
@@ -375,6 +402,34 @@ export function TripDetailsStepper({
                       ))}
                     </div>
                   </div>
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium text-[var(--planner-board-text)]">
+                      What weather would you prefer?
+                    </Label>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {WEATHER_PREFERENCE_OPTIONS.map((option) => (
+                        <ChoiceButton
+                          key={option}
+                          disabled={disabled}
+                          selected={form.weather_preference === option.toLowerCase()}
+                          onClick={() =>
+                            onFieldChange(
+                              "weather_preference",
+                              form.weather_preference === option.toLowerCase()
+                                ? null
+                                : option.toLowerCase(),
+                            )
+                          }
+                        >
+                          {option}
+                        </ChoiceButton>
+                      ))}
+                    </div>
+                    <p className="text-sm leading-6 text-[var(--planner-board-muted)]">
+                      Optional, but it helps Wandrix steer timing and destination fit
+                      earlier in the planning flow.
+                    </p>
+                  </div>
                 </div>
                 <div className="space-y-3 border-t border-[var(--planner-board-border)] pt-5">
                   <Label className="text-sm font-medium text-[var(--planner-board-text)]">
@@ -437,7 +492,7 @@ export function TripDetailsStepper({
             {step === "travellers" ? (
               <div className="space-y-5">
                 <StepIntro>
-                  Tell Wandrix who the trip is for. Adults are required here, and children are optional.
+                  Tell Wandrix who the trip is for. If the exact headcount is still moving around, you can keep it flexible for now and firm it up later.
                 </StepIntro>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <TravellerCard
@@ -460,6 +515,26 @@ export function TripDetailsStepper({
                     onIncrement={() => onChildrenChange((form.children ?? 0) + 1)}
                     value={form.children ?? 0}
                   />
+                </div>
+                <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)]/55 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <Label className="text-sm font-medium text-[var(--planner-board-text)]">
+                        Traveller count still flexible
+                      </Label>
+                      <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                        Use this if you roughly know the trip shape but the final
+                        headcount is not locked yet.
+                      </p>
+                    </div>
+                    <ChoiceButton
+                      disabled={disabled}
+                      selected={Boolean(form.travelers_flexible)}
+                      onClick={onTravelersFlexibleToggle}
+                    >
+                      {form.travelers_flexible ? "Flexible for now" : "Mark flexible"}
+                    </ChoiceButton>
+                  </div>
                 </div>
                 <StepActions
                   disabled={disabled || !complete}
@@ -545,7 +620,7 @@ export function TripDetailsStepper({
             {step === "budget" ? (
               <div className="space-y-5">
                 <StepIntro>
-                  Set the budget tone you want Wandrix to work within. For tighter scopes this stays helpful, but not always required.
+                  Set the budget tone you want Wandrix to work within. A posture on its own is enough for early planning, and the amount can stay optional if you do not know it yet.
                 </StepIntro>
                 <div className="space-y-3">
                   <Label className="text-sm font-medium text-[var(--planner-board-text)]">
@@ -588,7 +663,7 @@ export function TripDetailsStepper({
                     className="h-11 rounded-lg border-[var(--planner-board-border)] bg-white/50 transition-colors duration-150 focus:border-[var(--planner-board-cta)]"
                   />
                   <p className="text-sm leading-6 text-[var(--planner-board-muted)]">
-                    Enter the total working budget in GBP if you know it. If not, the posture alone can still guide the planning direction.
+                    Enter the total working budget in GBP if you know it. If not, the posture alone is still enough to keep the brief moving.
                   </p>
                 </div>
                 <StepActions disabled={disabled || !complete} nextLabel={null} />
@@ -847,6 +922,11 @@ function getStepSummary(
 
   if (step === "route") {
     if (form.selected_modules.flights) {
+      if (form.from_location_flexible && form.to_location) {
+        return form.from_location
+          ? `${form.from_location} (flexible) -> ${form.to_location}`
+          : `Flexible departure -> ${form.to_location}`;
+      }
       const route = [form.from_location, form.to_location].filter(Boolean);
       return route.length ? route.join(" -> ") : "Add the route you want to plan around.";
     }
@@ -855,9 +935,18 @@ function getStepSummary(
 
   if (step === "timing") {
     if (form.start_date && form.end_date) {
-      return `${form.start_date} to ${form.end_date}`;
+      return [
+        `${form.start_date} to ${form.end_date}`,
+        form.weather_preference ? capitalizeLabel(form.weather_preference) : null,
+      ]
+        .filter(Boolean)
+        .join(" / ");
     }
-    const parts = [form.travel_window, form.trip_length].filter(Boolean);
+    const parts = [
+      form.travel_window,
+      form.trip_length,
+      form.weather_preference ? capitalizeLabel(form.weather_preference) : null,
+    ].filter(Boolean);
     return parts.length ? parts.join(" / ") : "Add rough timing or exact dates.";
   }
 
@@ -870,6 +959,12 @@ function getStepSummary(
     }
     if (children > 0) {
       parts.push(`${children} child${children === 1 ? "" : "ren"}`);
+    }
+    if (form.travelers_flexible) {
+      if (parts.length) {
+        return `${parts.join(" / ")} / still flexible`;
+      }
+      return "Traveller count still flexible";
     }
     return parts.length ? parts.join(" / ") : "Add who is travelling.";
   }

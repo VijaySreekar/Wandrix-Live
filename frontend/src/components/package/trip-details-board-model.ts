@@ -39,7 +39,7 @@ export function getVisibleSteps(
     visibleSteps.push("vibe");
   }
 
-  if (hasFlights || hasHotels || hasActivities) {
+  if (hasFlights || hasHotels) {
     visibleSteps.push("budget");
   }
 
@@ -111,7 +111,7 @@ export function isStepComplete(
     if (!flightsActive) {
       return true;
     }
-    return Boolean(form.from_location?.trim());
+    return Boolean(form.from_location?.trim() || form.from_location_flexible);
   }
 
   if (step === "timing") {
@@ -128,7 +128,7 @@ export function isStepComplete(
     if (!isStepRequired(step, form)) {
       return true;
     }
-    return (form.adults ?? 0) > 0;
+    return (form.adults ?? 0) > 0 || Boolean(form.travelers_flexible);
   }
 
   if (step === "vibe") {
@@ -143,10 +143,10 @@ export function isStepComplete(
       return true;
     }
     return Boolean(
-      form.budget_posture &&
-        form.budget_gbp !== null &&
-        form.budget_gbp !== undefined &&
-        form.budget_gbp > 0,
+      form.budget_posture ||
+        (form.budget_gbp !== null &&
+          form.budget_gbp !== undefined &&
+          form.budget_gbp > 0),
     );
   }
 

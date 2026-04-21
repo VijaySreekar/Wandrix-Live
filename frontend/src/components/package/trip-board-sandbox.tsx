@@ -66,9 +66,14 @@ export function TripBoardSandbox() {
           activeTripId={workspace.trip.trip_id}
           collapsed={isSidebarCollapsed}
           onSelectTrip={() => undefined}
+          onPrefetchTrip={() => undefined}
           onToggleCollapsed={() => setIsSidebarCollapsed((current) => !current)}
           onCreateTrip={() => undefined}
+          onRenameTrip={async () => undefined}
+          onDeleteTrip={async () => undefined}
           isCreatingTrip={false}
+          renamingTripId={null}
+          deletingTripId={null}
           workspace={workspace}
           recentTrips={recentTrips}
         />
@@ -135,6 +140,8 @@ export function TripBoardSandbox() {
             authSnapshot={null}
             workspace={workspace}
             isBootstrapping={false}
+            isSwitchingTrips={false}
+            requestedTripId={workspace.trip.trip_id}
             onAction={() => undefined}
           />
         </section>
@@ -405,12 +412,14 @@ function buildSandboxWorkspace(
               mode: "helper",
               cards: [],
               planning_mode_cards: [],
+              advanced_anchor_cards: [],
               have_details: [],
               need_details: [],
               visible_steps: [],
               required_steps: [],
               details_form: null,
               confirm_cta_label: null,
+              own_choice_prompt: null,
             },
             memory: {
               field_memory: {},
@@ -523,12 +532,14 @@ function buildSandboxWorkspace(
                 "These are the next choices that will sharpen the trip.",
               cards: [],
               planning_mode_cards: [],
+              advanced_anchor_cards: [],
               have_details: [],
               need_details: [],
               visible_steps: [],
               required_steps: [],
               details_form: null,
               confirm_cta_label: null,
+              own_choice_prompt: null,
             },
             memory: {
               field_memory: {},
@@ -819,12 +830,14 @@ function buildSandboxWorkspace(
               mode: "helper",
               cards: [],
               planning_mode_cards: [],
+              advanced_anchor_cards: [],
               have_details: [],
               need_details: [],
               visible_steps: [],
               required_steps: [],
               details_form: null,
               confirm_cta_label: null,
+              own_choice_prompt: null,
             },
             memory: {
               field_memory: {},

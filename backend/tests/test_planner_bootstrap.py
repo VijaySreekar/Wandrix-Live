@@ -64,7 +64,9 @@ def test_process_trip_turn_persists_confirmation_metadata(monkeypatch) -> None:
     assert field_memory["activity_styles"]["confidence_level"] == "medium"
     assert field_memory["activity_styles"]["source"] == "user_inferred"
     assert "Marrakesh" in result["assistant_response"]
-    assert "main thing i'd confirm next" in result["assistant_response"].lower()
+    assert "before i proceed" in result["assistant_response"].lower()
+    assert conversation["planning_mode"] is None
+    assert conversation["suggestion_board"]["mode"] == "planning_mode_choice"
 
 
 def test_process_trip_turn_promotes_confirmed_fields(monkeypatch) -> None:
@@ -106,6 +108,59 @@ def test_process_trip_turn_promotes_confirmed_fields(monkeypatch) -> None:
     assert status["confirmed_fields"] == ["to_location"]
     assert status["inferred_fields"] == []
     assert field_memory["to_location"]["confidence_level"] == "high"
+
+
+def test_process_trip_turn_persists_weather_preference_from_llm_update(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Valencia",
+            travel_window="late April",
+            trip_length="5 days",
+            weather_preference="warm",
+            inferred_fields=[
+                "to_location",
+                "travel_window",
+                "trip_length",
+                "weather_preference",
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="travel_window", confidence="medium"),
+                TripFieldConfidenceUpdate(field="trip_length", confidence="medium"),
+                TripFieldConfidenceUpdate(field="weather_preference", confidence="medium"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_inferred"),
+                TripFieldSourceUpdate(field="travel_window", source="user_inferred"),
+                TripFieldSourceUpdate(field="trip_length", source="user_inferred"),
+                TripFieldSourceUpdate(field="weather_preference", source="user_inferred"),
+            ],
+            assistant_response="",
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Maybe Valencia in late April for 5 days. I'd love warm weather.",
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {},
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    configuration = result["trip_draft"]["configuration"]
+    field_memory = result["trip_draft"]["conversation"]["memory"]["field_memory"]
+
+    assert configuration["weather_preference"] == "warm"
+    assert field_memory["weather_preference"]["value"] == "warm"
+    assert field_memory["weather_preference"]["source"] == "user_inferred"
+    assert field_memory["weather_preference"]["confidence_level"] == "medium"
 
 
 def test_process_trip_turn_hydrates_legacy_field_memory_from_status(monkeypatch) -> None:
@@ -289,7 +344,8 @@ def test_process_trip_turn_moves_into_shaping_when_brief_is_usable(monkeypatch) 
         "budget_posture",
         "selected_modules",
     ]
-    assert "strong first direction" in result["assistant_response"].lower()
+    assert "before i proceed" in result["assistant_response"].lower()
+    assert result["trip_draft"]["conversation"]["suggestion_board"]["mode"] == "planning_mode_choice"
 
 
 def test_process_trip_turn_keeps_profile_home_base_soft_on_brief_confirmation(
@@ -340,8 +396,9 @@ def test_process_trip_turn_keeps_profile_home_base_soft_on_brief_confirmation(
     conversation = result["trip_draft"]["conversation"]
 
     assert configuration["from_location"] is None
-    assert "saved home base around london" in result["assistant_response"].lower()
+    assert "before i proceed" in result["assistant_response"].lower()
     assert conversation["planning_mode"] is None
+    assert conversation["suggestion_board"]["mode"] == "planning_mode_choice"
     assert "from_location" not in conversation["memory"]["field_memory"]
 
 
@@ -375,7 +432,8 @@ def test_process_trip_turn_ignores_weak_quick_plan_request_before_brief_confirma
 
     assert conversation["planning_mode"] is None
     assert conversation["planning_mode_status"] == "not_selected"
-    assert "quick plan" not in result["assistant_response"].lower()
+    assert "before i proceed" in result["assistant_response"].lower()
+    assert conversation["suggestion_board"]["mode"] == "planning_mode_choice"
     assert "Planning mode selected" not in history_titles
 
 

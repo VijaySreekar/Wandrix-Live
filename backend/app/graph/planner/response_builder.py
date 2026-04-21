@@ -18,6 +18,7 @@ def build_assistant_response(
     fallback_text: str | None,
     profile_context: dict,
     board_action: dict | None,
+    planning_mode_choice_required: bool = False,
     confirmation_status: PlannerConfirmationStatus,
     finalized_via: PlannerFinalizedVia | None,
     confirmation_transition: str = "none",
@@ -58,9 +59,17 @@ def build_assistant_response(
             )
         )
 
-    if _requested_advanced_plan(action, llm_update, conversation, quick_plan_started):
+    if planning_mode_choice_required and conversation.planning_mode is None:
         return _sanitize_assistant_text(
-            _build_advanced_planning_fallback_response(
+            _build_planning_mode_gate_response(
+                configuration=configuration,
+                greeting_name=greeting_name,
+            )
+        )
+
+    if _requested_advanced_plan(action, llm_update, conversation):
+        return _sanitize_assistant_text(
+            _build_advanced_plan_selected_response(
                 configuration=configuration,
                 greeting_name=greeting_name,
             )
@@ -83,12 +92,30 @@ def build_assistant_response(
             )
         )
 
+    if conversation.planning_mode == "advanced" and conversation.advanced_step == "choose_anchor":
+        return _sanitize_assistant_text(
+            _build_advanced_choose_anchor_response(
+                configuration=configuration,
+                greeting_name=greeting_name,
+            )
+        )
+
+    if conversation.planning_mode == "advanced" and conversation.advanced_step == "anchor_flow":
+        return _sanitize_assistant_text(
+            _build_advanced_anchor_selected_response(
+                configuration=configuration,
+                greeting_name=greeting_name,
+                advanced_anchor=conversation.advanced_anchor,
+            )
+        )
+
     if brief_confirmed and confirmation_status != "finalized":
         return _sanitize_assistant_text(
             _build_trip_brief_confirmation_response(
                 configuration=configuration,
                 greeting_name=greeting_name,
                 profile=profile,
+                planning_mode=conversation.planning_mode,
             )
         )
 
@@ -143,6 +170,30 @@ def build_assistant_response(
             f"Here are four destination directions that fit what you asked for: {destination_names}. "
             f"{correction_line}"
             "Pick one on the board if one stands out, or tell me the destination you already have in mind."
+        )
+
+    unresolved_destinations = _unresolved_destination_options(
+        conversation=conversation,
+        llm_update=llm_update,
+    )
+    if (
+        conversation.suggestion_board.mode == "helper"
+        and configuration.to_location is None
+        and len(unresolved_destinations) >= 2
+    ):
+        greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
+        if len(unresolved_destinations) == 2:
+            destination_line = (
+                f"{unresolved_destinations[0]} and {unresolved_destinations[1]} are both still live options."
+            )
+        else:
+            destination_line = (
+                f"{', '.join(unresolved_destinations[:-1])}, and {unresolved_destinations[-1]} are all still live options."
+            )
+        return _sanitize_assistant_text(
+            f"{greeting_prefix}{destination_line} "
+            "I do not need to force the destination yet. "
+            "Pick one when you are ready, or tell me to keep comparing them and I will stay broad a little longer."
         )
 
     if fallback_text and fallback_text.strip():
@@ -263,8 +314,20 @@ def _build_details_collection_response(
             "If all of that looks right, confirm here in chat and I will move ahead. If you want to tweak anything first, you can edit it on the board."
         )
     bullet_lines = "\n".join(section_lines)
+    advanced_guidance = (
+        "This is the shared brief-building step for Advanced Planning, so once these details are solid I'll move into the first anchor choice instead of drafting the itinerary right away. "
+        if conversation.planning_mode == "advanced"
+        else ""
+    )
+    flexible_departure_guidance = (
+        "You do not need to lock the departure point yet if it is still flexible for now. "
+        if configuration.from_location_flexible
+        else ""
+    )
     return (
         f"{greeting_prefix}{intro_line} "
+        f"{advanced_guidance}"
+        f"{flexible_departure_guidance}"
         "If anything looks off, just correct me. You can keep replying here in chat, or use the board on the right if that is quicker.\n"
         f"{bullet_lines}"
     )
@@ -275,6 +338,7 @@ def _build_trip_brief_confirmation_response(
     configuration: TripConfiguration,
     greeting_name: str | None,
     profile: PlannerProfileContext,
+    planning_mode: str | None,
 ) -> str:
     route = " -> ".join(
         part for part in [configuration.from_location, configuration.to_location] if part
@@ -289,11 +353,38 @@ def _build_trip_brief_confirmation_response(
         profile=profile,
         configuration=configuration,
     )
+    if planning_mode == "advanced":
+        closing_line = (
+            "Advanced Planning is selected, so I'll keep this guided and move into the next decision step instead of drafting the itinerary right away."
+        )
+    elif planning_mode == "quick":
+        closing_line = (
+            "Quick Plan is selected, so I'll build the draft itinerary as soon as the remaining blockers are resolved."
+        )
+    else:
+        closing_line = (
+            "Choose Quick Plan for a fast draft, or Advanced Planning for a more guided flow."
+        )
+
     return (
         f"{greeting_prefix}I have {route or 'this trip brief'} locked in as the working direction now. "
         f"{'I will plan around ' + timing + '. ' if timing else ''}"
-        "You can let me spin up a Quick Plan next, or wait for Advanced Planning once that mode is ready."
+        f"{closing_line}"
         f"{' ' + profile_soft_start if profile_soft_start else ''}"
+    )
+
+
+def _build_planning_mode_gate_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+) -> str:
+    greeting_prefix = f"Before I proceed, {greeting_name}, " if greeting_name else "Before I proceed, "
+    destination = configuration.to_location or "this trip"
+    return (
+        f"{greeting_prefix}choose how you want Wandrix to plan {destination}. "
+        "Pick Quick Plan if you want the fastest route to a first draft itinerary, or Advanced Planning if you want a more guided step-by-step flow. "
+        "I've kept your message as the working starting point either way."
     )
 
 
@@ -335,8 +426,7 @@ def _build_planning_mode_choice_response(
     greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
     return (
         f"{greeting_prefix}the trip brief is ready around {route or 'this route'}. "
-        "You can choose Quick Plan now if you want a fast first draft itinerary, and you can keep refining it in chat afterwards. "
-        "Advanced Planning is visible on the board too, but it is still in development."
+        "Choose Quick Plan if you want the fastest route to a first draft itinerary, or Advanced Planning if you want to keep this more guided and step by step."
     )
 
 
@@ -356,7 +446,7 @@ def _build_quick_plan_response(
     )
 
 
-def _build_advanced_planning_fallback_response(
+def _build_advanced_plan_selected_response(
     *,
     configuration: TripConfiguration,
     greeting_name: str | None,
@@ -364,9 +454,38 @@ def _build_advanced_planning_fallback_response(
     greeting_prefix = f"Got it, {greeting_name}. " if greeting_name else "Got it. "
     destination = configuration.to_location or "this trip"
     return (
-        f"{greeting_prefix}Advanced Planning is not available yet, so I am defaulting to Quick Plan for {destination} and building the first itinerary draft now. "
-        "Once it appears on the board, you can keep refining it with me in chat. "
-        "When it looks right, confirm it here and I'll save the brochure-ready version in Saved Trips."
+        f"{greeting_prefix}Advanced Planning is selected for {destination}. "
+        "I'll keep collecting the brief with you in the shared brief-building step, then move into the guided anchor choice once the trip is ready for the next decision."
+    )
+
+
+def _build_advanced_choose_anchor_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+) -> str:
+    greeting_prefix = f"Perfect, {greeting_name}. " if greeting_name else "Perfect. "
+    destination = configuration.to_location or "this trip"
+    return (
+        f"{greeting_prefix}The brief for {destination} is strong enough to move into Advanced Planning properly now. "
+        "Instead of drafting the itinerary right away, the next step is choosing what should lead the trip first: flights, stay, trip style, or activities."
+    )
+
+
+def _build_advanced_anchor_selected_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+    advanced_anchor: str | None,
+) -> str:
+    greeting_prefix = f"Perfect, {greeting_name}. " if greeting_name else "Perfect. "
+    destination = configuration.to_location or "this trip"
+    anchor_label = (
+        advanced_anchor.replace("_", " ") if advanced_anchor else "that planning anchor"
+    )
+    return (
+        f"{greeting_prefix}We'll lead {destination} with {anchor_label} first. "
+        "I'll keep this in Advanced Planning mode and use that choice as the first deeper planning path."
     )
 
 
@@ -498,12 +617,20 @@ def _field_value_label(configuration: TripConfiguration, field: TripFieldKey) ->
         return f"the timing as {configuration.travel_window}"
     if field == "trip_length" and configuration.trip_length:
         return f"the trip length as {configuration.trip_length}"
-    if field == "adults" and configuration.travelers.adults is not None:
+    if field == "weather_preference" and configuration.weather_preference:
+        return f"the weather preference as {configuration.weather_preference}"
+    if field == "from_location_flexible" and configuration.from_location_flexible:
+        return "the departure as flexible for now"
+    if field == "adults" and configuration.travelers.adults is not None and configuration.travelers.adults > 0:
         return f"{configuration.travelers.adults} adult{'s' if configuration.travelers.adults != 1 else ''}"
-    if field == "children" and configuration.travelers.children is not None:
+    if field == "children" and configuration.travelers.children is not None and configuration.travelers.children > 0:
         return f"{configuration.travelers.children} child{'ren' if configuration.travelers.children != 1 else ''}"
+    if field == "travelers_flexible" and configuration.travelers_flexible:
+        return "the traveller count as flexible for now"
     if field == "activity_styles" and configuration.activity_styles:
         return f"the trip style as {', '.join(configuration.activity_styles)}"
+    if field == "custom_style" and configuration.custom_style:
+        return f"the custom trip style as {configuration.custom_style}"
     if field == "budget_posture" and configuration.budget_posture:
         return f"the budget as {_format_budget_posture(configuration.budget_posture)}"
     if field == "budget_gbp" and configuration.budget_gbp is not None:
@@ -518,9 +645,9 @@ def _format_modules(selected_modules: dict[str, bool]) -> str:
 
 def _format_travelers(*, adults: int | None, children: int | None) -> str:
     parts: list[str] = []
-    if adults is not None:
+    if adults is not None and adults > 0:
         parts.append(f"{adults} adult{'s' if adults != 1 else ''}")
-    if children is not None:
+    if children is not None and children > 0:
         parts.append(f"{children} child{'ren' if children != 1 else ''}")
     return " and ".join(parts)
 
@@ -529,6 +656,24 @@ def _format_budget_posture(value: object | None) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     return value.replace("_", "-")
+
+
+def _unresolved_destination_options(
+    *,
+    conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
+) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for option in [*llm_update.mentioned_options, *conversation.memory.mentioned_options]:
+        if option.kind != "destination":
+            continue
+        normalized = " ".join(option.value.strip().lower().split())
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        values.append(option.value)
+    return values[:3]
 
 
 def _get_greeting_name(profile: PlannerProfileContext) -> str | None:
@@ -547,10 +692,14 @@ def _build_trip_shape_summary(configuration: TripConfiguration) -> str:
         parts.append(f"a trip centered on {configuration.to_location}")
     if configuration.activity_styles:
         parts.append(f"with a {', '.join(configuration.activity_styles[:2])} feel")
+    if configuration.custom_style:
+        parts.append(f"shaped around {configuration.custom_style}")
     if configuration.travel_window:
         parts.append(f"around {configuration.travel_window}")
     if configuration.trip_length:
         parts.append(f"for {configuration.trip_length}")
+    if configuration.weather_preference:
+        parts.append(f"with {configuration.weather_preference} weather in mind")
 
     if not parts:
         return "I do not want to lock the wrong details too early."
@@ -637,6 +786,10 @@ def _build_working_shape_description(configuration: TripConfiguration) -> str | 
         parts.append(timing)
     if configuration.activity_styles:
         parts.append(f"with a {', '.join(configuration.activity_styles[:2])} direction")
+    if configuration.custom_style:
+        parts.append(f"guided by {configuration.custom_style}")
+    if configuration.weather_preference:
+        parts.append(f"with a {configuration.weather_preference} weather preference")
     elif _active_module_count(configuration) < 4:
         parts.append(f"focused on {_format_selected_modules(configuration)}")
     if configuration.budget_posture:
@@ -697,16 +850,20 @@ def _build_inferred_summary(inferred_fields: list[TripFieldKey]) -> str:
 def _field_label(field: TripFieldKey) -> str:
     return {
         "from_location": "your departure point",
+        "from_location_flexible": "your departure flexibility",
         "to_location": "the destination",
         "start_date": "the travel window",
         "end_date": "the trip length",
         "travel_window": "the rough travel timing",
         "trip_length": "the rough trip length",
+        "weather_preference": "the weather preference",
         "budget_posture": "the budget posture",
         "budget_gbp": "the budget posture",
         "adults": "the traveler count",
         "children": "the child traveler count",
+        "travelers_flexible": "the traveller count",
         "activity_styles": "the trip style",
+        "custom_style": "the custom trip style",
         "selected_modules": "the active planning modules",
     }[field]
 
@@ -733,13 +890,11 @@ def _requested_advanced_plan(
     action: ConversationBoardAction | None,
     llm_update: TripTurnUpdate,
     conversation: TripConversationState,
-    quick_plan_started: bool,
 ) -> bool:
     return bool(
-        quick_plan_started
-        and
-        conversation.planning_mode == "quick"
-        and conversation.planning_mode_status == "advanced_unavailable_fallback"
+        conversation.planning_mode == "advanced"
+        and conversation.planning_mode_status == "selected"
+        and conversation.advanced_step != "choose_anchor"
         and (
             (action and action.type == "select_advanced_plan")
             or llm_update.requested_planning_mode == "advanced"

@@ -10,10 +10,12 @@ from app.repositories.trip_draft_repository import (
 )
 from app.repositories.trip_repository import (
     create_trip as create_trip_record,
+    delete_trip as delete_trip_record,
     get_trip_for_user,
     list_trips_for_user,
 )
 from app.schemas.trip import (
+    TripDeleteResponse,
     TripCreateRequest,
     TripCreateResponse,
     TripListItemResponse,
@@ -78,6 +80,17 @@ def get_trip(
 ) -> TripCreateResponse:
     trip = _get_owned_trip(db, trip_id=trip_id, user_id=user_id)
     return _build_trip_response(trip)
+
+
+def delete_trip(
+    db: Session,
+    *,
+    trip_id: str,
+    user_id: str,
+) -> TripDeleteResponse:
+    trip = _get_owned_trip(db, trip_id=trip_id, user_id=user_id)
+    delete_trip_record(db, trip)
+    return TripDeleteResponse(trip_id=trip_id, deleted=True)
 
 
 def list_trips(

@@ -35,3 +35,8 @@ export type TripListItemResponse = TripCreateResponse & {
 export type TripListResponse = {
   items: TripListItemResponse[];
 };
+
+export type TripDeleteResponse = {
+  trip_id: string;
+  deleted: true;
+};

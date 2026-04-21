@@ -9,7 +9,7 @@ export function getApiBaseUrl(): string {
 
 type JsonRequestOptions = {
   accessToken?: string;
-  method?: "GET" | "POST" | "PUT";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   payload?: unknown;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -184,5 +184,16 @@ export function putJson<TResponse, TPayload>(
     ...options,
     method: "PUT",
     payload,
+  });
+}
+
+
+export function deleteJson<TResponse>(
+  path: string,
+  options?: Omit<JsonRequestOptions, "method" | "payload">,
+): Promise<TResponse> {
+  return requestJson<TResponse>(path, {
+    ...options,
+    method: "DELETE",
   });
 }

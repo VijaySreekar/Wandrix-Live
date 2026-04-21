@@ -23,6 +23,13 @@ PlannerPlanningModeStatus = Literal[
     "selected",
     "advanced_unavailable_fallback",
 ]
+PlannerAdvancedStep = Literal[
+    "intake",
+    "choose_anchor",
+    "anchor_flow",
+    "review",
+]
+PlannerAdvancedAnchor = Literal["flight", "stay", "trip_style", "activities"]
 TripDetailsStepKey = Literal[
     "modules",
     "route",
@@ -37,6 +44,8 @@ TripSuggestionBoardMode = Literal[
     "decision_cards",
     "details_collection",
     "planning_mode_choice",
+    "advanced_anchor_choice",
+    "advanced_next_step",
     "helper",
 ]
 DestinationSuggestionSelectionStatus = Literal[
@@ -48,16 +57,20 @@ PlanningModeCardStatus = Literal["available", "in_development"]
 
 TripFieldKey = Literal[
     "from_location",
+    "from_location_flexible",
     "to_location",
     "start_date",
     "end_date",
     "travel_window",
     "trip_length",
+    "weather_preference",
     "budget_posture",
     "budget_gbp",
     "adults",
     "children",
+    "travelers_flexible",
     "activity_styles",
+    "custom_style",
     "selected_modules",
 ]
 
@@ -109,15 +122,19 @@ class DestinationSuggestionCard(BaseModel):
 
 class TripDetailsCollectionFormState(BaseModel):
     from_location: str | None = Field(default=None, max_length=160)
+    from_location_flexible: bool | None = None
     to_location: str | None = Field(default=None, max_length=160)
     selected_modules: TripModuleSelection = Field(default_factory=TripModuleSelection)
     travel_window: str | None = Field(default=None, max_length=120)
     trip_length: str | None = Field(default=None, max_length=120)
+    weather_preference: str | None = Field(default=None, max_length=80)
     start_date: date | None = None
     end_date: date | None = None
     adults: int | None = Field(default=None, ge=0)
     children: int | None = Field(default=None, ge=0)
+    travelers_flexible: bool | None = None
     activity_styles: list[ActivityStyle] = Field(default_factory=list)
+    custom_style: str | None = Field(default=None, max_length=160)
     budget_posture: BudgetPosture | None = None
     budget_gbp: float | None = Field(default=None, gt=0)
 
@@ -132,6 +149,16 @@ class PlanningModeChoiceCard(BaseModel):
     cta_label: str | None = Field(default=None, max_length=80)
 
 
+class AdvancedAnchorChoiceCard(BaseModel):
+    id: PlannerAdvancedAnchor
+    title: str = Field(..., min_length=1, max_length=80)
+    description: str = Field(..., min_length=1, max_length=240)
+    bullets: list[str] = Field(default_factory=list, max_length=5)
+    recommended: bool = False
+    badge: str | None = Field(default=None, max_length=80)
+    cta_label: str | None = Field(default=None, max_length=80)
+
+
 class TripSuggestionBoardState(BaseModel):
     mode: TripSuggestionBoardMode = "helper"
     source_context: str | None = Field(default=None, max_length=240)
@@ -141,6 +168,10 @@ class TripSuggestionBoardState(BaseModel):
     planning_mode_cards: list[PlanningModeChoiceCard] = Field(
         default_factory=list,
         max_length=2,
+    )
+    advanced_anchor_cards: list[AdvancedAnchorChoiceCard] = Field(
+        default_factory=list,
+        max_length=4,
     )
     have_details: list[PlannerChecklistItem] = Field(default_factory=list)
     need_details: list[PlannerChecklistItem] = Field(default_factory=list)
@@ -217,6 +248,8 @@ class TripConversationState(BaseModel):
     phase: ChatPlannerPhase = "opening"
     planning_mode: PlannerPlanningMode | None = None
     planning_mode_status: PlannerPlanningModeStatus = "not_selected"
+    advanced_step: PlannerAdvancedStep | None = None
+    advanced_anchor: PlannerAdvancedAnchor | None = None
     confirmation_status: PlannerConfirmationStatus = "unconfirmed"
     finalized_at: datetime | None = None
     finalized_via: PlannerFinalizedVia | None = None

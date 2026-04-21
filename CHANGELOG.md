@@ -9,6 +9,720 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-21 - Stopped Saved-Trip Sidebar Loads Timing Out Too Early
+
+Technical Summary:
+- Increased the recent-trip bootstrap and refresh timeouts in the chat workspace after confirming the current backend trip-list query takes roughly 4.8 seconds for the active user’s dataset.
+- This prevents the frontend from abandoning `/api/v1/trips?limit=24` prematurely and falling back to an empty sidebar even when the backend eventually responds successfully.
+
+Plain-English Summary:
+- The saved chats list was going empty because the frontend was giving up before the trip list finished loading.
+- Wandrix now waits long enough for the real trip list to come back, so previous chats should actually appear instead of being treated like there are none.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Restored Sidebar Hydration While A Local Draft Is Open
+
+Technical Summary:
+- Fixed the chat workspace bootstrap so an active ephemeral local draft no longer short-circuits saved-trip hydration before cached and remote recent trips are loaded.
+- Preserved the current local draft workspace while still refreshing the sidebar list for the signed-in user, preventing the left rail from going empty just because the main pane is in a temporary draft state.
+
+Plain-English Summary:
+- Opening or landing in a temporary local draft no longer blanks out the saved chats sidebar.
+- The app should now keep your current draft chat open while still showing your real saved sessions on the left.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Restored Persisted Chats To The Sidebar And Blocked Draft IDs
+
+Technical Summary:
+- Removed the over-aggressive recent-trip “meaningful” filter for persisted trips so the sidebar no longer hides legitimate saved chats that are still in early planning states.
+- Kept the new guard that excludes local-only `draft_trip_*`, `draft_browser_session_*`, and `draft_thread_*` identifiers from recent-trip hydration and API-driven workspace loading.
+- Updated the chat workspace to ignore and strip stale draft trip IDs from the URL instead of attempting backend fetches for them.
+
+Plain-English Summary:
+- Real saved chats should show up in the sidebar again, even if they were still pretty early or lightly filled out.
+- Fake local draft IDs are still blocked, so the app should stop making those broken `draft_trip_...` API requests.
+
+Files / Areas Touched:
+- `frontend/src/lib/recent-trips-cache.ts`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Reverted Navbar-Driven Forced New Chat Routing
+
+Technical Summary:
+- Removed the `/chat?new=1` routing from the primary Chat entry points and restored the chat workspace bootstrap to its previous selection flow without the forced-new override path.
+- Kept the separate saved-trip rename feature intact while reverting only the navbar and placeholder behavior that had started interfering with chat/session loading.
+
+Plain-English Summary:
+- The Chat link now behaves the old way again instead of trying to force a fresh session.
+- This reverts the navbar-specific change that was disrupting how chats and saved sessions were loading.
+
+Files / Areas Touched:
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/app/placeholder-page.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Kept Saved Chats Visible While Navbar Chat Starts Fresh
+
+Technical Summary:
+- Moved the `/chat?new=1` handling deeper into the workspace bootstrap so a forced-new chat now creates an ephemeral active workspace without short-circuiting the normal saved-trip sidebar hydration flow.
+- Updated the workspace selection logic to ignore `last active trip` restoration when the new-chat flag is present, while still loading cached and refreshed recent trips for the left rail.
+
+Plain-English Summary:
+- Clicking Chat in the navbar now starts a fresh conversation without hiding the saved chats list.
+- The left sidebar still loads your previous chats normally; only the active chat opens as new.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Made Navbar Chat Open A Fresh Planner And Added Trip Rename
+
+Technical Summary:
+- Updated the primary Chat entry points to route into `/chat?new=1`, and taught the chat workspace bootstrap to honor that flag by opening an ephemeral new planning session instead of auto-restoring the most recent saved trip.
+- Kept the saved-trip sidebar hydrated during forced-new chat loads by still resolving auth and refreshing recent trips in the background, without letting that flow take over the active workspace.
+- Added a saved-trip rename action in the chat sidebar that persists a new title through the trip-draft API and updates the active workspace, prefetched workspaces, and recent-trip list in place.
+
+Plain-English Summary:
+- Clicking Chat in the navbar should now start a fresh conversation instead of unexpectedly dropping you back into an older trip.
+- Saved chats can also be renamed directly from the sidebar now, so it is easier to keep the trip list tidy and recognizable.
+
+Files / Areas Touched:
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/app/placeholder-page.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Preserved Destination Alternatives And Advanced Anchor Sequencing
+
+Technical Summary:
+- Added `requested_advanced_anchor` to planner turn updates and taught the Advanced Planning runtime to accept anchor choices directly from chat, so instructions like `stay first, flights later` can move the flow into `anchor_flow` without forcing flights out of scope.
+- Added unresolved-destination helper handling so when the user names multiple possible places like `Kyoto or Osaka`, the board and assistant can keep both options visible instead of falling back to a generic helper state.
+- Extended planner prompt coverage and runtime regressions for destination-option preservation and chat-driven Advanced anchor selection, while keeping existing merge semantics and board-action anchor selection intact.
+
+Plain-English Summary:
+- Wandrix is now better at handling `there are two real options here` and `I know the sequence I want, but not every final detail yet`.
+- If someone says `Kyoto or Osaka`, the planner can keep both destinations alive instead of acting like one has to be chosen immediately.
+- If someone says `stay first, flights later` inside Advanced Planning, Wandrix can treat that as a real sequencing choice and move the trip into the `stay` path without pretending flights are no longer part of the trip.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_understanding.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Kept Sidebar Order Steady During Saved-Trip Refreshes
+
+Technical Summary:
+- Added a sidebar-refresh merge path that updates saved-trip metadata in place while preserving the existing visible order for trips already on screen.
+- Limited background recent-trip refreshes to append only truly unseen trips in recency order instead of re-sorting the entire sidebar list every time the backend sends fresh trip metadata.
+- Wired the chat workspace refresh flow to use this calmer merge behavior so sidebar updates feel less jumpy during normal session use.
+
+Plain-English Summary:
+- The saved chats list should move around less now when Wandrix refreshes trip data in the background.
+- Existing trips stay in a steadier order, while genuinely new trips can still appear without making the whole sidebar feel like it reshuffled itself.
+
+Files / Areas Touched:
+- `frontend/src/lib/recent-trips-cache.ts`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Trimmed The Activities-Only Intake Path
+
+Technical Summary:
+- Updated the frontend trip-details step model so the `budget` step is no longer shown when the active scope is `activities` only, matching the backend planner logic that already treated budget as irrelevant outside flights and hotels.
+- Added an Advanced Planning details-board subtitle branch for `activities`-only scope so the board now explicitly says flights and hotels can wait, instead of falling back to generic full-trip brief language.
+- Added a planner runtime regression proving that an Advanced activities-only brief stays in a narrowed details-collection state without surfacing budget as a needed detail.
+
+Plain-English Summary:
+- When someone tells Wandrix to focus only on activities for now, the board should actually behave that way.
+- The planner no longer shows a stray budget step for that scope, and the board copy now makes it clearer that flights and hotels can be left for later instead of feeling half-required in the background.
+- This makes narrowed scope feel intentional rather than like a full-trip form with a few optional boxes hidden.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-model.ts`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Replaced Generic First-Load Chat Placeholders With A Steadier Shell
+
+Technical Summary:
+- Added a dedicated initial assistant shell for the very first `/chat` load so the empty thread now renders structured planning cards instead of falling straight into a generic disabled welcome state while the workspace attaches.
+- Added a matching initial board shell that previews the future trip-board layout with lightweight skeleton blocks instead of the old generic loading copy and spinner-only treatment.
+- Updated the chat composer’s disabled placeholder so the first-load state reads as a deliberate workspace-preparation step rather than an indeterminate attach error.
+
+Plain-English Summary:
+- The first time `/chat` opens, Wandrix should now feel more intentional and less awkward.
+- Instead of looking half-loaded, the page shows a calm preview of the chat and board layout while the workspace gets ready in the background.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Reused Auth And Recent-Trip State During Chat Switches
+
+Technical Summary:
+- Refactored the chat workspace bootstrap path to reuse the existing auth snapshot and in-memory recent-trip state instead of re-reading both on every trip change.
+- Limited the saved-trip background refresh to once per active recent-trip cache key, avoiding repeated sidebar refresh work during each saved-chat switch.
+- Kept the trip-loading fast path compatible with the earlier sidebar prefetch changes so warmed trips can still be adopted without extra bootstrap churn.
+
+Plain-English Summary:
+- Opening another saved chat should feel a bit lighter now because Wandrix stops repeating some setup work it already finished earlier in the session.
+- The sidebar also does less background refreshing during switches, which should make the whole page feel calmer and more consistent.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Made Traveller Count Flexibility A Real Intake State
+
+Technical Summary:
+- Added structured `travelers_flexible` support across trip configuration, conversation schemas, planner turn updates, board actions, and shared details-form state so the planner can preserve explicitly soft traveller counts instead of treating them as simply missing.
+- Updated Advanced-mode missing-field logic, details checklist formatting, provider-readiness checks, and planner observability so a flexible traveller count can keep the shared brief moving while still blocking flight and hotel enrichment until a reliable adult count exists.
+- Removed the hidden `1 adult` board default, normalized zero counts back to `null`, and added runtime regressions proving that flexible traveller counts can reach Advanced anchor choice while `0 adults` never counts as reliable selection data.
+
+Plain-English Summary:
+- Wandrix can now understand the difference between `we have not decided yet` and `we forgot to answer`.
+- If someone says the traveller count is still flexible, Advanced Planning can keep building the brief without forcing a hard headcount too early.
+- At the same time, the planner no longer quietly treats placeholder values like `0 adults` or the old default `1 adult` as real trip decisions, so the intake flow should feel less pushy and more honest.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/draft_merge.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/details_collection.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_planner_understanding.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-details-board-model.ts`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Prefetched Saved Trip Workspaces From The Chat Sidebar
+
+Technical Summary:
+- Added sidebar-triggered trip warmup so hovering or focusing a saved chat can preload its workspace payload and conversation history before the route switch completes.
+- Reworked the workspace bootstrap path to reuse prefetched trip payloads instead of immediately re-fetching the same trip after the URL changes.
+- Updated the sidebar selection handshake so clicking a saved chat marks the next requested trip earlier, giving the workspace a cleaner handoff target during the switch.
+
+Plain-English Summary:
+- Saved chats should open more quickly now because Wandrix starts loading the next trip a little earlier, often before you fully switch into it.
+- The app also does less duplicate work during a trip change, which should make the whole handoff feel snappier and more consistent.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Reduced Chat Runtime Remounts During Trip Switches
+
+Technical Summary:
+- Removed the trip-keyed assistant runtime remount from the chat pane and replaced it with in-place thread hydration that resets the existing assistant thread only when the active trip truly changes.
+- Added guarded runtime hydration logic so background history sync can refresh the current thread when the user has not diverged locally, while leaving in-progress local conversation state alone.
+- Consolidated thread-message serialization helpers so runtime hydration and local cache persistence use the same text-only snapshot rules.
+
+Plain-English Summary:
+- Switching between saved chats should feel steadier now because the chat engine stays alive instead of fully restarting every time you open another trip.
+- If Wandrix loads fresher saved messages for the same trip in the background, it can update the thread more cleanly without clobbering what someone is actively doing.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Made Custom Trip Style A Real Planner Field
+
+Technical Summary:
+- Added structured `custom_style` support across trip configuration, conversation schemas, board actions, planner turn updates, and shared details-form state so freeform trip-style notes can persist like any other brief field.
+- Updated planner merge, checklist, and response logic so a custom style now satisfies the trip-style requirement, appears in saved brief summaries, and can influence Advanced Planning behavior instead of living only in temporary frontend form state.
+- Extended the planner understanding prompt and regression suite so style descriptions that do not fit the preset style chips can be preserved explicitly rather than dropped.
+
+Plain-English Summary:
+- The free-text trip-style input on the board now actually works as a real saved planner detail.
+- If someone types a vibe like “slow temple mornings and market-heavy afternoons,” Wandrix now keeps that as part of the trip brief instead of losing it after the form step.
+- This makes the trip-style part of intake much more trustworthy, because the board is no longer promising something the planner was not truly storing.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/draft_merge.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/details_collection.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/tests/test_planner_understanding.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Debounced Local Chat History Persistence
+
+Technical Summary:
+- Debounced the assistant thread’s local-storage persistence so message-state updates no longer write the full cached conversation on every immediate runtime change.
+- Added a serialized snapshot guard so identical thread states are skipped entirely instead of being re-written redundantly.
+
+Plain-English Summary:
+- Chat should feel a bit steadier during message generation and restore because Wandrix is doing less unnecessary browser storage work in the background.
+- The app still keeps local chat history, but it now saves it more efficiently.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Let Budget Posture Stand On Its Own During Intake
+
+Technical Summary:
+- Aligned the frontend details-board budget-step completion rule with the backend planner contract so a required budget step now completes when the user provides either `budget_posture` or `budget_gbp`, instead of incorrectly forcing both.
+- Updated the budget-step copy to explain that a budget posture alone is enough for early planning and that the exact amount can stay optional until the user knows it.
+- Added a runtime regression covering the “posture only” case so the shared brief continues to treat a soft budget as sufficient planner signal.
+
+Plain-English Summary:
+- Users no longer have to enter both a budget label and an exact GBP number just to move past the budget step.
+- Saying something like “mid-range” is now enough during intake, which matches how the planner already thinks about early budget guidance.
+- This makes the board less pushy and keeps Advanced Planning more conversational in the early brief-building stage.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board-model.ts`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Kept Advanced Mode In Guided Brief Collection For Thinner Trips
+
+## 2026-04-21 - Removed The Fake Client-Side Chat Typing Delay
+
+Technical Summary:
+- Removed the client-side sentence chunking and `sleep(120)` replay in the assistant runtime so completed backend responses are now yielded to the chat UI immediately.
+- Kept the same backend conversation path and abort behavior, but stopped artificially stretching already-finished responses in the browser.
+
+Plain-English Summary:
+- Chat replies should now feel faster because Wandrix no longer pretends to type out a response that the backend has already finished.
+- This makes the assistant feel more direct and reduces the sense of lag after each message.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+Technical Summary:
+- Relaxed the details-board gate for Advanced Planning so the shared trip-details board can appear as soon as a destination exists, even before an origin signal is present, instead of dropping weaker briefs into generic decision cards.
+- Updated Advanced details-board titles, subtitles, and assistant copy so the shared brief-building stage is named explicitly and the user is told that anchor choice comes after the brief is stronger.
+- Added regression coverage proving that selecting Advanced on a thin brief now prefers `details_collection` over generic decision cards while preserving the later branch into anchor choice.
+
+Plain-English Summary:
+- Advanced Planning now feels more guided earlier in the flow.
+- If the user picks Advanced before all the trip basics are filled in, Wandrix will keep them in the structured trip-details step instead of showing vague “next decisions” cards too soon.
+- This makes the path easier to understand: first finish the brief, then choose the first Advanced Planning anchor.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Let Advanced Intake Keep Departure Flexible
+
+Technical Summary:
+- Added structured `from_location_flexible` planner state through trip configuration, conversation types, turn updates, and the shared details-form contract so Wandrix can distinguish an intentionally flexible departure from a simply missing origin.
+- Updated Advanced intake missing-field logic, route checklist rendering, anchor recommendation, provider-readiness checks, and assistant copy so a flexible departure no longer behaves like an immediate blocker during brief-building, while still preventing flight-ready execution until a real origin is chosen later.
+- Updated the frontend trip-details route step to treat a flexible departure as route-complete, added clearer board copy explaining that origin can stay open for now, and added regressions for the Kyoto-style flexible-origin flow plus prompt coverage for the new extraction rule.
+
+Plain-English Summary:
+- If the user says their departure point is still flexible, Wandrix now treats that as a real planning choice instead of acting like the user forgot to fill something in.
+- In Advanced Planning, the brief can now move forward without forcing a departure city too early, and the planner will avoid recommending flight-first just because flights are switched on by default.
+- This makes the flow feel more natural for prompts like “Kyoto in late March for five nights, departure still flexible for now.”
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/draft_merge.py`
+- `backend/app/graph/planner/details_collection.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/tests/test_planner_understanding.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/trip-details-board-model.ts`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Tightened Advanced Anchor State Quality Before Stay Flow
+
+Technical Summary:
+- Fixed Advanced anchor decision-history deduplication so reselecting the same anchor no longer creates duplicate `Advanced anchor selected` events in planner memory.
+- Refined the anchor recommendation heuristic so short or route-soft trips can recommend `flight` before defaulting too eagerly to `stay` when hotels are simply enabled in the scope.
+- Corrected the selected-anchor board copy so `advanced_next_step` no longer tells the user that the anchor choice still lies ahead after it has already been made, and added regressions covering both the new recommendation behavior and anchor dedupe.
+
+Plain-English Summary:
+- The new Advanced anchor step is now cleaner and more trustworthy.
+- Wandrix is less likely to keep recommending `stay` for the wrong reasons, it will not keep recording the same anchor choice over and over, and the board wording now matches the state the user is actually in.
+- This gives us a safer base before building the first deeper `stay` planning flow.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Added The First Real Advanced Planning Anchor Choice
+
+Technical Summary:
+- Added structured Advanced Planning anchor state with `advanced_anchor` plus a new board action for selecting one of four anchors: `flight`, `stay`, `trip_style`, or `activities`.
+- Replaced the placeholder post-brief Advanced board with a real `advanced_anchor_choice` state that shows all four anchor cards, marks one as recommended using structured planner heuristics, and lets the user select any of them.
+- Persisted anchor selection into conversation state and decision history, then routed Advanced into `anchor_flow` with dedicated board and assistant copy instead of falling back to generic helper messaging.
+
+Plain-English Summary:
+- Advanced Planning now has its first real guided decision.
+- Once the trip brief is ready, Wandrix shows four ways to begin the deeper planning flow: flights, stay, trip style, or activities.
+- The planner recommends a sensible starting point, but the user stays in control and can pick any anchor they want.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Split Advanced Planning Into A Real Post-Brief Guided Flow
+
+Technical Summary:
+- Added structured `advanced_step` state to the planner conversation model and now resolve Advanced Planning into `intake` while the shared brief is still being collected, then `choose_anchor` as soon as the brief is confirmed and ready to branch.
+- Updated planner board generation and assistant response logic so Advanced Planning no longer falls through to generic post-brief copy; it now surfaces a dedicated `advanced_next_step` board state and guided response that explicitly pauses before itinerary drafting.
+- Kept Quick Plan behavior intact while protecting Advanced from quick-plan generation, and added a regression proving Advanced reaches `choose_anchor` without calling the quick itinerary draft path.
+
+Plain-English Summary:
+- Advanced Planning now behaves like a real separate mode once the trip brief is ready.
+- Instead of jumping straight into an itinerary draft, Wandrix now stops and shows that the next guided step is choosing what should lead the trip first.
+- This gives us a clean base for the next phase, where the user will actually choose between flights, stay, trip style, or activities as the first Advanced Planning anchor.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Kept Current Chat And Board Visible During Trip Switches
+
+Technical Summary:
+- Split the chat workspace into requested-trip and displayed-trip state so `/chat` can keep rendering the current conversation and board while the newly selected trip is still hydrating.
+- Passed the switching state through the assistant and board preview so inputs are temporarily disabled during the handoff, while lightweight in-place banners explain that the next saved trip is opening.
+- Updated the board sandbox preview to match the new board-preview contract introduced by the trip-switch continuity work.
+
+Plain-English Summary:
+- When you click another saved trip, Wandrix now keeps the current chat and board on screen instead of dropping into an awkward empty loading state.
+- You still get a clear signal that a different trip is opening, but the page feels steadier and more polished while the handoff happens.
+- This is the second smoothing pass for chat, focused on making trip switching feel continuous instead of jarring.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Added A Smoother Chat-To-Chat Handoff Transition
+
+## 2026-04-21 - Simplified The Chat Switch Motion To A Cleaner Fade
+
+Technical Summary:
+- Removed the more animated trip-switch treatment and replaced it with a much simpler handoff: a light fade on the outgoing content plus a quiet status pill instead of a larger transfer card with animated progress.
+- Kept the improved requested-trip handoff structure intact while reducing motion complexity in both the chat pane and the live board.
+
+Plain-English Summary:
+- Chat switching should now feel calmer and less distracting.
+- The handoff is still clearer than before, but the transition no longer tries to animate so much.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+Technical Summary:
+- Reworked the trip-switch state in the chat pane and live board so the currently displayed content now eases into a dimmed handoff state instead of staying fully static while the next trip hydrates.
+- Replaced the plain switch banners with subtle overlay cards and a lightweight animated progress line, making the transition feel intentional without introducing heavy motion or dashboard-style chrome.
+- Added shared transition utilities in global CSS, including reduced-motion fallbacks so the switch treatment stays calm and accessible.
+
+Plain-English Summary:
+- Switching between chats should now feel smoother and more polished instead of looking like the old trip is just frozen on screen.
+- The previous chat and board still stay visible briefly, but they now fade into a proper “handoff” state while the next trip opens.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Softened The Sidebar Delete Affordance
+
+Technical Summary:
+- Reduced the visual weight of the sidebar delete control by shrinking the trigger, lowering its idle contrast, and revealing it primarily on row hover or focus instead of keeping it fully present at all times.
+- Kept the same delete dialog behavior and theme tokens, while making the row action feel secondary to the trip title and activity metadata.
+
+Plain-English Summary:
+- The delete icon is still there, but it should feel much more subtle now.
+- It stays out of the way until you hover the row, so the sidebar reads more like a clean chat list and less like an action menu.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Matched The Chat Delete Action To Sidebar Theme Tokens
+
+Technical Summary:
+- Replaced the sidebar trip-delete trigger from an overflow-style icon to an explicit trash icon so the affordance reads as a destructive action immediately.
+- Swapped the delete dialog actions onto the shared button system so the cancel and delete states now use the same theme-aware variants and token-driven styling as the rest of the chat UI.
+
+Plain-English Summary:
+- The delete action now looks like a real delete control instead of a generic menu button.
+- The confirmation dialog also fits the rest of the app better now, without one-off colors that felt out of place.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Added Permanent Trip Deletion From The Chat Sidebar
+
+Technical Summary:
+- Added a real backend trip-deletion route and service path so deleting from the chat sidebar now removes the owned trip record and its cascade-owned draft and brochure data from the database.
+- Extended the frontend trip API client with `DELETE` support, then wired the chat sidebar to show a confirmation dialog before deletion and to remove the deleted trip from recent-trip state and cached local thread history.
+- Updated `/chat` workspace recovery so deleting the currently open trip cleanly routes to the next saved trip when available, or back to an ephemeral new-draft shell when no saved trips remain.
+
+Plain-English Summary:
+- You can now delete a saved chat directly from the sidebar instead of leaving old trips stuck in the account forever.
+- Wandrix asks for confirmation first, and once deleted the trip is fully removed rather than just hidden from the list.
+- If you delete the trip you are currently viewing, the app now moves you to the next sensible state instead of leaving the page stranded.
+
+Files / Areas Touched:
+- `backend/app/api/routes/trips.py`
+- `backend/app/services/trip_service.py`
+- `backend/app/repositories/trip_repository.py`
+- `backend/app/schemas/trip.py`
+- `frontend/src/lib/api/client.ts`
+- `frontend/src/lib/api/trips.ts`
+- `frontend/src/lib/chat-history-cache.ts`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Stabilized Chat Sidebar Recents And Stopped Auto-Creating Blank Trips
+
+Technical Summary:
+- Reworked recent-trip handling so the chat sidebar now filters out untouched placeholder trips, keeps a stable updated-at sort, and stops forcing the currently open workspace to the top on every local refresh.
+- Kept the selected trip inside the visible recent-trips window and ignored no-op clicks on the already-open trip, reducing the jumpy behavior where items appeared to disappear or reshuffle unexpectedly.
+- Changed `/chat` bootstrap fallback so opening chat without a meaningful saved trip now starts from an ephemeral local draft instead of creating a persisted empty trip record before the user actually begins planning.
+
+Plain-English Summary:
+- The recent chats list should now feel steadier: older chats should stop jumping to the top or vanishing from the visible list when you open them.
+- Placeholder trips that were never really started are now hidden from the sidebar, which cuts down on confusing blank items.
+- Wandrix also stops creating those accidental empty saved trips just because the chat page opened before a real conversation started.
+
+Files / Areas Touched:
+- `frontend/src/lib/recent-trips-cache.ts`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Added Weather Preference To Shared Quick And Advanced Intake
+
+Technical Summary:
+- Extended the shared trip-details intake contract so `weather_preference` now flows through planner turn updates, trip configuration, conversation board actions, details-form state, checklist rendering, and assistant trip-shape summaries.
+- Updated the planner understanding prompt and conversation-state question logic so weather preference is treated as a structured timing-adjacent preference rather than a heuristic side note, while still keeping it optional for confirmation.
+- Added the timing-step UI for weather preference selection in the shared trip-details board and covered both LLM-extracted persistence and board-confirmed persistence with backend regressions.
+
+Plain-English Summary:
+- Quick Plan and Advanced Planning now ask about preferred weather in the same shared trip-details flow instead of treating it like a separate later concern.
+- Users can say they want something warm, sunny, mild, cool, snowy, or dry, and Wandrix will keep that as part of the working brief.
+- This makes the early intake feel more complete without forcing weather to become a required blocker before planning can continue.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/draft_merge.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/details_collection.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Smoothed Chat Trip Opening By Removing Extra Blocking Work
+
+Technical Summary:
+- Shortened the `/chat` bootstrap path for existing trips by skipping browser-session creation when only loading an already persisted trip workspace and by parallelizing `getTrip` with `getTripDraft`.
+- Removed the explicit-trip dependency on a fresh saved-trips fetch during critical path bootstrap so chat can open the selected trip using cached sidebar data first and refresh supporting lists later.
+- Updated the assistant pane to use cached thread messages immediately on trip change instead of showing a separate restore screen while history sync catches up in the background.
+
+Plain-English Summary:
+- Opening chat or switching to another saved trip should now feel more immediate because Wandrix no longer waits on setup work that is only needed for creating brand-new trips.
+- The conversation pane also keeps more continuity now: if local thread history exists, it appears right away instead of flashing a temporary restore message before the chat comes back.
+- This is the first smoothing pass focused on reducing visible waiting and inconsistent state changes during chat boot.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Added Post-Prompt Planning Mode Gate For Quick And Advanced
+
+Technical Summary:
+- Updated the planner runner so the first user prompt can populate the working trip brief, but Wandrix now pauses to require a planning mode choice before continuing normal planning when no mode has been selected yet.
+- Changed planning mode resolution so `select_advanced_plan` now sets a real `advanced` mode instead of immediately converting to Quick fallback, and wired a new mode-choice-required flag through conversation state, suggestion-board generation, and assistant response building.
+- Reworked the planning-mode choice board copy so both Quick and Advanced are selectable after the first prompt, updated Advanced selection messaging to remove fallback wording, and added regressions for the new gate plus real Advanced mode selection.
+
+Plain-English Summary:
+- After the user sends their first trip message, Wandrix now stops and asks whether they want Quick Plan or Advanced Planning before going further.
+- The app still keeps what the user already said, so they do not have to repeat the trip request after choosing.
+- Advanced Planning now behaves like a real chosen mode at this stage instead of being described as an automatic Quick Plan fallback.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Expanded Spinner Demo With 50 More Travel Loading Studies
+
+Technical Summary:
+- Added a new `spinner-demo` catalog module with 50 extra travel-related spinner variants built from reusable animation families instead of adding another large block of inline demo JSX to the page file.
+- Introduced demo-scoped keyframes for lane travel, shutter panels, and bobbing icon motion so the added loaders can feel more layered while keeping the implementation organized.
+- Updated the spinner demo page to render the combined 130-option catalog and refreshed the intro copy to reflect the larger travel-focused set.
+
+Plain-English Summary:
+- The spinner demo now includes 50 more travel-themed loading animations, bringing the page up to 130 options.
+- The new group leans into planes, trains, hotels, tickets, maps, routes, luggage, ships, and other travel cues, but keeps the motion tidy and readable instead of chaotic.
+- The demo is also easier to extend now because the extra spinners live in their own catalog file instead of making the page even more unwieldy.
+
+Files / Areas Touched:
+- `frontend/src/app/spinner-demo/page.tsx`
+- `frontend/src/components/spinner-demo/more-travel-spinners.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Simplified Advanced Planning To Selected-State Only For Now
+
+Technical Summary:
+- Refined `docs/future-improvements.md` again to remove redirect-specific state tracking from the near-term `Advanced Planning` roadmap.
+- Kept the product boundary that real booking happens outside Wandrix, but simplified current planner semantics to center on `recommended`, `selected`, and a later user-confirmed `booked` state.
+- Updated the suggested implementation order and board-state language so the next build phase does not depend on redirect tracking.
+
+Plain-English Summary:
+- The roadmap is now simpler and more practical for the next build phase.
+- For now, Wandrix only needs to remember what the user selected. We do not need special redirect tracking yet.
+- Booking still happens outside Wandrix, and a true booked state can be added later when we build that part.
+
+Files / Areas Touched:
+- `docs/future-improvements.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Added Advanced Planning And Manual Organizer Roadmap Notes
+
+Technical Summary:
+- Expanded `docs/future-improvements.md` with a dedicated `Advanced Planning Roadmap` section.
+- Documented Advanced Planning as a real trip-building mode rather than a slower Quick Plan, including staged progression through brief confirmation, planning anchor choice, trip skeleton building, tradeoff resolution, sequential enrichment, and reviewed pre-finalization.
+- Added future roadmap notes for `recommended / shortlisted / selected / booked / rejected / manual` semantics across flights, hotels, activities, and events.
+- Added a dedicated manual trip-organizer subsection covering user-entered bookings, contacts, addresses, confirmation details, and logistics notes for items booked outside Wandrix.
+
+Plain-English Summary:
+- The roadmap now clearly says what Advanced Planning is supposed to become.
+- Instead of just being “better planning,” it is now defined as the mode where Wandrix helps choose the real trip components and eventually organizes the whole trip in one place.
+- The doc also now captures the future direction for manual additions, so later we can support user-booked hotels, flights, reservations, notes, and contact details inside the same trip plan.
+
+Files / Areas Touched:
+- `docs/future-improvements.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Clarified Advanced Planning As Selection And External Booking Redirect Flow
+
+Technical Summary:
+- Refined the `Advanced Planning Roadmap` in `docs/future-improvements.md` so Wandrix is explicitly documented as a selection-and-organization product rather than a booking platform.
+- Added a dedicated `Keep Booking External` subsection describing the intended flow: recommend, select, redirect to provider, and optionally confirm the booking later.
+- Expanded future state semantics to distinguish `selected`, `redirected_for_booking`, and later `booked` confirmation, and updated the implementation order and board-state language to match that boundary.
+
+Plain-English Summary:
+- The roadmap now clearly says Wandrix helps users choose what to book, but does not do the booking itself.
+- When someone picks a flight or hotel, Wandrix should send them to the external provider site and remember what they chose, rather than pretending the booking already happened.
+- This keeps the product honest and gives us a cleaner foundation for future manual booking confirmation features.
+
+Files / Areas Touched:
+- `docs/future-improvements.md`
+- `CHANGELOG.md`
+
 ## 2026-04-21 - Moved Saved Trips Into Global Navigation And Removed Brochure Shortcut From Chat
 
 Technical Summary:

@@ -13,15 +13,18 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
     title: trip.title,
     configuration: {
       from_location: null,
+      from_location_flexible: null,
       to_location: null,
       start_date: null,
       end_date: null,
       travel_window: null,
       trip_length: null,
+      weather_preference: null,
       travelers: {
         adults: null,
         children: null,
       },
+      travelers_flexible: null,
       budget_posture: null,
       budget_gbp: null,
       selected_modules: {
@@ -31,6 +34,7 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
         hotels: true,
       },
       activity_styles: [],
+      custom_style: null,
     },
     timeline: [],
     module_outputs: {
@@ -54,6 +58,8 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
       phase: "opening",
       planning_mode: null,
       planning_mode_status: "not_selected",
+      advanced_step: null,
+      advanced_anchor: null,
       confirmation_status: "unconfirmed",
       finalized_at: null,
       finalized_via: null,
@@ -65,6 +71,7 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
         mode: "helper",
         cards: [],
         planning_mode_cards: [],
+        advanced_anchor_cards: [],
         have_details: [],
         need_details: [],
         visible_steps: [],

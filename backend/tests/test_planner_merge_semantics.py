@@ -211,11 +211,13 @@ def test_board_confirmed_fields_get_high_confidence_memory() -> None:
         "type": "confirm_trip_details",
         "to_location": "Kyoto",
         "travel_window": "late March",
+        "weather_preference": "mild",
     }
     llm_update = apply_board_action_updates(TripTurnUpdate(), board_action=board_action)
     configuration = TripConfiguration(
         to_location="Kyoto",
         travel_window="late March",
+        weather_preference="mild",
     )
 
     conversation = build_conversation_state(
@@ -241,12 +243,19 @@ def test_board_confirmed_fields_get_high_confidence_memory() -> None:
 
     destination_memory = conversation.memory.field_memory["to_location"]
     timing_memory = conversation.memory.field_memory["travel_window"]
+    weather_memory = conversation.memory.field_memory["weather_preference"]
 
     assert destination_memory.source == "board_action"
     assert destination_memory.confidence_level == "high"
     assert timing_memory.source == "board_action"
     assert timing_memory.confidence_level == "high"
-    assert status.confirmed_fields == ["to_location", "travel_window"]
+    assert weather_memory.source == "board_action"
+    assert weather_memory.confidence_level == "high"
+    assert status.confirmed_fields == [
+        "to_location",
+        "travel_window",
+        "weather_preference",
+    ]
     assert status.inferred_fields == []
 
 

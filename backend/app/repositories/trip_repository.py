@@ -50,6 +50,11 @@ def get_trip_for_user(db: Session, trip_id: str, user_id: str) -> TripModel | No
     return db.scalar(statement)
 
 
+def delete_trip(db: Session, trip: TripModel) -> None:
+    db.delete(trip)
+    db.commit()
+
+
 def list_trips_for_user(
     db: Session,
     user_id: str,

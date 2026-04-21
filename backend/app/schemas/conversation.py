@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.schemas.trip_conversation import (
     CheckpointConversationMessage,
     ChatPlannerPhase,
+    PlannerAdvancedAnchor,
 )
 from app.schemas.trip_planning import ActivityStyle, BudgetPosture, TripModuleSelection
 from app.schemas.trip_draft import TripDraft
@@ -42,9 +43,11 @@ class ConversationBoardAction(BaseModel):
         "confirm_trip_brief",
         "select_quick_plan",
         "select_advanced_plan",
+        "select_advanced_anchor",
         "finalize_quick_plan",
         "reopen_plan",
     ]
+    advanced_anchor: PlannerAdvancedAnchor | None = None
     destination_name: str | None = Field(default=None, max_length=120)
     country_or_region: str | None = Field(default=None, max_length=120)
     suggestion_id: str | None = Field(default=None, max_length=80)
@@ -53,11 +56,14 @@ class ConversationBoardAction(BaseModel):
     selected_modules: TripModuleSelection | None = None
     travel_window: str | None = Field(default=None, max_length=120)
     trip_length: str | None = Field(default=None, max_length=120)
+    weather_preference: str | None = Field(default=None, max_length=80)
     start_date: str | None = Field(default=None, max_length=40)
     end_date: str | None = Field(default=None, max_length=40)
     adults: int | None = Field(default=None, ge=0)
     children: int | None = Field(default=None, ge=0)
+    travelers_flexible: bool | None = None
     activity_styles: list[ActivityStyle] = Field(default_factory=list)
+    custom_style: str | None = Field(default=None, max_length=160)
     budget_posture: BudgetPosture | None = None
     budget_gbp: float | None = Field(default=None, gt=0)
 

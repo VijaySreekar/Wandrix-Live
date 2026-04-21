@@ -1,4 +1,5 @@
 import type {
+  PlannerAdvancedAnchor,
   ChatPlannerPhase,
   CheckpointConversationMessage,
 } from "@/types/trip-conversation";
@@ -41,8 +42,10 @@ export type ConversationBoardAction = {
     | "confirm_trip_brief"
     | "select_quick_plan"
     | "select_advanced_plan"
+    | "select_advanced_anchor"
     | "finalize_quick_plan"
     | "reopen_plan";
+  advanced_anchor?: PlannerAdvancedAnchor | null;
   destination_name?: string | null;
   country_or_region?: string | null;
   suggestion_id?: string | null;
@@ -51,11 +54,14 @@ export type ConversationBoardAction = {
   selected_modules?: TripModuleSelection;
   travel_window?: string | null;
   trip_length?: string | null;
+  weather_preference?: string | null;
   start_date?: string | null;
   end_date?: string | null;
   adults?: number | null;
   children?: number | null;
+  travelers_flexible?: boolean | null;
   activity_styles?: ActivityStyle[];
+  custom_style?: string | null;
   budget_posture?: BudgetPosture | null;
   budget_gbp?: number | null;
 };

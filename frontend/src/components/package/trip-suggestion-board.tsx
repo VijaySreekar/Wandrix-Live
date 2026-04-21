@@ -8,6 +8,7 @@ import { resolveDestinationSuggestionImage } from "@/lib/destination-images";
 import { cn } from "@/lib/utils";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type {
+  AdvancedAnchorChoiceCard,
   DestinationSuggestionCard,
   PlanningModeChoiceCard,
   PlannerDecisionCard,
@@ -68,6 +69,76 @@ export function TripSuggestionBoard({
               />
             ))}
           </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (board.mode === "advanced_anchor_choice") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <div className="grid gap-4">
+            {(board.advanced_anchor_cards ?? []).map((card) => (
+              <AdvancedAnchorOptionCard
+                key={card.id}
+                card={card}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (board.mode === "advanced_next_step") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <article className="rounded-[1.75rem] bg-[var(--planner-board-card)] px-6 py-6 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_10px_24px_rgba(0,0,0,0.05)]">
+            <h3 className="font-display text-lg font-bold text-[var(--planner-board-text)]">
+              Guided planning is now active
+            </h3>
+            <p className="mt-2 text-sm leading-7 text-[var(--planner-board-muted)]">
+              The shared trip brief is ready, so Wandrix will stay in guided mode
+              instead of jumping straight into a quick itinerary draft.
+            </p>
+            <ul className="mt-5 space-y-3">
+              {[
+                "The first Advanced Planning anchor is now selected.",
+                "That choice becomes the real branch between flights, stay, trip style, or activities.",
+                "The current brief still stays editable in chat if you want to adjust it before the deeper flow begins.",
+              ].map((bullet) => (
+                <li
+                  key={bullet}
+                  className="flex items-start gap-3 text-sm leading-7 text-[var(--planner-board-muted)]"
+                >
+                  <span className="mt-2 block h-1.5 w-1.5 rounded-full bg-[color:var(--accent)]" />
+                  <span>{bullet}</span>
+                </li>
+              ))}
+            </ul>
+          </article>
         </div>
       </section>
     );
@@ -255,6 +326,77 @@ function PlanningModeOptionCard({
           )}
         >
           {card.cta_label || "Continue"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function AdvancedAnchorOptionCard({
+  card,
+  disabled,
+  onAction,
+}: {
+  card: AdvancedAnchorChoiceCard;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  return (
+    <article className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-6 py-6 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-xl font-bold tracking-[-0.02em] text-[var(--planner-board-text)]">
+            {card.title}
+          </h3>
+          <p className="mt-2 max-w-xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {card.description}
+          </p>
+        </div>
+        {card.badge ? (
+          <span className="rounded-md border border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+            {card.badge}
+          </span>
+        ) : null}
+      </div>
+
+      <ul className="mt-5 space-y-3">
+        {card.bullets.map((bullet) => (
+          <li
+            key={bullet}
+            className="flex items-start gap-3 text-sm leading-7 text-[var(--planner-board-muted)]"
+          >
+            <span
+              className={cn(
+                "mt-2 block h-1.5 w-1.5 rounded-full",
+                card.recommended
+                  ? "bg-[color:var(--accent)]"
+                  : "bg-[var(--planner-board-muted-strong)]",
+              )}
+            />
+            <span>{bullet}</span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-6">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() =>
+            onAction({
+              action_id: crypto.randomUUID(),
+              type: "select_advanced_anchor",
+              advanced_anchor: card.id,
+            })
+          }
+          className={cn(
+            "inline-flex items-center rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors",
+            disabled
+              ? "cursor-not-allowed border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
+              : "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:bg-[color:color-mix(in_srgb,var(--accent)_92%,black)]",
+          )}
+        >
+          {card.cta_label || "Choose anchor"}
         </button>
       </div>
     </article>

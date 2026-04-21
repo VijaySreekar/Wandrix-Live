@@ -132,6 +132,39 @@ def test_understanding_prompt_teaches_tentative_origin_preservation(monkeypatch)
     )
 
 
+def test_understanding_prompt_teaches_explicit_flexible_departure(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="My departure point is still flexible for now.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert "from_location_flexible" in prompt
+    assert (
+        "If the user explicitly says their departure point is still flexible, open, or not decided yet, preserve that in from_location_flexible instead of treating from_location as a required next fact."
+        in prompt
+    )
+    assert (
+        'User: "My departure point is still flexible for now."'
+        in prompt
+    )
+
+
 def test_understanding_prompt_teaches_budget_nuance(monkeypatch) -> None:
     captured: dict = {}
     monkeypatch.setattr(
@@ -208,6 +241,36 @@ def test_understanding_prompt_teaches_traveller_composition_nuance(monkeypatch) 
     assert 'User: "It\'s just the two of us."' in prompt
 
 
+def test_understanding_prompt_teaches_flexible_traveller_count(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="It might be two of us, maybe three if a friend joins.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert "travelers_flexible" in prompt
+    assert (
+        "If the user explicitly says the traveller count is still flexible, not final, or still being decided, preserve that in travelers_flexible instead of forcing exact adult or child counts."
+        in prompt
+    )
+    assert 'User: "It might be two of us, maybe three if a friend joins."' in prompt
+
+
 def test_understanding_prompt_teaches_module_scope_narrowing(monkeypatch) -> None:
     captured: dict = {}
     monkeypatch.setattr(
@@ -243,7 +306,73 @@ def test_understanding_prompt_teaches_module_scope_narrowing(monkeypatch) -> Non
         "If the user says something like \"hotels later\" or \"we can sort flights ourselves\", keep the scope narrow for now rather than forcing every module back on."
         in prompt
     )
+    assert (
+        'If the user is already in Advanced Planning and says something like "stay first", "start with hotels", "let\'s do flights first", or "activities first", set requested_advanced_anchor to the matching anchor.'
+        in prompt
+    )
+    assert (
+        'If the user says something like "stay first, flights later", treat that as sequencing guidance. Prefer requested_advanced_anchor over turning flights off unless the user clearly said flights are out of scope.'
+        in prompt
+    )
     assert 'User: "I already booked flights. Just help me with what to do in Kyoto."' in prompt
+
+
+def test_understanding_prompt_teaches_destination_option_preservation(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="Kyoto or Osaka, not sure yet.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert 'User: "Kyoto or Osaka, not sure yet."' in prompt
+    assert (
+        "Good result: keep both destinations alive in mentioned_options instead of forcing one place into to_location."
+        in prompt
+    )
+
+
+def test_understanding_prompt_teaches_custom_trip_style_preservation(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="I want this to feel like slow temple mornings and market-heavy afternoons.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert "custom_style" in prompt
+    assert (
+        "If the user describes a style or vibe that matters but does not fit cleanly into those preset labels, preserve that nuance in custom_style instead of dropping it."
+        in prompt
+    )
 
 
 def test_understanding_prompt_teaches_profile_context_stays_soft(monkeypatch) -> None:

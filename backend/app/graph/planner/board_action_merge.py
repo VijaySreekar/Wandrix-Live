@@ -65,6 +65,10 @@ def apply_board_action_updates(
         merged_update.trip_length = action.trip_length.strip()
         _mark_confirmed(merged_update, "trip_length")
 
+    if action.weather_preference:
+        merged_update.weather_preference = action.weather_preference.strip()
+        _mark_confirmed(merged_update, "weather_preference")
+
     parsed_start_date = _parse_optional_date(action.start_date)
     if parsed_start_date:
         merged_update.start_date = parsed_start_date
@@ -75,17 +79,25 @@ def apply_board_action_updates(
         merged_update.end_date = parsed_end_date
         _mark_confirmed(merged_update, "end_date")
 
-    if action.adults is not None:
+    if action.adults is not None and action.adults > 0:
         merged_update.adults = action.adults
         _mark_confirmed(merged_update, "adults")
 
-    if action.children is not None:
+    if action.children is not None and action.children > 0:
         merged_update.children = action.children
         _mark_confirmed(merged_update, "children")
+
+    if action.travelers_flexible is not None:
+        merged_update.travelers_flexible = action.travelers_flexible
+        _mark_confirmed(merged_update, "travelers_flexible")
 
     if action.activity_styles:
         merged_update.activity_styles = list(dict.fromkeys(action.activity_styles))
         _mark_confirmed(merged_update, "activity_styles")
+
+    if action.custom_style:
+        merged_update.custom_style = action.custom_style.strip()
+        _mark_confirmed(merged_update, "custom_style")
 
     if action.budget_posture:
         merged_update.budget_posture = action.budget_posture

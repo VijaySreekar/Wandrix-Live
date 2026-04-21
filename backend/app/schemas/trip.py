@@ -42,3 +42,8 @@ class TripListItemResponse(TripCreateResponse):
 
 class TripListResponse(BaseModel):
     items: list[TripListItemResponse]
+
+
+class TripDeleteResponse(BaseModel):
+    trip_id: str
+    deleted: bool = True

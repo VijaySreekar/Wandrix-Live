@@ -48,16 +48,20 @@ export type TripModuleSelection = {
 
 export type TripConfiguration = {
   from_location: string | null;
+  from_location_flexible?: boolean | null;
   to_location: string | null;
   start_date: string | null;
   end_date: string | null;
   travel_window: string | null;
   trip_length: string | null;
+  weather_preference?: string | null;
   travelers: PlannerTravelerDetails;
+  travelers_flexible?: boolean | null;
   budget_posture: BudgetPosture | null;
   budget_gbp: number | null;
   selected_modules: TripModuleSelection;
   activity_styles: ActivityStyle[];
+  custom_style?: string | null;
 };
 
 export type FlightDetail = {

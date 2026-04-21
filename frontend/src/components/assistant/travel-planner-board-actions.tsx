@@ -53,6 +53,7 @@ export function TravelPlannerBoardActions({
     const backendAction: ConversationBoardAction = {
       action_id: pendingBoardAction.action_id,
       type: pendingBoardAction.type,
+      advanced_anchor: pendingBoardAction.advanced_anchor,
       destination_name: pendingBoardAction.destination_name,
       country_or_region: pendingBoardAction.country_or_region,
       suggestion_id: pendingBoardAction.suggestion_id,
@@ -61,11 +62,14 @@ export function TravelPlannerBoardActions({
       selected_modules: pendingBoardAction.selected_modules,
       travel_window: pendingBoardAction.travel_window,
       trip_length: pendingBoardAction.trip_length,
+      weather_preference: pendingBoardAction.weather_preference,
       start_date: pendingBoardAction.start_date,
       end_date: pendingBoardAction.end_date,
       adults: pendingBoardAction.adults,
       children: pendingBoardAction.children,
+      travelers_flexible: pendingBoardAction.travelers_flexible,
       activity_styles: pendingBoardAction.activity_styles,
+      custom_style: pendingBoardAction.custom_style,
       budget_posture: pendingBoardAction.budget_posture,
       budget_gbp: pendingBoardAction.budget_gbp,
     };
@@ -141,7 +145,14 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
   }
 
   if (action.type === "select_advanced_plan") {
-    return "I want Advanced Planning, but if it is not available yet then default to Quick Plan and start the itinerary.";
+    return "Use Advanced Planning for this trip.";
+  }
+
+  if (action.type === "select_advanced_anchor") {
+    const anchorLabel = action.advanced_anchor
+      ? action.advanced_anchor.replace("_", " ")
+      : "that anchor";
+    return `In Advanced Planning, start with ${anchorLabel} first.`;
   }
 
   if (action.type === "finalize_quick_plan") {
@@ -181,15 +192,20 @@ function buildDetailsSummaryMessage(action: PlannerBoardActionIntent) {
     route ? `route ${route}` : null,
     action.travel_window ? `timing ${action.travel_window}` : null,
     action.trip_length ? `trip length ${action.trip_length}` : null,
+    action.weather_preference
+      ? `weather ${action.weather_preference}`
+      : null,
     action.adults !== undefined && action.adults !== null
       ? `${action.adults} adult${action.adults === 1 ? "" : "s"}`
       : null,
     action.children !== undefined && action.children !== null
       ? `${action.children} child${action.children === 1 ? "" : "ren"}`
       : null,
+    action.travelers_flexible ? "traveller count still flexible" : null,
     action.activity_styles?.length
       ? `style ${action.activity_styles.join(", ")}`
       : null,
+    action.custom_style ? `custom style ${action.custom_style}` : null,
     action.budget_posture
       ? `budget ${action.budget_posture.replace("_", "-")}`
       : null,

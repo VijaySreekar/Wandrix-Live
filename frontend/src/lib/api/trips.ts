@@ -1,5 +1,6 @@
-import { getJson, postJson, putJson } from "@/lib/api/client";
+import { deleteJson, getJson, postJson, putJson } from "@/lib/api/client";
 import type {
+  TripDeleteResponse,
   TripCreateRequest,
   TripCreateResponse,
   TripListResponse,
@@ -25,6 +26,18 @@ export function getTrip(
   signal?: AbortSignal,
 ) {
   return getJson<TripCreateResponse>(`/api/v1/trips/${tripId}`, {
+    accessToken,
+    signal,
+  });
+}
+
+
+export function deleteTrip(
+  tripId: string,
+  accessToken?: string,
+  signal?: AbortSignal,
+) {
+  return deleteJson<TripDeleteResponse>(`/api/v1/trips/${tripId}`, {
     accessToken,
     signal,
   });
