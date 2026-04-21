@@ -25,22 +25,6 @@ def merge_trip_configuration(
     ):
         configuration.to_location = llm_update.to_location
 
-    if llm_update.start_date and _should_apply_field(
-        field="start_date",
-        llm_update=llm_update,
-        current_value=configuration.start_date,
-        next_value=llm_update.start_date,
-    ):
-        configuration.start_date = llm_update.start_date
-
-    if llm_update.end_date and _should_apply_field(
-        field="end_date",
-        llm_update=llm_update,
-        current_value=configuration.end_date,
-        next_value=llm_update.end_date,
-    ):
-        configuration.end_date = llm_update.end_date
-
     if llm_update.travel_window and _should_apply_field(
         field="travel_window",
         llm_update=llm_update,
@@ -56,6 +40,52 @@ def merge_trip_configuration(
         next_value=llm_update.trip_length,
     ):
         configuration.trip_length = llm_update.trip_length
+
+    if _should_clear_exact_timing_field(
+        exact_field="start_date",
+        rough_field="travel_window",
+        llm_update=llm_update,
+    ):
+        configuration.start_date = None
+
+    if _should_clear_exact_timing_field(
+        exact_field="end_date",
+        rough_field="trip_length",
+        llm_update=llm_update,
+    ):
+        configuration.end_date = None
+
+    if llm_update.start_date and _should_apply_exact_timing_field(
+        field="start_date",
+        rough_field="travel_window",
+        llm_update=llm_update,
+        current_value=configuration.start_date,
+        next_value=llm_update.start_date,
+        current_rough_value=configuration.travel_window,
+    ):
+        configuration.start_date = llm_update.start_date
+        if _should_clear_rough_timing_field(
+            exact_field="start_date",
+            rough_field="travel_window",
+            llm_update=llm_update,
+        ):
+            configuration.travel_window = None
+
+    if llm_update.end_date and _should_apply_exact_timing_field(
+        field="end_date",
+        rough_field="trip_length",
+        llm_update=llm_update,
+        current_value=configuration.end_date,
+        next_value=llm_update.end_date,
+        current_rough_value=configuration.trip_length,
+    ):
+        configuration.end_date = llm_update.end_date
+        if _should_clear_rough_timing_field(
+            exact_field="end_date",
+            rough_field="trip_length",
+            llm_update=llm_update,
+        ):
+            configuration.trip_length = None
 
     if llm_update.budget_posture and _should_apply_field(
         field="budget_posture",
@@ -140,3 +170,53 @@ def _should_apply_field(
         return True
 
     return current_value in (None, "", [], {}) or current_value == next_value
+
+
+def _should_apply_exact_timing_field(
+    *,
+    field: TripFieldKey,
+    rough_field: TripFieldKey,
+    llm_update: TripTurnUpdate,
+    current_value: object | None,
+    next_value: object | None,
+    current_rough_value: object | None,
+) -> bool:
+    if not _should_apply_field(
+        field=field,
+        llm_update=llm_update,
+        current_value=current_value,
+        next_value=next_value,
+    ):
+        return False
+
+    if field in llm_update.confirmed_fields:
+        return True
+
+    if current_rough_value not in (None, "", [], {}):
+        return current_value == next_value
+
+    return True
+
+
+def _should_clear_exact_timing_field(
+    *,
+    exact_field: TripFieldKey,
+    rough_field: TripFieldKey,
+    llm_update: TripTurnUpdate,
+) -> bool:
+    return (
+        rough_field in llm_update.confirmed_fields
+        and exact_field not in llm_update.confirmed_fields
+    )
+
+
+def _should_clear_rough_timing_field(
+    *,
+    exact_field: TripFieldKey,
+    rough_field: TripFieldKey,
+    llm_update: TripTurnUpdate,
+) -> bool:
+    return (
+        exact_field in llm_update.confirmed_fields
+        and rough_field not in llm_update.confirmed_fields
+    )

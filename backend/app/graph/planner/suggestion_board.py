@@ -29,12 +29,20 @@ def build_suggestion_board_state(
     llm_update: TripTurnUpdate,
     resolved_location_context: ResolvedPlannerLocationContext | None,
     board_action: dict,
+    brief_confirmed: bool,
 ) -> TripSuggestionBoardState:
     current_board = current.suggestion_board.model_copy(deep=True)
     action = (
         ConversationBoardAction.model_validate(board_action) if board_action else None
     )
-    brief_confirmed = _is_trip_brief_confirmed(current, action)
+
+    if action and action.type == "own_choice" and not configuration.to_location:
+        return TripSuggestionBoardState(
+            mode="helper",
+            title="Tell me the destination you already have in mind.",
+            subtitle="Once you send a specific place in chat, I will move straight to the next real planning choice.",
+            own_choice_prompt=None,
+        )
 
     if configuration.to_location:
         if brief_confirmed and current.planning_mode_status == "not_selected":
@@ -65,12 +73,18 @@ def build_suggestion_board_state(
         )
 
     next_cards = _resolve_destination_cards(
+        current=current,
         current_board=current_board,
         llm_suggestions=llm_update.destination_suggestions,
         action=action,
     )
 
-    if next_cards:
+    if _should_show_destination_suggestions(
+        configuration=configuration,
+        llm_update=llm_update,
+        action=action,
+        next_cards=next_cards,
+    ):
         title = (
             llm_update.destination_suggestion_title
             or current_board.title
@@ -215,15 +229,25 @@ def build_destination_mentioned_options(
 
 def build_default_decision_cards(configuration: TripConfiguration) -> list[PlannerDecisionCard]:
     cards: list[PlannerDecisionCard] = []
+    active_modules = [
+        name
+        for name, enabled in configuration.selected_modules.model_dump(mode="json").items()
+        if enabled
+    ]
 
     if configuration.to_location and not (
         configuration.start_date or configuration.travel_window
     ):
         cards.append(
             PlannerDecisionCard(
-                title="Pick the timing direction",
-                description="A rough travel window is the next useful planning choice.",
-                options=["Next month", "Summer", "Autumn", "I’m flexible"],
+                title=f"Choose the timing shape for {configuration.to_location}",
+                description="A rough travel window is the next useful choice, and it matters more than exact dates right now.",
+                options=[
+                    "Spring city break",
+                    "Early summer escape",
+                    "Autumn weekend",
+                    "I'm flexible",
+                ],
             )
         )
 
@@ -234,7 +258,27 @@ def build_default_decision_cards(configuration: TripConfiguration) -> list[Plann
             PlannerDecisionCard(
                 title="Set the departure point",
                 description="The planner can get more practical once it knows where you would leave from.",
-                options=["Use my home airport", "Choose another city", "I’m not sure yet"],
+                options=[
+                    "Use my usual airport",
+                    "Choose another city",
+                    "I'm not sure yet",
+                ],
+            )
+        )
+
+    if configuration.to_location and (
+        configuration.start_date or configuration.travel_window
+    ) and "activities" in active_modules and not configuration.activity_styles:
+        cards.append(
+            PlannerDecisionCard(
+                title=f"Choose the feel for {configuration.to_location}",
+                description="These are the strongest trip directions to decide between before I start shaping the itinerary.",
+                options=[
+                    "Food-led neighbourhood weekend",
+                    "Classic highlights city break",
+                    "Relaxed slower pace",
+                    "Outdoors and day trips",
+                ],
             )
         )
 
@@ -288,27 +332,16 @@ def _build_details_form_state(
         budget_posture=configuration.budget_posture,
         budget_gbp=configuration.budget_gbp,
     )
-
-
-def _is_trip_brief_confirmed(
-    current: TripConversationState,
-    action: ConversationBoardAction | None,
-) -> bool:
-    if action and action.type == "confirm_trip_details":
-        return True
-
-    return any(
-        event.title.lower() == "trip details confirmed"
-        for event in current.memory.decision_history
-    )
-
-
 def _resolve_destination_cards(
     *,
+    current: TripConversationState,
     current_board: TripSuggestionBoardState,
     llm_suggestions: list[DestinationSuggestionCandidate],
     action: ConversationBoardAction | None,
 ) -> list[DestinationSuggestionCard]:
+    if action and action.type == "own_choice":
+        return []
+
     if llm_suggestions:
         cards = [
             DestinationSuggestionCard(
@@ -322,6 +355,7 @@ def _resolve_destination_cards(
             )
             for suggestion in llm_suggestions
         ]
+        cards = _filter_rejected_destination_cards(cards, current)
     else:
         cards = current_board.cards
 
@@ -348,3 +382,65 @@ def _resolve_destination_cards(
         return updated_cards
 
     return cards
+
+
+def _filter_rejected_destination_cards(
+    cards: list[DestinationSuggestionCard],
+    current: TripConversationState,
+) -> list[DestinationSuggestionCard]:
+    rejected_destination_keys = {
+        key
+        for option in current.memory.rejected_options
+        if option.kind == "destination"
+        for key in _destination_option_keys(option.value)
+    }
+    seen_destination_keys: set[str] = set()
+    filtered: list[DestinationSuggestionCard] = []
+
+    for card in cards:
+        card_keys = _destination_option_keys(
+            f"{card.destination_name}, {card.country_or_region}"
+        )
+        if rejected_destination_keys.intersection(card_keys):
+            continue
+
+        primary_key = _normalize_destination_value(card.destination_name)
+        if primary_key in seen_destination_keys:
+            continue
+
+        seen_destination_keys.add(primary_key)
+        filtered.append(card)
+
+    return filtered
+
+
+def _destination_option_keys(value: str) -> set[str]:
+    normalized = _normalize_destination_value(value)
+    if not normalized:
+        return set()
+
+    keys = {normalized}
+    primary = normalized.split(",")[0].strip()
+    if primary:
+        keys.add(primary)
+    return keys
+
+
+def _normalize_destination_value(value: str) -> str:
+    return " ".join(value.strip().lower().split())
+
+
+def _should_show_destination_suggestions(
+    *,
+    configuration: TripConfiguration,
+    llm_update: TripTurnUpdate,
+    action: ConversationBoardAction | None,
+    next_cards: list[DestinationSuggestionCard],
+) -> bool:
+    if configuration.to_location:
+        return False
+    if action and action.type == "own_choice":
+        return False
+    if llm_update.to_location:
+        return False
+    return bool(next_cards)

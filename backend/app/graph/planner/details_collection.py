@@ -53,6 +53,7 @@ def compute_scope_missing_fields(
     resolved_location_context: ResolvedPlannerLocationContext | None = None,
 ) -> list[str]:
     active_modules = get_active_modules(configuration)
+    default_modules = TripConfiguration().selected_modules
     flights_active = "flights" in active_modules
     travellers_relevant = any(
         module in active_modules for module in ["flights", "hotels", "activities"]
@@ -90,7 +91,7 @@ def compute_scope_missing_fields(
         missing_fields.append("activity_styles")
     if budget_relevant and configuration.budget_posture is None and configuration.budget_gbp is None:
         missing_fields.append("budget_posture")
-    if not active_modules:
+    if not active_modules or configuration.selected_modules == default_modules:
         missing_fields.append("selected_modules")
 
     return missing_fields

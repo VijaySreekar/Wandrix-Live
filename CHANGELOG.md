@@ -9,6 +9,315 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-21 - Moved Saved Trips Into Global Navigation And Removed Brochure Shortcut From Chat
+
+Technical Summary:
+- Added `Saved Trips` to the shared top navigation directly beside `Chat` and updated nav active-state logic so brochure detail routes also resolve under the saved-trips section.
+- Replaced the chat sidebar footer brochure shortcut with an empty `Configuration` placeholder control so the chat workspace stays focused on conversation and the live board.
+- Renamed the `/trips` library heading and empty-state copy from brochure-centric wording to `Saved Trips` so the destination page matches the new navigation label.
+
+Plain-English Summary:
+- Saved trips now have a clear place in the main navbar instead of being tucked into the chat sidebar.
+- The chat page no longer advertises brochures in a place that feels off-flow, and there is now a placeholder for future trip configuration work.
+- The saved-trips page wording now matches what people will expect after clicking the new nav item.
+
+Files / Areas Touched:
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/app/app-nav-links.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/trips/trip-library.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-21 Through PI-25 Resume Summaries, Provider Discipline, Evaluation Set, Regressions, And Observability
+
+Technical Summary:
+- Extended planner turn summaries so they now store structured resume state including compact summary text, open fields, next open question, and active planner focus.
+- Reworked provider activation so readiness is evaluated through structured signals instead of only broad missing-field checks, and passed allowed-module gating into provider enrichment.
+- Updated assistant behavior so Quick Plan can explicitly wait on missing provider readiness instead of sounding like live planning already started.
+- Added a fixed evaluation fixture set for planner scenarios covering broad asks, rough timing, corrections, rejections, soft approvals, explicit confirmation, profile-context handling, and module-scope narrowing.
+- Added new runtime regressions for resume summaries, provider gating, non-flight Quick Plan readiness, and evaluation-set integrity, plus structured `planner_observability` metadata in the runner for easier debugging.
+
+Plain-English Summary:
+- Wandrix now remembers the last meaningful planning turn in a much more useful way, so resumed trips should feel less like starting over.
+- The planner is also more disciplined about when it triggers live provider work. It now waits for the brief to be strong enough and tells the truth if Quick Plan is selected but still blocked by missing certainty.
+- On top of that, the repo now has a fixed planner evaluation pack and better runtime observability, which makes future planner improvements easier to measure and debug.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/fixtures/planner_evaluation_cases.json`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-19 And PI-20 Stronger Quick-Plan Timelines And Applied Option Memory
+
+Technical Summary:
+- Strengthened the quick-plan drafting prompt so itinerary previews ask for clearer day shape, thematic pacing, destination-specific anchors, route-like sequencing, and weather-aware adaptation instead of generic city-break filler.
+- Added preview refinement in timeline assembly so vague arrival, departure, and check-in placeholder blocks are filtered out when provider-backed flight or hotel anchors already cover those moments.
+- Added destination-suggestion filtering against rejected destination memory, plus cleaner destination-card deduping, so stale rejected places do not keep resurfacing on the board.
+- Added option-memory reconciliation so newly rejected options stop lingering as active mentions, and explicitly reintroduced options are removed from rejected memory when the user brings them back into consideration.
+- Added regression coverage for quick-plan prompt quality, timeline-anchor filtering, rejected-destination suggestion filtering, and reintroduced-destination memory behavior, then re-ran the full backend suite successfully.
+
+Plain-English Summary:
+- Wandrix now produces stronger first-draft trip timelines and makes better use of planning memory.
+- Quick plans are less likely to feel like generic filler because the drafting rules now push for more coherent day structure, and the timeline merge stops vague arrival/check-in placeholders from crowding out real flight or hotel anchors.
+- The planner also remembers rejected destinations more usefully now: if you ruled out Prague, it should stop reappearing as a fresh suggestion, but if you later bring Prague back yourself, Wandrix can accept that change cleanly.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_quick_plan_quality.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-17 And PI-18 Softer Profile Defaults And Explicit Planning-Mode Gating
+
+Technical Summary:
+- Strengthened the planner understanding prompt so saved profile context is treated as personalization and soft grounding, not as structured trip data to copy into fields by default.
+- Removed the runner behavior that auto-promoted resolved location context into `from_location` during brief confirmation, which prevented saved home-base data from silently becoming a locked departure point.
+- Updated assistant response framing so opening, shaping, and brief-confirmation replies can mention a saved home base as an optional starting point without presenting it as a confirmed trip fact.
+- Tightened planning-mode semantics in both response selection and planner memory so Quick Plan or Advanced Planning fallback copy only appears when the mode request was actually accepted, and decision history only records planning-mode events when they were truly selected.
+- Added regression coverage for soft profile-context handling, prompt guidance around explicit planning-mode semantics, ignored weak pre-confirmation quick-mode requests, and accepted explicit post-confirmation quick-mode requests, then re-ran the full backend suite successfully.
+
+Plain-English Summary:
+- Wandrix now uses saved profile data in a much safer way. It can still use your saved home base to help the conversation along, but it no longer quietly turns that into the trip's departure airport or city unless you actually adopt it.
+- The planner is also clearer about Quick Plan versus Advanced Planning. A vague `go ahead` no longer acts like a mode choice, but a clear request to build the draft still works once the trip brief is strong enough.
+- Together, those changes make the planner feel more trustworthy because it is less likely to over-assume what you meant.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/location_context.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `backend/tests/test_planner_understanding.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-15 And PI-16 Earlier Shaping And Clearer Planner Framing
+
+Technical Summary:
+- Updated planner phase logic so a trip can move into `shaping_trip` once it has a destination plus usable timing, instead of waiting for every secondary requirement to be filled first.
+- Added an early-draft readiness check in conversation-state handling and updated turn summaries so the planner records when it has enough signal for a useful first direction.
+- Reworked assistant response framing so shaping replies now describe the working trip shape, call out provisional assumptions, and name the highest-value next confirmation.
+- Tightened the decision-card response path so it carries the same early-draft momentum language when the board is leading the next choice.
+- Added regression coverage for early shaping transitions, shaping-response wording, and the decision-card response branch, then re-ran the full backend suite successfully.
+
+Plain-English Summary:
+- Wandrix now starts acting like a planner earlier in the conversation instead of over-questioning once it already has a solid destination and rough timing.
+- The assistant also explains itself more clearly now: it tells you what trip shape it is currently working with, what still feels provisional, and what answer would help most next.
+- That makes the experience feel less like a form and more like a confident planning partner.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-13 And PI-14 Destination Suggestion And Decision Card Discipline
+
+Technical Summary:
+- Tightened suggestion-board gating so destination shortlist cards only remain visible while the destination is still unresolved, and clear cleanly when the user switches to `own choice`.
+- Reworked fallback decision cards to be more contextual around timing shape, departure choice, and trip feel, replacing the most generic placeholder-style variants.
+- Added deterministic decision-card filtering in planner state so filler cards like `Next trip decisions` or placeholder option lists do not survive into the board, and added assistant response framing for decision-card mode that references the real next choice.
+- Added regression tests for stale-destination-card clearing, contextual default cards, filler-card filtering, and decision-card response framing, then re-ran the full backend suite successfully.
+
+Plain-English Summary:
+- Wandrix is now more disciplined about when it shows destination suggestions and when it moves on.
+- If the user decides to type their own destination, the shortlist clears instead of lingering visually, and once the destination is concrete the board stops acting like the trip is still in exploration mode.
+- Decision cards also feel more intentional now because generic filler cards get filtered out and the defaults are tied to real trip choices instead of templated prompts.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-11 And PI-12 Traveller And Module-Scope Semantics
+
+Technical Summary:
+- Strengthened the planner understanding prompt so traveller composition is handled more carefully: explicit counts are captured normally, couples can map to a soft `adults=2` inference when clear, and family or child context without counts no longer invites invented numbers.
+- Strengthened the prompt's module-scope rules so requests like `just activities`, `I already booked flights`, or `hotels later` update `selected_modules` meaningfully instead of leaving every module active by default.
+- Updated the default planner follow-up copy so traveller questions ask about group makeup and children explicitly, module-scope questions ask what Wandrix should actually help with first, and the default all-modules state is now treated as unresolved scope in missing-field logic.
+- Added regression tests for the new prompt guidance, default question wording, inferred module-scope narrowing, and the updated missing-field behavior, then re-ran the full backend suite successfully.
+
+Plain-English Summary:
+- Wandrix now handles group makeup and module focus more like a real planner.
+- A family trip no longer tempts the planner into inventing exact adult and child counts, and traveller follow-ups now ask in a way that naturally covers children too.
+- The planner is also much better at understanding what parts of the trip you actually want help with, instead of quietly assuming it should plan every module just because the app can.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/details_collection.py`
+- `backend/tests/test_planner_understanding.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-09 And PI-10 Tentative Origin And Budget Nuance
+
+Technical Summary:
+- Strengthened the planner understanding prompt so tentative origin phrasing can stay provisional, allowing one inferred working origin while preserving fallback or comparison origins in `mentioned_options` instead of collapsing them into a hard route.
+- Strengthened the prompt's budget rules so mixed signals like `not too expensive`, `keep hotels sensible`, and `happy to splurge on food` are treated as nuanced posture hints rather than direct keyword-to-label mappings.
+- Updated the default planner follow-up copy so origin questions ask for the user's most likely departure point and budget questions ask about tradeoffs and splurge-vs-sensible choices more naturally.
+- Added regression tests for the new prompt guidance plus the updated open-question wording, then re-ran the full backend suite successfully.
+
+Plain-English Summary:
+- Wandrix now handles soft origin language and nuanced budget language more like a real planner.
+- If someone says they would probably leave from London but Manchester could work too, the planner is now guided to keep that route provisional instead of treating it like a fully locked departure point.
+- Budget follow-ups also sound more natural now and are better at capturing mixed tradeoffs instead of forcing a blunt label too early.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/tests/test_planner_understanding.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-08 Rough Timing Preservation And Re-Verified PI-07
+
+Technical Summary:
+- Strengthened the planner understanding prompt with explicit rough-timing rules and examples so phrases like `early October`, `around Easter`, `sometime in spring`, `long weekend`, and `five-ish days` are kept in `travel_window` and `trip_length` unless the user gave fixed dates.
+- Added timing-aware merge normalization in `draft_merge.py` so inferred exact dates no longer override rough timing, confirmed rough timing clears stale exact dates, and confirmed exact dates clear stale rough timing.
+- Added dedicated backend regression coverage for rough-timing merge behavior plus prompt-level coverage for the updated understanding rules, which also re-verified the PI-07 ambiguity-preservation contract.
+- Re-ran the full backend suite successfully after the timing changes landed.
+
+Plain-English Summary:
+- Wandrix now handles fuzzy timing much more safely.
+- If a user says something like `early October for five-ish days`, the planner keeps that broad timing instead of silently inventing exact dates.
+- The timing state also cleans itself up better now when a trip moves from rough timing to exact dates, or back from exact dates to rough timing.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/draft_merge.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/tests/test_planner_timing_merge.py`
+- `backend/tests/test_planner_understanding.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-06 And PI-07 Question Ranking And Ambiguity Preservation
+
+Technical Summary:
+- Added structured planner question updates with `field`, `step`, `priority`, and `why`, then extended persisted `ConversationQuestion` state to store that metadata instead of relying on loose question strings alone.
+- Reworked open-question merging so Wandrix now ranks questions deterministically, dedupes them by field and planning step, normalizes early timing asks toward `travel_window` and `trip_length`, and marks no-longer-relevant questions as `answered`.
+- Strengthened the planner understanding prompt with explicit ambiguity-preservation rules and examples covering broad destination asks, tentative origin language, rough timing, and uncertain traveller counts.
+- Added backend regression tests for question ranking, answered-question lifecycle, and prompt content, then re-ran the full backend suite successfully.
+
+Plain-English Summary:
+- Wandrix now asks better follow-up questions in a better order.
+- Instead of piling up random prompts, it keeps structured question objects and pushes the highest-value next question to the top, like asking for the destination before drilling into exact timing details.
+- The planner prompt is also now much more explicit about staying broad when the user is broad, which makes it less likely to overcommit too early.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/types/trip-conversation.ts`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Completed PI-02 Source-Semantics Verification
+
+Technical Summary:
+- Re-ran the current `PI-02` per-field source semantics verification suite against the existing planner patch with targeted backend planner tests, backend compile checks, frontend production build, and frontend lint.
+- Confirmed `backend/tests/test_planner_bootstrap.py` and `backend/tests/test_planner_merge_semantics.py` still pass, `backend/app` compiles cleanly, `frontend` builds successfully, and lint now runs cleanly apart from one existing `@next/next/no-img-element` warning in `frontend/src/components/package/trip-suggestion-board.tsx`.
+- Used Playwright MCP against the existing signed-in `/chat` session to verify that the planner-source change remains stable while the live chat shell is still blocked separately: the board stays on `Loading your planning board.`, the composer remains disabled, and triggering `New Trip` produced no non-static network requests.
+- Updated the planner boundary tracker to record the third `testing done once` pass for `PI-02` and moved the tracker status from `reviewing` to `done`.
+
+Plain-English Summary:
+- The source-tracking planner improvement has now been checked three times and is complete in the tracker.
+- The core planner logic still behaves correctly and the app continues to build, lint, and pass its targeted tests.
+- The only thing still visibly broken in live chat is the existing board-loading shell issue, which appears separate from the `PI-02` planner change itself.
+
+Files / Areas Touched:
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Added Structured Planner Field Source Semantics
+
+Technical Summary:
+- Added a structured `field_sources` contract to the planner turn schema so the LLM can explicitly mark whether a touched field came from direct user intent, softer inference, profile context, or assistant-derived reasoning.
+- Extended planner field-memory merges to persist those source semantics, treat board-confirmed facts as a first-class `board_action` source, and still count board-originated values as confirmed state for downstream status and response-building logic.
+- Added backend regression coverage for profile-default and assistant-derived source paths plus board-confirmation source handling, and updated the planner boundary tracker to mark `PI-02` as implemented and under review.
+- Updated the shared frontend trip-conversation type contract so persisted field memory can safely represent the new `board_action` source.
+
+Plain-English Summary:
+- The planner can now tell the difference between a fact the user typed, something it is inferring, a saved profile default, and a value the user confirmed on the board.
+- That makes the trip state more trustworthy because the app no longer has to pretend every confirmed detail came from chat text.
+- This gives us a cleaner foundation for later clarification, correction, and profile-context work without slipping into brittle heuristics.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/types/trip-conversation.ts`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Finished PI-04 And PI-05 Correction And Confirmation Semantics
+
+Technical Summary:
+- Added explicit corrected-field detection in the planner merge path so confirmed field changes are now recognized as structured corrections rather than only appearing as rejected-option fallout.
+- Recorded first-class `Trip details corrected` decision-history events with before-and-after descriptions, which gives the planner an explicit history of user corrections instead of relying only on inferred side effects.
+- Updated trip-brief confirmation resolution so a later confirmed correction invalidates earlier `Trip details confirmed` history until the user confirms the revised brief again.
+- Routed the suggestion-board and assistant response layers through the same resolved `brief_confirmed` value from the runner, preventing them from treating stale historical confirmation as current truth after a correction.
+- Added targeted regression coverage for correction-triggered reconfirmation behavior and re-ran the full backend test suite successfully.
+
+Plain-English Summary:
+- Wandrix now handles "actually, change this" moments much more cleanly.
+- If a user corrects a confirmed trip detail, the planner now treats that as a real correction event and stops pretending the old confirmation still applies.
+- That means the board and assistant are less likely to push the user forward as if the brief were still locked when it really needs a fresh confirmation.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Verified PI-03 Explicit Vs Inferred Merge Protection
+
+Technical Summary:
+- Verified that planner field-memory merge precedence now keeps stronger explicit provenance attached to stable trip facts when later turns only mention alternatives or softer inferred possibilities.
+- Confirmed through the targeted planner merge suite that a later inferred turn does not silently downgrade a previously explicit confirmed field and that explicit corrections still replace earlier inferred values cleanly.
+- Re-ran the full backend test suite after the PI-01 follow-up changes to ensure the explicit-vs-inferred protections remain intact in the current planner codebase.
+- Marked PI-03 as done in the planner intelligence tracker with an updated progress note reflecting the verification pass.
+
+Plain-English Summary:
+- The planner now reliably keeps clearly confirmed facts feeling confirmed, even if a later message brings up another option more casually.
+- That means Wandrix is less likely to quietly weaken a destination or route that the user had already made clear.
+- I treated this as a verification-and-closeout step rather than adding duplicate code, because the protection is already present and passing tests.
+
+Files / Areas Touched:
+- `docs/planner-intelligence-boundaries.md`
+- `CHANGELOG.md`
+
 ## 2026-04-21 - Hydrated Legacy Planner Confidence Memory And Verified PI-01 Live
 
 Technical Summary:

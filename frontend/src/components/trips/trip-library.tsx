@@ -1,10 +1,21 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  BookOpen,
+  Calendar,
+  Download,
+  Loader2,
+  MapPin,
+  MessageCircle,
+  Plus,
+  Search,
+} from "lucide-react";
 
 import { downloadTripBrochurePdf } from "@/lib/api/brochures";
 import { listTrips } from "@/lib/api/trips";
+import { getLiveDestinationImage } from "@/components/package/trip-board-cards";
 import { formatTripWindowDisplay } from "@/lib/trip-timing";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TripListItemResponse } from "@/types/trip";
@@ -22,245 +33,330 @@ export function TripLibrary() {
     async function loadTrips() {
       setIsLoading(true);
       setError(null);
-
       try {
         const supabase = createSupabaseBrowserClient();
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError || !session?.access_token) {
           throw new Error("Sign in to view your saved trips.");
         }
-
         const response = await listTrips(50, session.access_token);
-
-        if (!cancelled) {
-          setTrips(response.items);
-        }
+        if (!cancelled) setTrips(response.items);
       } catch (caughtError) {
         if (!cancelled) {
-          setError(
-            caughtError instanceof Error
-              ? caughtError.message
-              : "Could not load saved trips.",
-          );
+          setError(caughtError instanceof Error ? caughtError.message : "Could not load saved trips.");
         }
       } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        if (!cancelled) setIsLoading(false);
       }
     }
 
     void loadTrips();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  const brochureTrips = useMemo(
-    () =>
-      trips.filter((trip) => {
-        return trip.brochure_ready && matchesTripQuery(trip, query);
-      }),
-    [query, trips],
-  );
+  const { brochureTrips, inProgressTrips } = useMemo(() => {
+    const lowerQuery = query.trim().toLowerCase();
+    const filtered = lowerQuery
+      ? trips.filter((t) => matchesTripQuery(t, lowerQuery))
+      : trips;
+    return {
+      brochureTrips: filtered.filter((t) => t.brochure_ready),
+      inProgressTrips: filtered.filter((t) => !t.brochure_ready),
+    };
+  }, [query, trips]);
 
   async function handleDownloadPdf(trip: TripListItemResponse) {
-    if (!trip.latest_brochure_snapshot_id || downloadingTripId === trip.trip_id) {
-      return;
-    }
-
+    if (!trip.latest_brochure_snapshot_id || downloadingTripId === trip.trip_id) return;
     setDownloadingTripId(trip.trip_id);
-
     try {
       const supabase = createSupabaseBrowserClient();
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-
-      if (sessionError || !session?.access_token) {
-        throw new Error("Sign in to download brochure PDFs.");
-      }
-
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) throw new Error("Sign in to download brochure PDFs.");
       const { blob, fileName } = await downloadTripBrochurePdf(
         trip.trip_id,
         trip.latest_brochure_snapshot_id,
         session.access_token,
       );
-
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       URL.revokeObjectURL(url);
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Could not download the brochure PDF.",
-      );
+      setError(caughtError instanceof Error ? caughtError.message : "Could not download the brochure PDF.");
     } finally {
       setDownloadingTripId(null);
     }
   }
 
   return (
-    <section className="grid gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-4 rounded-xl border border-shell-border bg-shell px-5 py-4">
+    <div className="mx-auto max-w-5xl pb-20 pt-2">
+
+      {/* ── HEADER ──────────────────────────────────────────────── */}
+      <div className="mb-8 flex items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            Saved brochures
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm leading-7 text-foreground/70">
-            Only finalized trips appear here. Each card represents a brochure-ready
-            trip with its latest saved version, PDF download, and version history.
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Saved Trips</h1>
+          <p className="mt-1 text-sm text-foreground/45">
+            {isLoading
+              ? "Loading..."
+              : trips.length === 0
+                ? "No trips yet."
+                : brochureTrips.length + (brochureTrips.length === 1 ? " finalized" : " finalized") +
+                  (inProgressTrips.length > 0 ? " · " + inProgressTrips.length + " in progress" : "")}
           </p>
         </div>
         <Link
           href="/chat?new=1"
-          className="rounded-md bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-strong"
+          className="flex items-center gap-2 rounded-full bg-[color:var(--accent)] px-5 py-2 text-sm font-semibold text-white transition hover:opacity-90"
         >
-          Start new trip
+          <Plus className="h-4 w-4" />
+          New trip
         </Link>
       </div>
 
-      <div className="rounded-xl border border-shell-border bg-shell px-5 py-4">
+      {/* ── SEARCH ──────────────────────────────────────────────── */}
+      <div className="relative mb-10">
+        <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground/30" />
         <input
           type="search"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search finalized brochures by title, city, or module"
-          className="w-full rounded-md border border-shell-border bg-panel px-3 py-2 text-sm text-foreground outline-none placeholder:text-foreground/45 focus:border-accent/40"
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search destinations, titles..."
+          className="w-full rounded-xl border border-[color:var(--planner-board-border)] bg-white py-2.5 pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-foreground/35 focus:border-[color:var(--accent)]/40 focus:ring-2 focus:ring-[color:var(--accent)]/10 transition"
         />
       </div>
 
+      {/* ── STATES ──────────────────────────────────────────────── */}
       {isLoading ? (
-        <div className="rounded-xl border border-shell-border bg-shell px-5 py-5 text-sm text-foreground/70">
-          Loading your saved brochures...
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-6 w-6 animate-spin text-foreground/25" />
         </div>
       ) : error ? (
-        <div className="rounded-xl border border-shell-border bg-shell px-5 py-5 text-sm text-foreground/70">
-          {error}
-        </div>
-      ) : brochureTrips.length === 0 && trips.length === 0 ? (
-        <div className="rounded-xl border border-shell-border bg-shell px-5 py-5 text-sm text-foreground/70">
-          You do not have any finalized brochures yet. Confirm a trip in chat and it will appear here once the brochure version is saved.
-        </div>
-      ) : brochureTrips.length === 0 ? (
-        <div className="rounded-xl border border-shell-border bg-shell px-5 py-5 text-sm text-foreground/70">
-          No finalized brochures match that search yet.
-        </div>
+        <p className="text-sm text-foreground/50">{error}</p>
+      ) : trips.length === 0 ? (
+        <EmptyLibrary />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {brochureTrips.map((trip) => (
-            <article
-              key={trip.trip_id}
-              className="rounded-xl border border-shell-border bg-shell p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold text-foreground">{trip.title}</h2>
-                  <p className="mt-1 text-sm text-foreground/60">
-                    Finalized brochure | v{trip.latest_brochure_version ?? 1}
-                  </p>
-                </div>
-                <span className="rounded-md border border-shell-border bg-panel px-2 py-1 text-xs text-foreground/60">
-                  {formatDate(trip.updated_at)}
-                </span>
-              </div>
+        <div className="space-y-12">
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Link
-                  href={`/brochure/${trip.trip_id}`}
-                  className="rounded-md border border-shell-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-panel"
-                >
-                  Open brochure
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadPdf(trip)}
-                  className="rounded-md border border-shell-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-panel"
-                >
-                  {downloadingTripId === trip.trip_id ? "Preparing PDF..." : "Download PDF"}
-                </button>
-                <Link
-                  href={`/brochure/${trip.trip_id}#history`}
-                  className="rounded-md border border-shell-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-panel"
-                >
-                  View history
-                </Link>
+          {/* Finalized brochures */}
+          {brochureTrips.length > 0 && (
+            <section>
+              <p className="mb-5 text-xs font-semibold uppercase tracking-widest text-foreground/35">
+                Finalized
+              </p>
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {brochureTrips.map((trip) => (
+                  <BrochureCard
+                    key={trip.trip_id}
+                    trip={trip}
+                    isDownloading={downloadingTripId === trip.trip_id}
+                    onDownload={() => handleDownloadPdf(trip)}
+                  />
+                ))}
               </div>
+            </section>
+          )}
 
-              <div className="mt-4 rounded-lg border border-shell-border bg-panel px-3 py-3">
-                <p className="text-sm font-medium text-foreground">
-                  {formatRoute(trip)}
-                </p>
-                <p className="mt-1 text-sm text-foreground/62">
-                  {formatTripWindow(trip)}
-                </p>
+          {/* In progress */}
+          {inProgressTrips.length > 0 && (
+            <section>
+              <p className="mb-5 text-xs font-semibold uppercase tracking-widest text-foreground/35">
+                In progress
+              </p>
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {inProgressTrips.map((trip) => (
+                  <InProgressCard key={trip.trip_id} trip={trip} />
+                ))}
               </div>
+            </section>
+          )}
 
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {trip.selected_modules.length > 0 ? (
-                  trip.selected_modules.map((moduleName) => (
-                    <span
-                      key={moduleName}
-                      className="rounded-md border border-shell-border bg-panel px-2 py-1 text-[11px] text-foreground/62"
-                    >
-                      {moduleName}
-                    </span>
-                  ))
-                ) : (
-                  <span className="rounded-md border border-shell-border bg-panel px-2 py-1 text-[11px] text-foreground/62">
-                    Modules still open
-                  </span>
-                )}
-              </div>
-
-              <dl className="mt-5 grid gap-3 text-sm text-foreground/68">
-                <div>
-                  <dt className="text-xs font-medium text-foreground/52">Timeline</dt>
-                  <dd className="mt-1 font-medium text-foreground">
-                    {trip.timeline_item_count} planned items
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-foreground/52">Thread</dt>
-                  <dd className="mt-1 font-medium text-foreground">{trip.thread_id}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-foreground/52">Created</dt>
-                  <dd className="mt-1">{formatDate(trip.created_at)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-foreground/52">Brochure</dt>
-                  <dd className="mt-1 font-medium text-foreground">
-                    v{trip.latest_brochure_version ?? 1} | {trip.brochure_versions_count} saved versions
-                  </dd>
-                </div>
-              </dl>
-            </article>
-          ))}
+          {brochureTrips.length === 0 && inProgressTrips.length === 0 && (
+            <p className="py-12 text-center text-sm text-foreground/40">
+              No trips match that search.
+            </p>
+          )}
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
-function formatRoute(trip: TripListItemResponse) {
-  if (trip.from_location || trip.to_location) {
-    return `${trip.from_location ?? "Origin"} to ${trip.to_location ?? "Destination"}`;
-  }
+// ── BROCHURE CARD ─────────────────────────────────────────────────────────────
 
-  return "Route still being shaped";
+function BrochureCard({
+  trip,
+  isDownloading,
+  onDownload,
+}: {
+  trip: TripListItemResponse;
+  isDownloading: boolean;
+  onDownload: () => void;
+}) {
+  const destination = trip.to_location ?? null;
+  const travelWindow = formatTripWindow(trip);
+
+  return (
+    <article className="group flex flex-col overflow-hidden rounded-2xl border border-[color:var(--planner-board-border)] bg-white transition hover:shadow-[0_4px_20px_rgba(0,0,0,0.07)]">
+
+      {/* Image */}
+      <Link href={"/brochure/" + trip.trip_id} className="relative block shrink-0 overflow-hidden" style={{ height: "7.5rem" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={getLiveDestinationImage(destination)}
+          alt={destination ?? "Destination"}
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
+        {trip.latest_brochure_version && (
+          <span className="absolute right-3 top-3 rounded-full bg-black/30 px-2.5 py-0.5 text-[10px] font-semibold text-white/90 backdrop-blur-sm">
+            v{trip.latest_brochure_version}
+          </span>
+        )}
+      </Link>
+
+      {/* Body */}
+      <div className="flex flex-1 flex-col px-4 py-4">
+        <p className="truncate text-sm font-semibold text-foreground">
+          {destination ?? trip.title}
+        </p>
+
+        <div className="mt-1.5 flex items-center gap-3 text-xs text-foreground/45">
+          {(trip.from_location || destination) && (
+            <span className="flex items-center gap-1 truncate">
+              <MapPin className="h-3 w-3 shrink-0" />
+              {formatRouteShort(trip)}
+            </span>
+          )}
+          <span className="flex items-center gap-1 shrink-0">
+            <Calendar className="h-3 w-3 shrink-0" />
+            {travelWindow}
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div className="my-3.5 border-t border-[color:var(--planner-board-border)]" />
+
+        {/* Actions — single text row */}
+        <div className="flex items-center gap-1">
+          <Link
+            href={"/brochure/" + trip.trip_id}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[color:var(--accent)] transition hover:bg-[color:var(--accent)]/8"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            Open
+          </Link>
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={isDownloading}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-foreground/45 transition hover:bg-[color:var(--planner-board-soft)] hover:text-foreground/70 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isDownloading
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Download className="h-3.5 w-3.5" />}
+            PDF
+          </button>
+          <Link
+            href={"/chat?trip=" + trip.trip_id}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-foreground/45 transition hover:bg-[color:var(--planner-board-soft)] hover:text-foreground/70"
+          >
+            <MessageCircle className="h-3.5 w-3.5" />
+            Chat
+          </Link>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+// ── IN-PROGRESS CARD ──────────────────────────────────────────────────────────
+
+function InProgressCard({ trip }: { trip: TripListItemResponse }) {
+  const destination = trip.to_location ?? null;
+  const travelWindow = formatTripWindow(trip);
+  const phaseLabel = trip.phase ? trip.phase.replaceAll("_", " ") : "in progress";
+
+  return (
+    <article className="group flex flex-col overflow-hidden rounded-2xl border border-[color:var(--planner-board-border)] bg-white transition hover:shadow-[0_4px_20px_rgba(0,0,0,0.07)]">
+
+      {/* Image */}
+      <Link href={"/chat?trip=" + trip.trip_id} className="relative block shrink-0 overflow-hidden" style={{ height: "7.5rem" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={getLiveDestinationImage(destination)}
+          alt={destination ?? "Destination"}
+          className="h-full w-full object-cover opacity-70 transition-transform duration-500 group-hover:scale-105"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/5 to-transparent" />
+        <span className="absolute right-3 top-3 rounded-full bg-black/28 px-2.5 py-0.5 text-[10px] font-medium capitalize text-white/80 backdrop-blur-sm">
+          {phaseLabel}
+        </span>
+      </Link>
+
+      {/* Body */}
+      <div className="flex flex-1 flex-col px-4 py-4">
+        <p className="truncate text-sm font-semibold text-foreground/70">
+          {destination ?? trip.title}
+        </p>
+
+        <div className="mt-1.5 flex items-center gap-3 text-xs text-foreground/38">
+          {(trip.from_location || destination) && (
+            <span className="flex items-center gap-1 truncate">
+              <MapPin className="h-3 w-3 shrink-0" />
+              {formatRouteShort(trip)}
+            </span>
+          )}
+          <span className="flex items-center gap-1 shrink-0">
+            <Calendar className="h-3 w-3 shrink-0" />
+            {travelWindow}
+          </span>
+        </div>
+
+        <div className="my-3.5 border-t border-[color:var(--planner-board-border)]" />
+
+        <Link
+          href={"/chat?trip=" + trip.trip_id}
+          className="flex items-center gap-1.5 self-start rounded-lg px-2.5 py-1.5 text-xs font-medium text-foreground/45 transition hover:bg-[color:var(--planner-board-soft)] hover:text-foreground/70"
+        >
+          <MessageCircle className="h-3.5 w-3.5" />
+          Continue planning
+        </Link>
+      </div>
+    </article>
+  );
+}
+
+// ── EMPTY STATE ───────────────────────────────────────────────────────────────
+
+function EmptyLibrary() {
+  return (
+    <div className="py-24 text-center">
+      <p className="text-sm font-medium text-foreground/50">No saved trips yet</p>
+      <p className="mt-1.5 text-sm text-foreground/35">
+        Your in-progress and finalized trips will appear here once you start planning.
+      </p>
+      <Link
+        href="/chat?new=1"
+        className="mt-6 inline-flex items-center gap-2 rounded-full bg-[color:var(--accent)] px-5 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+      >
+        <Plus className="h-4 w-4" />
+        Start a trip
+      </Link>
+    </div>
+  );
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+
+function formatRouteShort(trip: TripListItemResponse) {
+  if (trip.from_location && trip.to_location) return trip.from_location + " → " + trip.to_location;
+  if (trip.to_location) return trip.to_location;
+  if (trip.from_location) return trip.from_location;
+  return "";
 }
 
 function formatTripWindow(trip: TripListItemResponse) {
@@ -271,32 +367,14 @@ function formatTripWindow(trip: TripListItemResponse) {
       travel_window: trip.travel_window,
       trip_length: trip.trip_length,
     },
-    { emptyLabel: "Travel dates still open" },
+    { emptyLabel: "Dates open" },
   );
 }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-  }).format(new Date(value));
-}
-
-function matchesTripQuery(trip: TripListItemResponse, query: string) {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) {
-    return true;
-  }
-
-  const searchableText = [
-    trip.title,
-    trip.from_location,
-    trip.to_location,
-    trip.phase,
-    ...trip.selected_modules,
-  ]
+function matchesTripQuery(trip: TripListItemResponse, lowerQuery: string) {
+  return [trip.title, trip.from_location, trip.to_location, trip.phase, ...trip.selected_modules]
     .filter(Boolean)
     .join(" ")
-    .toLowerCase();
-
-  return searchableText.includes(normalizedQuery);
+    .toLowerCase()
+    .includes(lowerQuery);
 }

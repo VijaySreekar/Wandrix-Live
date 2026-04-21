@@ -25,11 +25,13 @@ def build_module_outputs(
     configuration: TripConfiguration,
     previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
+    allowed_modules: set[str] | None = None,
 ) -> TripModuleOutputs:
     shared_destination_coordinates = _resolve_shared_destination_coordinates(
         configuration,
         previous_configuration,
         existing_module_outputs,
+        allowed_modules=allowed_modules,
     )
 
     return TripModuleOutputs(
@@ -37,23 +39,27 @@ def build_module_outputs(
             configuration,
             previous_configuration,
             existing_module_outputs,
+            allowed_modules=allowed_modules,
         ),
         hotels=_build_hotel_outputs(
             configuration,
             previous_configuration,
             existing_module_outputs,
+            allowed_modules=allowed_modules,
         ),
         weather=_build_weather_outputs(
             configuration,
             previous_configuration,
             existing_module_outputs,
             shared_destination_coordinates,
+            allowed_modules=allowed_modules,
         ),
         activities=_build_activity_outputs(
             configuration,
             previous_configuration,
             existing_module_outputs,
             shared_destination_coordinates,
+            allowed_modules=allowed_modules,
         ),
     )
 
@@ -65,7 +71,11 @@ def build_timeline(
     module_outputs: TripModuleOutputs,
     include_derived_when_preview_present: bool = True,
 ) -> list[TimelineItem]:
-    preview_items = [_to_timeline_item(item) for item in llm_preview]
+    preview_items = _refine_preview_timeline(
+        [_to_timeline_item(item) for item in llm_preview],
+        configuration=configuration,
+        module_outputs=module_outputs,
+    )
     derived_items = _build_derived_timeline(configuration, module_outputs)
     if preview_items and not include_derived_when_preview_present:
         return _merge_timeline_items(preview_items, derived_items)[:12]
@@ -96,9 +106,12 @@ def _build_flight_outputs(
     configuration: TripConfiguration,
     previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
+    allowed_modules: set[str] | None = None,
 ) -> list[FlightDetail]:
     if not configuration.selected_modules.flights:
         return []
+    if allowed_modules is not None and "flights" not in allowed_modules:
+        return existing_module_outputs.flights
     current_ready = _is_flight_search_ready(configuration)
     previous_ready = _is_flight_search_ready(previous_configuration)
 
@@ -120,9 +133,12 @@ def _build_hotel_outputs(
     configuration: TripConfiguration,
     previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
+    allowed_modules: set[str] | None = None,
 ) -> list[HotelStayDetail]:
     if not configuration.selected_modules.hotels:
         return []
+    if allowed_modules is not None and "hotels" not in allowed_modules:
+        return existing_module_outputs.hotels
     if not _is_hotel_search_ready(configuration):
         return existing_module_outputs.hotels
     if _is_hotel_search_ready(previous_configuration) and not _did_hotel_inputs_change(
@@ -142,9 +158,12 @@ def _build_weather_outputs(
     previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
     shared_destination_coordinates: Coordinates | None,
+    allowed_modules: set[str] | None = None,
 ) -> list[WeatherDetail]:
     if not configuration.selected_modules.weather:
         return []
+    if allowed_modules is not None and "weather" not in allowed_modules:
+        return existing_module_outputs.weather
     current_ready = _is_weather_search_ready(configuration)
     previous_ready = _is_weather_search_ready(previous_configuration)
 
@@ -170,9 +189,12 @@ def _build_activity_outputs(
     previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
     shared_destination_coordinates: Coordinates | None,
+    allowed_modules: set[str] | None = None,
 ) -> list[ActivityDetail]:
     if not configuration.selected_modules.activities:
         return []
+    if allowed_modules is not None and "activities" not in allowed_modules:
+        return existing_module_outputs.activities
     current_ready = _is_activity_search_ready(configuration)
     previous_ready = _is_activity_search_ready(previous_configuration)
 
@@ -197,9 +219,11 @@ def _resolve_shared_destination_coordinates(
     configuration: TripConfiguration,
     previous_configuration: TripConfiguration,
     existing_module_outputs: TripModuleOutputs,
+    allowed_modules: set[str] | None = None,
 ) -> Coordinates | None:
     weather_needs_refresh = (
         configuration.selected_modules.weather
+        and (allowed_modules is None or "weather" in allowed_modules)
         and _is_weather_search_ready(configuration)
         and (
             not _is_weather_search_ready(previous_configuration)
@@ -209,6 +233,7 @@ def _resolve_shared_destination_coordinates(
     )
     activity_needs_refresh = (
         configuration.selected_modules.activities
+        and (allowed_modules is None or "activities" in allowed_modules)
         and _is_activity_search_ready(configuration)
         and (
             not _is_activity_search_ready(previous_configuration)
@@ -406,6 +431,34 @@ def _merge_timeline_items(
     return merged_items
 
 
+def _refine_preview_timeline(
+    preview_items: list[TimelineItem],
+    *,
+    configuration: TripConfiguration,
+    module_outputs: TripModuleOutputs,
+) -> list[TimelineItem]:
+    if not preview_items:
+        return []
+
+    provider_anchors = _build_derived_timeline(configuration, module_outputs)
+    refined: list[TimelineItem] = []
+    seen_generic_keys: set[tuple[str, str | None]] = set()
+
+    for item in preview_items:
+        if _preview_item_conflicts_with_provider_anchor(item, provider_anchors):
+            continue
+
+        generic_key = _generic_preview_key(item)
+        if generic_key is not None:
+            if generic_key in seen_generic_keys:
+                continue
+            seen_generic_keys.add(generic_key)
+
+        refined.append(item)
+
+    return refined
+
+
 def _to_timeline_item(item: ProposedTimelineItem) -> TimelineItem:
     return TimelineItem(
         id=f"tl_{uuid4().hex[:10]}",
@@ -419,6 +472,62 @@ def _to_timeline_item(item: ProposedTimelineItem) -> TimelineItem:
         details=item.details,
         source_module=item.source_module,
     )
+
+
+def _preview_item_conflicts_with_provider_anchor(
+    preview_item: TimelineItem,
+    provider_anchors: list[TimelineItem],
+) -> bool:
+    category = _generic_preview_anchor_category(preview_item)
+    if category is None:
+        return False
+
+    for anchor in provider_anchors:
+        if preview_item.day_label and anchor.day_label and preview_item.day_label != anchor.day_label:
+            continue
+        if category == "arrival" and anchor.type == "flight" and "outbound" in anchor.title.lower():
+            return True
+        if category == "departure" and anchor.type == "flight" and "return" in anchor.title.lower():
+            return True
+        if category == "stay" and anchor.type == "hotel":
+            return True
+    return False
+
+
+def _generic_preview_key(item: TimelineItem) -> tuple[str, str | None] | None:
+    category = _generic_preview_anchor_category(item)
+    if category is None:
+        return None
+    return (category, item.day_label)
+
+
+def _generic_preview_anchor_category(item: TimelineItem) -> str | None:
+    normalized_title = item.title.lower()
+    normalized_summary = (item.summary or "").lower()
+    normalized_details = " ".join(item.details).lower()
+    combined = " ".join([normalized_title, normalized_summary, normalized_details])
+
+    if any(
+        phrase in combined
+        for phrase in ["arrive", "arrival", "land in", "touch down", "airport transfer"]
+    ):
+        return "arrival"
+    if any(
+        phrase in combined
+        for phrase in ["depart", "departure", "head home", "return flight", "fly home"]
+    ):
+        return "departure"
+    if any(
+        phrase in combined
+        for phrase in ["check in", "check-in", "settle into", "hotel arrival", "drop bags"]
+    ):
+        return "stay"
+    if item.type in {"activity", "meal", "note"} and any(
+        phrase in normalized_title
+        for phrase in ["explore the city", "dinner in town", "free time", "sightseeing"]
+    ):
+        return normalized_title
+    return None
 
 
 def _day_label_for_datetime(

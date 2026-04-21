@@ -6,6 +6,7 @@ from app.graph.planner.conversation_state import (
     build_conversation_state,
     build_status,
     compute_missing_fields_with_context,
+    detect_confirmed_field_corrections,
     is_trip_brief_confirmed,
 )
 from app.graph.planner.draft_merge import derive_trip_title, merge_trip_configuration
@@ -102,10 +103,16 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         if locked_without_reopen
         else merge_trip_configuration(previous_configuration, effective_input_update)
     )
+    corrected_fields = detect_confirmed_field_corrections(
+        previous_configuration=previous_configuration,
+        next_configuration=next_configuration,
+        llm_update=effective_input_update,
+    )
     brief_confirmed = is_trip_brief_confirmed(
         current_conversation,
         effective_input_update,
         state.get("board_action", {}),
+        corrected_fields=corrected_fields,
     )
     planning_mode, planning_mode_status = _resolve_next_planning_mode(
         current_conversation=current_conversation,
@@ -123,13 +130,6 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         preserve_existing_quick_plan=preserve_existing_quick_plan,
     )
     if (
-        brief_confirmed
-        and not next_configuration.from_location
-        and resolved_location_context
-        and resolved_location_context.summary
-    ):
-        next_configuration.from_location = resolved_location_context.summary
-    if (
         planning_mode == "quick"
         and next_configuration.selected_modules.weather
         and not any(
@@ -141,14 +141,15 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
             "Default the weather planning toward warmer, sunnier pacing unless the user says otherwise.",
             *effective_llm_update.active_goals,
         ]
-    should_enrich_modules = (
-        brief_confirmed
-        and planning_mode == "quick"
-        and not compute_missing_fields_with_context(
-            next_configuration,
-            resolved_location_context,
-        )
+    provider_activation = _evaluate_provider_activation(
+        current_conversation=current_conversation,
+        llm_update=effective_llm_update,
+        configuration=next_configuration,
+        brief_confirmed=brief_confirmed,
+        planning_mode=planning_mode,
     )
+    should_enrich_modules = provider_activation["quick_plan_ready"]
+    allowed_modules = set(provider_activation["allowed_modules"])
     if locked_without_reopen or preserve_existing_quick_plan:
         module_outputs = existing_module_outputs
         timeline = existing_timeline
@@ -158,6 +159,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
                 next_configuration,
                 previous_configuration,
                 existing_module_outputs,
+                allowed_modules=allowed_modules,
             )
             if should_enrich_modules
             else existing_module_outputs
@@ -222,8 +224,11 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         configuration=next_configuration,
         conversation=provisional_conversation,
         llm_update=effective_llm_update,
+        brief_confirmed=brief_confirmed,
         fallback_text=effective_input_update.assistant_response,
         locked_without_reopen=locked_without_reopen,
+        quick_plan_started=should_enrich_modules,
+        provider_activation=provider_activation,
         profile_context=state.get("profile_context", {}),
         board_action=state.get("board_action", {}),
         confirmation_status=confirmation_status,
@@ -306,6 +311,14 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
             "graph_bootstrapped": True,
             "turn_processed": True,
             "turn_id": turn_id,
+            "planner_observability": _build_planner_observability_snapshot(
+                configuration=next_configuration,
+                conversation=next_conversation,
+                provider_activation=provider_activation,
+                corrected_fields=corrected_fields,
+                locked_without_reopen=locked_without_reopen,
+                preserve_existing_quick_plan=preserve_existing_quick_plan,
+            ),
         },
     }
 
@@ -446,6 +459,201 @@ def _prepare_effective_llm_update(
 
 def _prepare_locked_turn_update(llm_update) -> TripTurnUpdate:
     return TripTurnUpdate(planner_intent=llm_update.planner_intent)
+
+
+def _evaluate_provider_activation(
+    *,
+    current_conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
+    configuration: TripConfiguration,
+    brief_confirmed: bool,
+    planning_mode: str | None,
+) -> dict:
+    scope_explicit = configuration.selected_modules != TripConfiguration().selected_modules
+    destination_snapshot = _projected_field_snapshot(
+        current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
+        field="to_location",
+    )
+    origin_snapshot = _projected_field_snapshot(
+        current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
+        field="from_location",
+    )
+    timing_snapshots = [
+        _projected_field_snapshot(
+            current_conversation=current_conversation,
+            llm_update=llm_update,
+            configuration=configuration,
+            field=field,
+        )
+        for field in ["start_date", "end_date", "travel_window", "trip_length"]
+    ]
+
+    destination_ready = _is_destination_ready(destination_snapshot)
+    timing_ready = _is_timing_ready(timing_snapshots)
+    origin_ready = _is_origin_ready(origin_snapshot)
+
+    if not brief_confirmed:
+        base_reasons = ["trip brief is not confirmed yet"]
+    elif planning_mode != "quick":
+        base_reasons = ["quick planning is not active"]
+    elif not scope_explicit:
+        base_reasons = ["module scope is still implicit"]
+    elif not destination_ready:
+        base_reasons = ["destination is not reliable enough yet"]
+    elif not timing_ready:
+        base_reasons = ["timing is not reliable enough yet"]
+    else:
+        base_reasons = []
+
+    allowed_modules: list[str] = []
+    blocked_modules: dict[str, list[str]] = {}
+    for module_name, enabled in configuration.selected_modules.model_dump(mode="json").items():
+        if not enabled:
+            continue
+
+        blockers = list(base_reasons)
+        if not blockers and module_name == "flights" and not origin_ready:
+            blockers.append("departure point is not reliable enough yet")
+
+        if blockers:
+            blocked_modules[module_name] = blockers
+            continue
+
+        allowed_modules.append(module_name)
+
+    return {
+        "brief_confirmed": brief_confirmed,
+        "planning_mode": planning_mode,
+        "scope_explicit": scope_explicit,
+        "destination_ready": destination_ready,
+        "timing_ready": timing_ready,
+        "origin_ready": origin_ready,
+        "quick_plan_ready": bool(allowed_modules),
+        "allowed_modules": allowed_modules,
+        "blocked_modules": blocked_modules,
+        "field_readiness": {
+            "destination": destination_snapshot,
+            "origin": origin_snapshot,
+            "timing": timing_snapshots,
+        },
+    }
+
+
+def _projected_field_snapshot(
+    *,
+    current_conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
+    configuration: TripConfiguration,
+    field: str,
+) -> dict:
+    source_by_field = {item.field: item.source for item in llm_update.field_sources}
+    confidence_by_field = {item.field: item.confidence for item in llm_update.field_confidences}
+    value = _get_configuration_value(configuration, field)
+    memory = current_conversation.memory.field_memory.get(field)
+
+    source = source_by_field.get(field)
+    if source is None and memory is not None and memory.value == value:
+        source = memory.source
+
+    confidence_level = confidence_by_field.get(field)
+    if confidence_level is None and memory is not None and memory.value == value:
+        confidence_level = memory.confidence_level
+
+    return {
+        "field": field,
+        "has_value": value not in (None, "", [], {}),
+        "value": value,
+        "source": source,
+        "confidence_level": confidence_level,
+    }
+
+
+def _is_destination_ready(snapshot: dict) -> bool:
+    if not snapshot["has_value"]:
+        return False
+    if snapshot["source"] in {"user_explicit", "board_action"}:
+        return True
+    if snapshot["source"] == "user_inferred" and snapshot["confidence_level"] in {"medium", "high"}:
+        return True
+    return False
+
+
+def _is_origin_ready(snapshot: dict) -> bool:
+    if not snapshot["has_value"]:
+        return False
+    if snapshot["source"] in {"user_explicit", "board_action"}:
+        return True
+    if snapshot["source"] == "user_inferred" and snapshot["confidence_level"] in {"medium", "high"}:
+        return True
+    return False
+
+
+def _is_timing_ready(snapshots: list[dict]) -> bool:
+    for snapshot in snapshots:
+        if not snapshot["has_value"]:
+            continue
+        if snapshot["source"] in {"user_explicit", "board_action"}:
+            return True
+        if snapshot["source"] == "user_inferred" and snapshot["confidence_level"] in {"medium", "high"}:
+            return True
+    return False
+
+
+def _build_planner_observability_snapshot(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    provider_activation: dict,
+    corrected_fields: list[str],
+    locked_without_reopen: bool,
+    preserve_existing_quick_plan: bool,
+) -> dict:
+    latest_turn_summary = (
+        conversation.memory.turn_summaries[-1]
+        if conversation.memory.turn_summaries
+        else None
+    )
+    return {
+        "phase": conversation.phase,
+        "planning_mode": conversation.planning_mode,
+        "planning_mode_status": conversation.planning_mode_status,
+        "confirmation_status": conversation.confirmation_status,
+        "last_turn_summary": conversation.last_turn_summary,
+        "open_question_count": len(
+            [question for question in conversation.open_questions if question.status == "open"]
+        ),
+        "changed_fields": list(latest_turn_summary.changed_fields) if latest_turn_summary else [],
+        "corrected_fields": corrected_fields,
+        "locked_without_reopen": locked_without_reopen,
+        "preserved_existing_quick_plan": preserve_existing_quick_plan,
+        "configuration_snapshot": {
+            "from_location": configuration.from_location,
+            "to_location": configuration.to_location,
+            "travel_window": configuration.travel_window,
+            "trip_length": configuration.trip_length,
+            "selected_modules": configuration.selected_modules.model_dump(mode="json"),
+        },
+        "provider_activation": provider_activation,
+    }
+
+
+def _get_configuration_value(
+    configuration: TripConfiguration,
+    field: str,
+):
+    if field == "adults":
+        return configuration.travelers.adults
+    if field == "children":
+        return configuration.travelers.children
+    if field == "activity_styles":
+        return configuration.activity_styles
+    if field == "selected_modules":
+        return configuration.selected_modules.model_dump(mode="json")
+    return getattr(configuration, field)
 
 
 def _is_reopen_requested(*, llm_update, board_action: dict) -> bool:

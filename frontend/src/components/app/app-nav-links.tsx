@@ -32,7 +32,8 @@ export function AppNavLinks({
         const isActive =
           pathname === item.href ||
           (item.href === "/chat" && pathname.startsWith("/chat")) ||
-          (item.href === "/brochure" && pathname.startsWith("/brochure"));
+          (item.href === "/trips" &&
+            (pathname.startsWith("/trips") || pathname.startsWith("/brochure")));
 
         return (
           <Link

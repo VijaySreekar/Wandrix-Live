@@ -4,10 +4,12 @@ from pydantic import BaseModel, Field
 
 from app.schemas.trip_conversation import (
     ConversationFieldConfidence,
+    ConversationFieldSource,
     ConversationOptionKind,
     PlannerIntent,
     PlannerPlanningMode,
     PlannerDecisionCard,
+    TripDetailsStepKey,
     TripFieldKey,
 )
 from app.schemas.trip_planning import (
@@ -64,6 +66,19 @@ class TripFieldConfidenceUpdate(BaseModel):
     confidence: ConversationFieldConfidence
 
 
+class TripFieldSourceUpdate(BaseModel):
+    field: TripFieldKey
+    source: ConversationFieldSource
+
+
+class TripOpenQuestionUpdate(BaseModel):
+    question: str = Field(..., min_length=1, max_length=240)
+    field: TripFieldKey | None = None
+    step: TripDetailsStepKey | None = None
+    priority: int = Field(default=3, ge=1, le=5)
+    why: str | None = Field(default=None, max_length=200)
+
+
 class TripTurnUpdate(BaseModel):
     title: str | None = None
     from_location: str | None = None
@@ -83,6 +98,8 @@ class TripTurnUpdate(BaseModel):
     confirmed_fields: list[TripFieldKey] = Field(default_factory=list)
     inferred_fields: list[TripFieldKey] = Field(default_factory=list)
     field_confidences: list[TripFieldConfidenceUpdate] = Field(default_factory=list)
+    field_sources: list[TripFieldSourceUpdate] = Field(default_factory=list)
+    open_question_updates: list[TripOpenQuestionUpdate] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     decision_cards: list[PlannerDecisionCard] = Field(default_factory=list)
     timeline_preview: list[ProposedTimelineItem] = Field(default_factory=list)

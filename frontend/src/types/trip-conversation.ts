@@ -38,7 +38,8 @@ export type ConversationFieldSource =
   | "user_explicit"
   | "user_inferred"
   | "profile_default"
-  | "assistant_derived";
+  | "assistant_derived"
+  | "board_action";
 export type ConversationFieldConfidence = "low" | "medium" | "high";
 
 export type ConversationOptionKind =
@@ -154,7 +155,9 @@ export type ConversationQuestion = {
   id: string;
   question: string;
   field?: TripFieldKey | null;
+  step?: TripDetailsStepKey | null;
   priority: number;
+  why?: string | null;
   status: ConversationQuestionStatus;
 };
 

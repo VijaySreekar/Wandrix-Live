@@ -9,7 +9,11 @@ from app.graph.planner.suggestion_board import (
     build_destination_mentioned_options,
     build_suggestion_board_state,
 )
-from app.graph.planner.turn_models import ConversationOptionCandidate, TripTurnUpdate
+from app.graph.planner.turn_models import (
+    ConversationOptionCandidate,
+    TripOpenQuestionUpdate,
+    TripTurnUpdate,
+)
 from app.schemas.conversation import ConversationBoardAction
 from app.schemas.trip_conversation import (
     ConversationDecisionEvent,
@@ -24,6 +28,7 @@ from app.schemas.trip_conversation import (
     PlannerPlanningMode,
     PlannerPlanningModeStatus,
     PlannerDecisionCard,
+    TripDetailsStepKey,
     TripConversationMemory,
     TripConversationState,
     TripFieldKey,
@@ -112,6 +117,7 @@ def build_conversation_state(
         llm_update=llm_update,
         resolved_location_context=resolved_location_context,
         board_action=board_action or {},
+        brief_confirmed=brief_confirmed,
     )
     if record_memory:
         conversation.memory = merge_conversation_memory(
@@ -126,6 +132,11 @@ def build_conversation_state(
             phase=phase,
             now=now,
             board_action=board_action or {},
+            planning_mode=planning_mode,
+            planning_mode_status=planning_mode_status,
+            open_questions=conversation.open_questions,
+            active_goals=conversation.active_goals,
+            last_turn_summary=conversation.last_turn_summary,
         )
 
     return conversation
@@ -158,7 +169,7 @@ def build_status(
     for field, memory in conversation.memory.field_memory.items():
         if not _field_has_value(configuration, field):
             continue
-        if memory.source == "user_explicit":
+        if _is_confirmed_field_source(memory.source):
             confirmed_fields.append(field)
         else:
             inferred_fields.append(field)
@@ -182,11 +193,6 @@ def determine_phase(
     if confirmation_status == "finalized":
         return "finalized"
 
-    active_modules = [
-        name
-        for name, enabled in configuration.selected_modules.model_dump(mode="json").items()
-        if enabled
-    ]
     has_route_signal = bool(configuration.from_location or configuration.to_location)
     has_timing_signal = bool(
         configuration.start_date
@@ -194,27 +200,21 @@ def determine_phase(
         or configuration.travel_window
         or configuration.trip_length
     )
-    travellers_relevant = any(
-        module in active_modules for module in ["flights", "hotels", "activities"]
-    )
-    has_party_signal = (
-        not travellers_relevant
-        or configuration.travelers.adults is not None
-        or configuration.travelers.children is not None
-    )
     core_shape_ready = bool(configuration.to_location and has_timing_signal)
     provider_ready = bool(configuration.to_location and has_timing_signal)
 
+    if provider_ready and has_any_module_output(module_outputs):
+        return "reviewing" if not missing_fields else "enriching_modules"
+    if brief_confirmed and planning_mode is None:
+        return "shaping_trip"
+    if _is_early_draft_ready(configuration):
+        return "shaping_trip"
     if not has_route_signal and not has_timing_signal:
         return "opening"
-    if not core_shape_ready or not has_party_signal:
+    if not core_shape_ready:
         return "collecting_requirements"
     if missing_fields:
         return "collecting_requirements"
-    if brief_confirmed and planning_mode is None:
-        return "shaping_trip"
-    if provider_ready and has_any_module_output(module_outputs):
-        return "reviewing" if not missing_fields else "enriching_modules"
     if provider_ready:
         return "enriching_modules"
     return "shaping_trip"
@@ -224,16 +224,16 @@ def is_trip_brief_confirmed(
     conversation: TripConversationState,
     llm_update: TripTurnUpdate,
     board_action: dict | None = None,
+    corrected_fields: list[TripFieldKey] | None = None,
 ) -> bool:
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
     if action and action.type == "confirm_trip_details":
         return True
+    if corrected_fields:
+        return False
     if llm_update.confirmed_trip_brief:
         return True
-    return any(
-        event.title.lower() == "trip details confirmed"
-        for event in conversation.memory.decision_history
-    )
+    return _latest_trip_brief_confirmation_state(conversation.memory.decision_history)
 
 
 def merge_open_questions(
@@ -242,32 +242,85 @@ def merge_open_questions(
     configuration: TripConfiguration,
     missing_fields: list[str],
 ) -> list[ConversationQuestion]:
-    normalized_existing = {
-        question.question.strip().lower(): question
-        for question in current_questions
-        if question.status == "open"
-        and _question_is_still_relevant(question, configuration, missing_fields)
-    }
-    merged: list[ConversationQuestion] = list(normalized_existing.values())
+    active_questions: list[ConversationQuestion] = []
+    answered_or_dismissed: list[ConversationQuestion] = []
+    active_index: dict[tuple[TripFieldKey | None, TripDetailsStepKey | None, str], int] = {}
 
-    for text in [*llm_update.open_questions, *_build_default_open_questions(configuration, missing_fields)]:
-        cleaned = text.strip()
-        if not cleaned:
+    for question in current_questions:
+        normalized_existing = _normalize_question_text(question.question)
+        if question.status == "dismissed":
+            answered_or_dismissed.append(question)
             continue
-        normalized = cleaned.lower()
-        if normalized in normalized_existing:
-            continue
-        merged.append(
-            ConversationQuestion(
-                id=f"question_{uuid4().hex[:10]}",
-                question=cleaned,
-                field=_guess_question_field(cleaned),
-                priority=1,
+        if _question_is_still_relevant(question, configuration, missing_fields):
+            normalized_field = _normalize_question_field_for_missing_state(
+                question.field,
+                configuration,
+                missing_fields,
             )
-        )
-        normalized_existing[normalized] = merged[-1]
+            refreshed = question.model_copy(
+                update={
+                    "status": "open",
+                    "priority": _resolve_open_question_priority(
+                        field=normalized_field,
+                        step=question.step,
+                        requested_priority=question.priority,
+                        configuration=configuration,
+                        missing_fields=missing_fields,
+                    ),
+                    "field": normalized_field,
+                    "step": question.step or _default_question_step(normalized_field),
+                    "why": question.why
+                    or _default_question_reason(normalized_field, question.step),
+                }
+            )
+            key = _question_identity(
+                field=refreshed.field,
+                step=refreshed.step,
+                question=normalized_existing,
+            )
+            active_index[key] = len(active_questions)
+            active_questions.append(refreshed)
+            continue
+        answered_or_dismissed.append(question.model_copy(update={"status": "answered"}))
 
-    return merged[:3]
+    candidate_updates = [
+        *_normalize_legacy_open_question_updates(llm_update.open_questions),
+        *llm_update.open_question_updates,
+        *_build_default_open_questions(configuration, missing_fields),
+    ]
+    for candidate in candidate_updates:
+        question = _build_conversation_question(
+            candidate=candidate,
+            configuration=configuration,
+            missing_fields=missing_fields,
+        )
+        if question is None:
+            continue
+        key = _question_identity(
+            field=question.field,
+            step=question.step,
+            question=_normalize_question_text(question.question),
+        )
+        if key in active_index:
+            position = active_index[key]
+            existing = active_questions[position]
+            if question.priority < existing.priority:
+                active_questions[position] = existing.model_copy(
+                    update={
+                        "question": question.question,
+                        "field": question.field,
+                        "step": question.step,
+                        "priority": question.priority,
+                        "why": question.why or existing.why,
+                        "status": "open",
+                    }
+                )
+            continue
+        active_index[key] = len(active_questions)
+        active_questions.append(question)
+
+    active_questions.sort(key=_open_question_sort_key)
+    return [*active_questions[:3], *answered_or_dismissed[-3:]]
 
 
 def merge_decision_cards(
@@ -285,7 +338,11 @@ def merge_decision_cards(
         title = card.title.strip()
         description = card.description.strip()
         options = [option.strip() for option in card.options if option.strip()]
-        if not title or not description:
+        if not _decision_card_is_useful(
+            title=title,
+            description=description,
+            options=options,
+        ):
             continue
         key = (title.lower(), tuple(option.lower() for option in options))
         if key in seen:
@@ -328,18 +385,31 @@ def merge_conversation_memory(
     phase: str,
     now: datetime,
     board_action: dict,
+    planning_mode: PlannerPlanningMode | None,
+    planning_mode_status: PlannerPlanningModeStatus,
+    open_questions: list[ConversationQuestion],
+    active_goals: list[str],
+    last_turn_summary: str | None,
 ) -> TripConversationMemory:
     memory = current.model_copy(deep=True)
     confidence_by_field = {
         item.field: item.confidence for item in llm_update.field_confidences
     }
+    source_by_field = {item.field: item.source for item in llm_update.field_sources}
+    corrected_fields = detect_confirmed_field_corrections(
+        previous_configuration=previous_configuration,
+        next_configuration=next_configuration,
+        llm_update=llm_update,
+    )
 
     for field in sorted(set([*llm_update.confirmed_fields, *llm_update.inferred_fields])):
         value = _get_configuration_value(next_configuration, field)
         if value in (None, "", [], {}):
             continue
-        source: ConversationFieldSource = (
-            "user_explicit" if field in llm_update.confirmed_fields else "user_inferred"
+        source = _resolve_field_source(
+            field=field,
+            llm_update=llm_update,
+            source_by_field=source_by_field,
         )
         memory.field_memory[field] = _merge_field_memory_entry(
             previous_entry=memory.field_memory.get(field),
@@ -355,7 +425,7 @@ def merge_conversation_memory(
         if (
             previous_value not in (None, "", [], {})
             and previous_value != value
-            and source == "user_explicit"
+            and _is_confirmed_field_source(source)
         ):
             corrected_option = _field_to_option_candidate(field, previous_value)
             if corrected_option:
@@ -381,6 +451,14 @@ def merge_conversation_memory(
         turn_id,
         now,
     )
+    memory.mentioned_options, memory.rejected_options = _reconcile_option_memories(
+        mentioned_options=memory.mentioned_options,
+        rejected_options=memory.rejected_options,
+        next_configuration=next_configuration,
+        llm_update=llm_update,
+        turn_id=turn_id,
+        now=now,
+    )
     memory.decision_history = _merge_decision_history(
         current=memory.decision_history,
         decision_cards=decision_cards,
@@ -388,6 +466,11 @@ def merge_conversation_memory(
         turn_id=turn_id,
         now=now,
         board_action=board_action,
+        previous_configuration=previous_configuration,
+        next_configuration=next_configuration,
+        corrected_fields=corrected_fields,
+        planning_mode=planning_mode,
+        planning_mode_status=planning_mode_status,
     )
     memory.turn_summaries = _merge_turn_summaries(
         current=memory.turn_summaries,
@@ -395,6 +478,9 @@ def merge_conversation_memory(
         user_message=user_message,
         assistant_message=assistant_response,
         changed_fields=sorted(set([*llm_update.confirmed_fields, *llm_update.inferred_fields])),
+        open_questions=open_questions,
+        active_goals=active_goals,
+        last_turn_summary=last_turn_summary,
         phase=phase,
         now=now,
         board_action=board_action,
@@ -415,12 +501,48 @@ def merge_conversation_memory(
     return memory
 
 
+def detect_confirmed_field_corrections(
+    *,
+    previous_configuration: TripConfiguration,
+    next_configuration: TripConfiguration,
+    llm_update: TripTurnUpdate,
+) -> list[TripFieldKey]:
+    source_by_field = {item.field: item.source for item in llm_update.field_sources}
+    corrected_fields: list[TripFieldKey] = []
+
+    for field in sorted(set([*llm_update.confirmed_fields, *llm_update.inferred_fields])):
+        source = _resolve_field_source(
+            field=field,
+            llm_update=llm_update,
+            source_by_field=source_by_field,
+        )
+        if not _is_confirmed_field_source(source):
+            continue
+
+        previous_value = _get_configuration_value(previous_configuration, field)
+        next_value = _get_configuration_value(next_configuration, field)
+        if previous_value in (None, "", [], {}):
+            continue
+        if next_value in (None, "", [], {}):
+            continue
+        if previous_value == next_value:
+            continue
+        corrected_fields.append(field)
+
+    return corrected_fields
+
+
 def build_last_turn_summary(
     configuration: TripConfiguration,
     missing_fields: list[str],
     planning_mode: PlannerPlanningMode | None = None,
 ) -> str:
     destination = configuration.to_location or "the destination"
+    if _is_early_draft_ready(configuration) and planning_mode is None:
+        return (
+            f"The trip for {destination} already has enough shape for a strong first direction, "
+            "even though a few details are still open."
+        )
     if not missing_fields and planning_mode is None:
         return (
             f"The trip brief for {destination} is ready for a quick first draft, "
@@ -473,6 +595,56 @@ def _merge_option_memory(
     return merged[-12:]
 
 
+def _reconcile_option_memories(
+    *,
+    mentioned_options: list[ConversationOptionMemory],
+    rejected_options: list[ConversationOptionMemory],
+    next_configuration: TripConfiguration,
+    llm_update: TripTurnUpdate,
+    turn_id: str,
+    now: datetime,
+) -> tuple[list[ConversationOptionMemory], list[ConversationOptionMemory]]:
+    active_candidates = list(llm_update.mentioned_options)
+
+    for field in sorted(set([*llm_update.confirmed_fields, *llm_update.inferred_fields])):
+        value = _get_configuration_value(next_configuration, field)
+        if value in (None, "", [], {}):
+            continue
+        candidate = _field_to_option_candidate(field, value)
+        if candidate is not None:
+            active_candidates.append(candidate)
+
+    active_keys = {
+        key
+        for candidate in active_candidates
+        for key in _option_identity_keys(candidate.kind, candidate.value)
+    }
+    rejected_keys = {
+        key
+        for option in rejected_options
+        for key in _option_identity_keys(option.kind, option.value)
+    }
+
+    reconciled_mentioned = [
+        option
+        for option in mentioned_options
+        if not rejected_keys.intersection(_option_identity_keys(option.kind, option.value))
+    ]
+    reconciled_rejected = [
+        option
+        for option in rejected_options
+        if not active_keys.intersection(_option_identity_keys(option.kind, option.value))
+    ]
+
+    refreshed_mentioned = _merge_option_memory(
+        reconciled_mentioned,
+        active_candidates,
+        turn_id,
+        now,
+    )
+    return refreshed_mentioned, reconciled_rejected
+
+
 def _merge_decision_history(
     *,
     current: list[ConversationDecisionEvent],
@@ -481,6 +653,11 @@ def _merge_decision_history(
     turn_id: str,
     now: datetime,
     board_action: dict,
+    previous_configuration: TripConfiguration,
+    next_configuration: TripConfiguration,
+    corrected_fields: list[TripFieldKey],
+    planning_mode: PlannerPlanningMode | None,
+    planning_mode_status: PlannerPlanningModeStatus,
 ) -> list[ConversationDecisionEvent]:
     merged = list(current)
     seen = {
@@ -519,7 +696,35 @@ def _merge_decision_history(
                     resolved_at=now,
                 )
             )
-    if action and action.type == "select_quick_plan":
+    for field in corrected_fields:
+        correction_key = ("trip details corrected", (field,))
+        if correction_key in seen:
+            continue
+        merged.append(
+            ConversationDecisionEvent(
+                id=f"decision_{uuid4().hex[:10]}",
+                title="Trip details corrected",
+                description=_build_trip_detail_correction_description(
+                    field=field,
+                    previous_value=_get_configuration_value(previous_configuration, field),
+                    next_value=_get_configuration_value(next_configuration, field),
+                ),
+                options=[field],
+                selected_option=field,
+                source_turn_id=turn_id,
+                resolved_at=now,
+            )
+        )
+        seen.add(correction_key)
+    accepted_quick_selection = (
+        planning_mode == "quick" and planning_mode_status == "selected"
+    )
+    accepted_advanced_fallback = (
+        planning_mode == "quick"
+        and planning_mode_status == "advanced_unavailable_fallback"
+    )
+
+    if action and action.type == "select_quick_plan" and accepted_quick_selection:
         selection_key = ("planning mode selected", ("quick",))
         if selection_key not in seen:
             merged.append(
@@ -533,7 +738,7 @@ def _merge_decision_history(
                     resolved_at=now,
                 )
             )
-    if action and action.type == "select_advanced_plan":
+    if action and action.type == "select_advanced_plan" and accepted_advanced_fallback:
         selection_key = ("advanced planning fallback", ("quick",))
         if selection_key not in seen:
             merged.append(
@@ -563,7 +768,11 @@ def _merge_decision_history(
                     resolved_at=now,
                 )
             )
-    if llm_update.requested_planning_mode == "quick" and not action:
+    if (
+        llm_update.requested_planning_mode == "quick"
+        and not action
+        and accepted_quick_selection
+    ):
         selection_key = ("planning mode selected", ("quick",))
         if selection_key not in seen:
             merged.append(
@@ -577,7 +786,11 @@ def _merge_decision_history(
                     resolved_at=now,
                 )
             )
-    if llm_update.requested_planning_mode == "advanced" and not action:
+    if (
+        llm_update.requested_planning_mode == "advanced"
+        and not action
+        and accepted_advanced_fallback
+    ):
         selection_key = ("advanced planning fallback", ("quick",))
         if selection_key not in seen:
             merged.append(
@@ -658,6 +871,9 @@ def _merge_turn_summaries(
     user_message: str,
     assistant_message: str,
     changed_fields: list[TripFieldKey],
+    open_questions: list[ConversationQuestion],
+    active_goals: list[str],
+    last_turn_summary: str | None,
     phase: str,
     now: datetime,
     board_action: dict | None = None,
@@ -666,17 +882,69 @@ def _merge_turn_summaries(
     summary_user_message = user_message.strip() or _build_turn_summary_user_message(
         board_action or {}
     )
+    open_fields = [
+        question.field
+        for question in open_questions
+        if question.status == "open" and question.field is not None
+    ]
+    next_open_question = next(
+        (
+            question.question
+            for question in open_questions
+            if question.status == "open" and question.question.strip()
+        ),
+        None,
+    )
+    summary_text = _build_structured_turn_summary_text(
+        changed_fields=changed_fields,
+        open_fields=open_fields,
+        active_goals=active_goals,
+        phase=phase,
+        last_turn_summary=last_turn_summary,
+    )
     merged.append(
         ConversationTurnSummary(
             turn_id=turn_id,
             user_message=summary_user_message,
             assistant_message=assistant_message.strip(),
+            summary_text=summary_text,
             changed_fields=changed_fields,
+            open_fields=sorted(set(open_fields)),
+            next_open_question=next_open_question,
+            active_goal=active_goals[0] if active_goals else None,
             resulting_phase=phase,
             created_at=now,
         )
     )
     return merged[-10:]
+
+
+def _build_structured_turn_summary_text(
+    *,
+    changed_fields: list[TripFieldKey],
+    open_fields: list[TripFieldKey],
+    active_goals: list[str],
+    phase: str,
+    last_turn_summary: str | None,
+) -> str:
+    changed_labels = [_field_resume_label(field) for field in changed_fields[:3]]
+    open_labels = [_field_resume_label(field) for field in sorted(set(open_fields))[:2]]
+
+    parts: list[str] = []
+    if changed_labels:
+        parts.append(f"Changed {', '.join(changed_labels)}.")
+    elif last_turn_summary and last_turn_summary.strip():
+        parts.append(last_turn_summary.strip().rstrip(".") + ".")
+
+    if open_labels:
+        parts.append(f"Still resolving {', '.join(open_labels)}.")
+
+    if active_goals:
+        parts.append(f"Planner focus: {active_goals[0].strip().rstrip('.')}.")
+    else:
+        parts.append(f"Planner phase: {phase.replace('_', ' ')}.")
+
+    return " ".join(parts)[:400]
 
 
 def _build_turn_summary_user_message(board_action: dict) -> str:
@@ -703,25 +971,141 @@ def _build_turn_summary_user_message(board_action: dict) -> str:
 def _build_default_open_questions(
     configuration: TripConfiguration,
     missing_fields: list[str],
-) -> list[str]:
-    questions: dict[str, str] = {
-        "from_location": "Where would you be travelling from for this trip?",
-        "to_location": "Which destination should I shape this trip around?",
-        "start_date": "What month or travel window are you considering?",
-        "end_date": (
-            "How long should this trip be?"
-            if configuration.start_date or configuration.travel_window
-            else "Roughly how many days or nights should I plan around?"
+) -> list[TripOpenQuestionUpdate]:
+    questions: dict[str, TripOpenQuestionUpdate] = {
+        "selected_modules": TripOpenQuestionUpdate(
+            question="Which parts of the trip should I actually help with first, and is anything already booked or out of scope?",
+            field="selected_modules",
+            step="modules",
+            why="Module scope changes which providers and follow-up questions Wandrix should activate next.",
         ),
-        "adults": "How many people should I plan for?",
-        "activity_styles": "What kind of trip do you want this to feel like?",
-        "budget_posture": "Should I keep this budget, mid-range, or premium?",
+        "from_location": TripOpenQuestionUpdate(
+            question="Where are you most likely travelling from for this trip?",
+            field="from_location",
+            step="route",
+            why="The likely departure point changes route practicality and shortlist quality.",
+        ),
+        "to_location": TripOpenQuestionUpdate(
+            question="Which destination should I shape this trip around?",
+            field="to_location",
+            step="route",
+            why="I need the destination before I can make the rest of the plan concrete.",
+        ),
+        "start_date": TripOpenQuestionUpdate(
+            question="What month or travel window are you considering?",
+            field="travel_window",
+            step="timing",
+            why="Rough timing is enough for now and keeps the trip flexible.",
+        ),
+        "end_date": TripOpenQuestionUpdate(
+            question=(
+                "How long should this trip be?"
+                if configuration.start_date or configuration.travel_window
+                else "Roughly how many days or nights should I plan around?"
+            ),
+            field="trip_length",
+            step="timing",
+            why="A rough trip length helps me pace the itinerary without forcing exact dates.",
+        ),
+        "adults": TripOpenQuestionUpdate(
+            question="Who's travelling, and do I need to plan for any children?",
+            field="adults",
+            step="travellers",
+            why="Group makeup affects flights, rooms, pace, and whether children need special consideration.",
+        ),
+        "activity_styles": TripOpenQuestionUpdate(
+            question="What kind of trip do you want this to feel like?",
+            field="activity_styles",
+            step="vibe",
+            why="The trip style shapes the right pace and activities.",
+        ),
+        "budget_posture": TripOpenQuestionUpdate(
+            question="What overall budget feel should I optimize around, and is there anything you'd rather splurge on or keep sensible?",
+            field="budget_posture",
+            step="budget",
+            why="Budget helps narrow the right flights and hotels, but the tradeoffs are often mixed.",
+        ),
     }
     return [questions[field] for field in missing_fields if field in questions]
 
 
+def _build_trip_detail_correction_description(
+    *,
+    field: TripFieldKey,
+    previous_value: object,
+    next_value: object,
+) -> str:
+    label = _field_history_label(field)
+    previous_text = _format_history_value(previous_value)
+    next_text = _format_history_value(next_value)
+    return (
+        f"The user corrected {label} from {previous_text} to {next_text}."
+        if previous_text and next_text
+        else f"The user corrected {label}."
+    )
+
+
+def _field_history_label(field: TripFieldKey) -> str:
+    return {
+        "from_location": "the departure point",
+        "to_location": "the destination",
+        "start_date": "the start date",
+        "end_date": "the end date",
+        "travel_window": "the travel window",
+        "trip_length": "the trip length",
+        "budget_posture": "the budget posture",
+        "budget_gbp": "the budget amount",
+        "adults": "the adult count",
+        "children": "the child count",
+        "activity_styles": "the trip style",
+        "selected_modules": "the selected modules",
+    }[field]
+
+
+def _field_resume_label(field: TripFieldKey) -> str:
+    return {
+        "from_location": "departure point",
+        "to_location": "destination",
+        "start_date": "start date",
+        "end_date": "end date",
+        "travel_window": "travel window",
+        "trip_length": "trip length",
+        "budget_posture": "budget",
+        "budget_gbp": "budget",
+        "adults": "traveller count",
+        "children": "child traveller count",
+        "activity_styles": "trip style",
+        "selected_modules": "module scope",
+    }[field]
+
+
+def _format_history_value(value: object) -> str | None:
+    if value in (None, "", [], {}):
+        return None
+    if isinstance(value, dict):
+        enabled = [name for name, is_enabled in value.items() if is_enabled]
+        return ", ".join(enabled) if enabled else "no modules selected"
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) if value else None
+    return str(value)
+
+
+def _latest_trip_brief_confirmation_state(
+    decision_history: list[ConversationDecisionEvent],
+) -> bool:
+    for event in reversed(decision_history):
+        title = event.title.lower()
+        if title == "trip details corrected":
+            return False
+        if title == "trip details confirmed":
+            return True
+    return False
+
+
 def _guess_question_field(question: str) -> TripFieldKey | None:
     normalized = question.lower()
+    if "focus on first" in normalized or "flights" in normalized or "hotels" in normalized:
+        return "selected_modules"
     if "from" in normalized or "travelling from" in normalized:
         return "from_location"
     if "destination" in normalized or "trip around" in normalized:
@@ -732,6 +1116,8 @@ def _guess_question_field(question: str) -> TripFieldKey | None:
         return "trip_length"
     if "people" in normalized:
         return "adults"
+    if "feel like" in normalized or "trip style" in normalized:
+        return "activity_styles"
     if "budget" in normalized or "premium" in normalized:
         return "budget_posture"
     return None
@@ -769,6 +1155,19 @@ def _field_to_option_candidate(field: TripFieldKey, value: object) -> Conversati
     if field == "budget_posture":
         return ConversationOptionCandidate(kind="budget_posture", value=str(value))
     return None
+
+
+def _option_identity_keys(kind: str, value: str) -> set[tuple[str, str]]:
+    cleaned = " ".join(value.strip().lower().split())
+    if not cleaned:
+        return set()
+
+    keys = {(kind, cleaned)}
+    if kind in {"destination", "origin"}:
+        primary = cleaned.split(",")[0].strip()
+        if primary:
+            keys.add((kind, primary))
+    return keys
 
 
 def _merge_field_memory_entry(
@@ -837,7 +1236,24 @@ def _field_source_priority(source: ConversationFieldSource) -> int:
         "assistant_derived": 1,
         "user_inferred": 2,
         "user_explicit": 3,
+        "board_action": 4,
     }[source]
+
+
+def _resolve_field_source(
+    *,
+    field: TripFieldKey,
+    llm_update: TripTurnUpdate,
+    source_by_field: dict[TripFieldKey, ConversationFieldSource],
+) -> ConversationFieldSource:
+    source = source_by_field.get(field)
+    if source is not None:
+        return source
+    return "user_explicit" if field in llm_update.confirmed_fields else "user_inferred"
+
+
+def _is_confirmed_field_source(source: ConversationFieldSource) -> bool:
+    return source in {"user_explicit", "board_action"}
 
 
 def _effective_confidence_level(
@@ -888,6 +1304,8 @@ def _question_is_still_relevant(
     if question.field is None:
         return True
 
+    if question.field == "selected_modules":
+        return "selected_modules" in missing_fields
     if question.field == "from_location":
         return "from_location" in missing_fields
     if question.field == "to_location":
@@ -902,3 +1320,274 @@ def _question_is_still_relevant(
         return configuration.budget_posture is None
 
     return True
+
+
+def _normalize_legacy_open_question_updates(
+    questions: list[str],
+) -> list[TripOpenQuestionUpdate]:
+    updates: list[TripOpenQuestionUpdate] = []
+    for question in questions:
+        cleaned = question.strip()
+        if not cleaned:
+            continue
+        field = _guess_question_field(cleaned)
+        updates.append(
+            TripOpenQuestionUpdate(
+                question=cleaned,
+                field=field,
+                step=_default_question_step(field),
+                why=_default_question_reason(field, _default_question_step(field)),
+            )
+        )
+    return updates
+
+
+def _build_conversation_question(
+    *,
+    candidate: TripOpenQuestionUpdate,
+    configuration: TripConfiguration,
+    missing_fields: list[str],
+) -> ConversationQuestion | None:
+    cleaned = candidate.question.strip()
+    if not cleaned:
+        return None
+
+    field = _normalize_question_field_for_missing_state(
+        candidate.field or _guess_question_field(cleaned),
+        configuration,
+        missing_fields,
+    )
+    step = candidate.step or _default_question_step(field)
+    question = ConversationQuestion(
+        id=f"question_{uuid4().hex[:10]}",
+        question=cleaned,
+        field=field,
+        step=step,
+        priority=_resolve_open_question_priority(
+            field=field,
+            step=step,
+            requested_priority=candidate.priority,
+            configuration=configuration,
+            missing_fields=missing_fields,
+        ),
+        why=(candidate.why.strip() if candidate.why else None)
+        or _default_question_reason(field, step),
+        status="open",
+    )
+    if not _question_is_still_relevant(question, configuration, missing_fields):
+        return None
+    return question
+
+
+def _resolve_open_question_priority(
+    *,
+    field: TripFieldKey | None,
+    step: TripDetailsStepKey | None,
+    requested_priority: int,
+    configuration: TripConfiguration,
+    missing_fields: list[str],
+) -> int:
+    if field is not None:
+        default_priority = _default_question_priority_for_field(
+            field=field,
+            configuration=configuration,
+            missing_fields=missing_fields,
+        )
+        return max(1, min(5, default_priority))
+    if step is not None:
+        return max(1, min(5, _default_question_priority_for_step(step)))
+    return max(1, min(5, requested_priority))
+
+
+def _default_question_priority_for_field(
+    *,
+    field: TripFieldKey,
+    configuration: TripConfiguration,
+    missing_fields: list[str],
+) -> int:
+    has_destination = bool(configuration.to_location)
+    has_route = bool(configuration.from_location or configuration.to_location)
+    has_timing = bool(
+        configuration.start_date
+        or configuration.end_date
+        or configuration.travel_window
+        or configuration.trip_length
+    )
+
+    if field == "to_location":
+        return 1
+    if field == "selected_modules":
+        return 2 if has_destination else 3
+    if field == "from_location":
+        return 2 if has_destination else 4
+    if field in {"travel_window", "start_date"}:
+        return 2
+    if field in {"trip_length", "end_date"}:
+        return 3 if has_timing else 2
+    if field in {"adults", "children"}:
+        return 3 if has_route else 4
+    if field == "activity_styles":
+        return 4
+    if field in {"budget_posture", "budget_gbp"}:
+        return 5
+    return 3
+
+
+def _default_question_priority_for_step(step: TripDetailsStepKey) -> int:
+    return {
+        "route": 1,
+        "timing": 2,
+        "modules": 3,
+        "travellers": 3,
+        "vibe": 4,
+        "budget": 5,
+    }[step]
+
+
+def _default_question_step(field: TripFieldKey | None) -> TripDetailsStepKey | None:
+    if field == "selected_modules":
+        return "modules"
+    if field in {"from_location", "to_location"}:
+        return "route"
+    if field in {"start_date", "end_date", "travel_window", "trip_length"}:
+        return "timing"
+    if field in {"adults", "children"}:
+        return "travellers"
+    if field == "activity_styles":
+        return "vibe"
+    if field in {"budget_posture", "budget_gbp"}:
+        return "budget"
+    return None
+
+
+def _default_question_reason(
+    field: TripFieldKey | None,
+    step: TripDetailsStepKey | None,
+) -> str | None:
+    if field == "selected_modules":
+        return "Module scope decides which details matter next."
+    if field == "to_location":
+        return "The destination is the highest-value planning decision right now."
+    if field == "from_location":
+        return "The likely departure point changes route practicality and flight options."
+    if field in {"start_date", "travel_window"}:
+        return "Rough timing is enough to keep the trip moving without locking exact dates."
+    if field in {"end_date", "trip_length"}:
+        return "A rough length helps pace the itinerary before exact dates are chosen."
+    if field in {"adults", "children"}:
+        return "Group makeup changes rooms, flights, pace, and whether children need special consideration."
+    if field == "activity_styles":
+        return "Trip style helps Wandrix shape the right pace and experiences."
+    if field in {"budget_posture", "budget_gbp"}:
+        return "Budget narrows realistic flight and hotel options, but the posture is often nuanced."
+    if step == "route":
+        return "The route needs to be clearer before the rest of the brief can firm up."
+    if step == "timing":
+        return "Timing is the next biggest planning gap."
+    return None
+
+
+def _normalize_question_field_for_missing_state(
+    field: TripFieldKey | None,
+    configuration: TripConfiguration,
+    missing_fields: list[str],
+) -> TripFieldKey | None:
+    if field == "start_date" and "start_date" in missing_fields:
+        return "travel_window"
+    if field == "end_date" and "end_date" in missing_fields:
+        return "trip_length"
+    return field
+
+
+def _question_identity(
+    *,
+    field: TripFieldKey | None,
+    step: TripDetailsStepKey | None,
+    question: str,
+) -> tuple[TripFieldKey | None, TripDetailsStepKey | None, str]:
+    if field is not None:
+        return (field, step, "")
+    if step is not None:
+        return (None, step, question)
+    return (None, None, question)
+
+
+def _normalize_question_text(question: str) -> str:
+    return " ".join(question.strip().lower().split())
+
+
+def _open_question_sort_key(
+    question: ConversationQuestion,
+) -> tuple[int, int, str]:
+    status_priority = {
+        "open": 0,
+        "answered": 1,
+        "dismissed": 2,
+    }[question.status]
+    return (status_priority, question.priority, question.question.lower())
+
+
+def _decision_card_is_useful(
+    *,
+    title: str,
+    description: str,
+    options: list[str],
+) -> bool:
+    if not title or not description:
+        return False
+    if len(options) < 2:
+        return False
+
+    normalized_title = title.lower()
+    normalized_description = description.lower()
+    normalized_options = [option.lower() for option in options]
+
+    generic_titles = {
+        "next trip decisions",
+        "next steps",
+        "what kind of trip do you want",
+        "choose your options",
+        "trip choices",
+    }
+    if normalized_title in generic_titles:
+        return False
+
+    generic_options = {"option 1", "option 2", "option 3", "yes", "no", "maybe"}
+    if all(option in generic_options for option in normalized_options):
+        return False
+
+    useful_terms = (
+        "timing",
+        "window",
+        "departure",
+        "origin",
+        "feel",
+        "pace",
+        "food",
+        "highlights",
+        "outdoors",
+        "weekend",
+        "planning mode",
+        "quick plan",
+        "advanced",
+    )
+    useful_signal = any(term in normalized_title for term in useful_terms) or any(
+        term in normalized_description for term in useful_terms
+    )
+    if useful_signal:
+        return True
+
+    return len(set(normalized_options)) >= 2 and any(
+        len(option.split()) >= 2 for option in normalized_options
+    )
+
+
+def _is_early_draft_ready(configuration: TripConfiguration) -> bool:
+    has_destination = bool(configuration.to_location)
+    has_timing_signal = bool(
+        configuration.start_date
+        or configuration.end_date
+        or configuration.travel_window
+        or configuration.trip_length
+    )
+    return has_destination and has_timing_signal

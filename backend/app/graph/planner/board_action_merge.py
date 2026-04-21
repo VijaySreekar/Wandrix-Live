@@ -4,7 +4,11 @@ from app.schemas.conversation import ConversationBoardAction
 from app.schemas.trip_conversation import ConversationFieldConfidence
 from app.schemas.trip_planning import TripModuleSelection
 
-from app.graph.planner.turn_models import TripFieldConfidenceUpdate, TripTurnUpdate
+from app.graph.planner.turn_models import (
+    TripFieldConfidenceUpdate,
+    TripFieldSourceUpdate,
+    TripTurnUpdate,
+)
 
 
 def apply_board_action_updates(
@@ -102,6 +106,7 @@ def _mark_confirmed(update: TripTurnUpdate, field: str) -> None:
     if field in update.inferred_fields:
         update.inferred_fields.remove(field)
     _set_field_confidence(update, field, "high")
+    _set_field_source(update, field)
 
 
 def _set_field_confidence(
@@ -115,6 +120,16 @@ def _set_field_confidence(
             return
     update.field_confidences.append(
         TripFieldConfidenceUpdate(field=field, confidence=confidence)
+    )
+
+
+def _set_field_source(update: TripTurnUpdate, field: str) -> None:
+    for existing in update.field_sources:
+        if existing.field == field:
+            existing.source = "board_action"
+            return
+    update.field_sources.append(
+        TripFieldSourceUpdate(field=field, source="board_action")
     )
 
 

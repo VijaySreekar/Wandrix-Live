@@ -724,30 +724,30 @@ Suggested priority values:
 | ID | Priority | Status | Change | Main Files | Why It Matters | Safe Shape |
 | --- | --- | --- | --- | --- | --- | --- |
 | PI-01 | P0 | reviewing | Add per-field confidence semantics | `backend/app/graph/planner/turn_models.py`, `backend/app/schemas/trip_conversation.py`, `backend/app/graph/planner/runner.py` | The planner needs to say how sure it is, not just what it thinks | Let the model return structured confidence signals and store them in memory |
-| PI-02 | P0 | not started | Add per-field source semantics | `backend/app/graph/planner/turn_models.py`, `backend/app/schemas/trip_conversation.py` | We need to know whether a fact came from the user, the board, profile context, or inference | Extend structured output and state bookkeeping, not raw-text heuristics |
-| PI-03 | P0 | in progress | Tighten explicit vs inferred merge rules | `backend/app/graph/planner/conversation_state.py` | Prevent inferred details from silently behaving like confirmed facts | Deterministic merge precedence after structured output is produced |
-| PI-04 | P0 | not started | Improve correction handling | `backend/app/graph/planner/conversation_state.py`, `backend/app/schemas/trip_conversation.py` | Users change their minds often; the planner must update cleanly | Track corrections and rejected history explicitly |
-| PI-05 | P0 | not started | Improve confirmation detection through schema output | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/turn_models.py` | Casual approval should not finalize a trip | Keep confirmation as structured LLM output, not phrase matching |
-| PI-06 | P0 | not started | Improve open-question structure and priority | `backend/app/schemas/trip_conversation.py`, `backend/app/graph/planner/conversation_state.py` | The planner should ask the most valuable next question, not a random one | Use structured question objects with field, priority, and status |
-| PI-07 | P0 | not started | Improve ambiguity preservation in understanding prompt | `backend/app/graph/planner/understanding.py` | The planner must stop inventing certainty when the user is broad or mixed | Add prompt guidance and examples that preserve uncertainty |
-| PI-08 | P1 | not started | Improve rough timing handling | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/conversation_state.py` | Rough timing should stay rough until the user chooses exact dates | Keep windows and lengths broad unless the user gave exact dates |
-| PI-09 | P1 | not started | Improve origin handling for tentative phrasing | `backend/app/graph/planner/understanding.py` | Users often mention an origin softly or conditionally | Let the model mark route fields as tentative or inferred |
-| PI-10 | P1 | not started | Improve budget posture handling | `backend/app/graph/planner/understanding.py` | Budget language is subtle and often qualitative | Capture posture conservatively instead of hardcoding labels from keywords |
-| PI-11 | P1 | not started | Improve traveler understanding | `backend/app/graph/planner/understanding.py` | Party size affects nearly every recommendation | Handle explicit counts, soft phrasing, and uncertainty separately |
-| PI-12 | P1 | not started | Improve module-scope understanding | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/provider_enrichment.py` | The planner should respect “just activities” or “skip flights” clearly | Keep selection module-aware through structured outputs |
-| PI-13 | P1 | not started | Improve destination suggestion discipline | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/suggestion_board.py` | Broad asks should lead to strong options, not false decisions | Generate suggestions only when destination is still unresolved |
-| PI-14 | P1 | not started | Improve decision-card generation quality | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/response_builder.py` | Decision cards should help resolve a real choice | Ask the model for cards only when a concrete choice exists |
-| PI-15 | P1 | not started | Improve early draft proposal timing | `backend/app/graph/planner/runner.py`, `backend/app/graph/planner/response_builder.py` | The planner should propose a usable draft earlier | Move from questioning to shaping once enough signal exists |
-| PI-16 | P1 | not started | Improve planner response framing | `backend/app/graph/planner/response_builder.py` | Users need to understand what is locked, assumed, or missing | Structure replies around changes, assumptions, and next move |
-| PI-17 | P1 | not started | Improve profile-context usage | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/response_builder.py` | Profile defaults should help the opening, not override the trip | Use profile context softly and visibly |
-| PI-18 | P1 | not started | Improve planning-mode selection semantics | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/runner.py` | Quick vs advanced should be intentional, not accidental | Keep mode choice explicit in structured state |
-| PI-19 | P1 | not started | Improve timeline preview quality | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/provider_enrichment.py` | A quick plan should feel like a believable trip, not a loose sketch | Ask for fuller previews and merge them carefully with modules |
-| PI-20 | P1 | not started | Improve rejected and mentioned option memory | `backend/app/schemas/trip_conversation.py`, `backend/app/graph/planner/conversation_state.py` | The planner should remember comparisons and rejections cleanly | Preserve candidate and rejected options without overcommitting |
-| PI-21 | P2 | not started | Improve turn summaries for resume quality | `backend/app/schemas/trip_conversation.py`, `backend/app/graph/planner/conversation_state.py` | Better summaries make later sessions feel coherent | Store structured summaries of what changed and why |
-| PI-22 | P2 | not started | Improve provider activation discipline | `backend/app/graph/planner/runner.py`, `backend/app/graph/planner/provider_enrichment.py` | Weak trip briefs should not trigger noisy enrichment | Gate providers on structured readiness, not guessed values |
-| PI-23 | P2 | not started | Build planner evaluation conversation set | `backend/tests/`, new evaluation docs/files as needed | We need a repeatable way to tell whether intelligence actually improved | Add representative conversations and expected state outcomes |
-| PI-24 | P2 | not started | Add planner-specific regression tests | `backend/tests/` | We need protection for merge rules and phase transitions | Test structured state behavior instead of string-only outputs |
-| PI-25 | P2 | not started | Add planner-quality observability | `backend/app/graph/planner/runner.py`, logging surfaces as needed | We need to see weak turns and unexpected planner behavior | Log structured planner outcomes, confidence, and fallbacks |
+| PI-02 | P0 | done | Add per-field source semantics | `backend/app/graph/planner/turn_models.py`, `backend/app/schemas/trip_conversation.py` | We need to know whether a fact came from the user, the board, profile context, or inference | Extend structured output and state bookkeeping, not raw-text heuristics |
+| PI-03 | P0 | done | Tighten explicit vs inferred merge rules | `backend/app/graph/planner/conversation_state.py` | Prevent inferred details from silently behaving like confirmed facts | Deterministic merge precedence after structured output is produced |
+| PI-04 | P0 | done | Improve correction handling | `backend/app/graph/planner/conversation_state.py`, `backend/app/graph/planner/runner.py` | Users change their minds often; the planner must update cleanly | Track corrections and rejected history explicitly |
+| PI-05 | P0 | done | Improve confirmation detection through schema output | `backend/app/graph/planner/conversation_state.py`, `backend/app/graph/planner/response_builder.py`, `backend/app/graph/planner/suggestion_board.py` | Casual approval should not finalize a trip | Keep confirmation as structured LLM output, not phrase matching |
+| PI-06 | P0 | done | Improve open-question structure and priority | `backend/app/schemas/trip_conversation.py`, `backend/app/graph/planner/conversation_state.py` | The planner should ask the most valuable next question, not a random one | Use structured question objects with field, priority, and status |
+| PI-07 | P0 | done | Improve ambiguity preservation in understanding prompt | `backend/app/graph/planner/understanding.py` | The planner must stop inventing certainty when the user is broad or mixed | Add prompt guidance and examples that preserve uncertainty |
+| PI-08 | P1 | done | Improve rough timing handling | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/draft_merge.py` | Rough timing should stay rough until the user chooses exact dates | Keep windows and lengths broad unless the user gave exact dates |
+| PI-09 | P1 | done | Improve origin handling for tentative phrasing | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/conversation_state.py` | Users often mention an origin softly or conditionally | Let the model mark route fields as tentative or inferred |
+| PI-10 | P1 | done | Improve budget posture handling | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/conversation_state.py` | Budget language is subtle and often qualitative | Capture posture conservatively instead of hardcoding labels from keywords |
+| PI-11 | P1 | done | Improve traveler understanding | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/conversation_state.py` | Party size affects nearly every recommendation | Handle explicit counts, soft phrasing, and uncertainty separately |
+| PI-12 | P1 | done | Improve module-scope understanding | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/conversation_state.py`, `backend/app/graph/planner/details_collection.py` | The planner should respect “just activities” or “skip flights” clearly | Keep selection module-aware through structured outputs |
+| PI-13 | P1 | done | Improve destination suggestion discipline | `backend/app/graph/planner/suggestion_board.py` | Broad asks should lead to strong options, not false decisions | Generate suggestions only when destination is still unresolved |
+| PI-14 | P1 | done | Improve decision-card generation quality | `backend/app/graph/planner/suggestion_board.py`, `backend/app/graph/planner/conversation_state.py`, `backend/app/graph/planner/response_builder.py` | Decision cards should help resolve a real choice | Ask the model for cards only when a concrete choice exists |
+| PI-15 | P1 | done | Improve early draft proposal timing | `backend/app/graph/planner/conversation_state.py`, `backend/app/graph/planner/response_builder.py` | The planner should propose a usable draft earlier | Move from questioning to shaping once enough signal exists |
+| PI-16 | P1 | done | Improve planner response framing | `backend/app/graph/planner/response_builder.py`, `backend/tests/test_planner_bootstrap.py`, `backend/tests/test_planner_merge_semantics.py` | Users need to understand what is locked, assumed, or missing | Structure replies around changes, assumptions, and next move |
+| PI-17 | P1 | done | Improve profile-context usage | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/response_builder.py`, `backend/app/graph/planner/runner.py`, `backend/app/graph/planner/location_context.py` | Profile defaults should help the opening, not override the trip | Use profile context softly and visibly |
+| PI-18 | P1 | done | Improve planning-mode selection semantics | `backend/app/graph/planner/understanding.py`, `backend/app/graph/planner/response_builder.py`, `backend/app/graph/planner/conversation_state.py` | Quick vs advanced should be intentional, not accidental | Keep mode choice explicit in structured state |
+| PI-19 | P1 | done | Improve timeline preview quality | `backend/app/graph/planner/quick_plan.py`, `backend/app/graph/planner/provider_enrichment.py`, `backend/tests/test_quick_plan_quality.py` | A quick plan should feel like a believable trip, not a loose sketch | Ask for fuller previews and merge them carefully with modules |
+| PI-20 | P1 | done | Improve rejected and mentioned option memory | `backend/app/graph/planner/conversation_state.py`, `backend/app/graph/planner/suggestion_board.py`, `backend/tests/test_planner_merge_semantics.py` | The planner should remember comparisons and rejections cleanly | Preserve candidate and rejected options without overcommitting |
+| PI-21 | P2 | done | Improve turn summaries for resume quality | `backend/app/schemas/trip_conversation.py`, `backend/app/graph/planner/conversation_state.py`, `backend/tests/test_planner_runtime_quality.py` | Better summaries make later sessions feel coherent | Store structured summaries of what changed and why |
+| PI-22 | P2 | done | Improve provider activation discipline | `backend/app/graph/planner/runner.py`, `backend/app/graph/planner/provider_enrichment.py`, `backend/app/graph/planner/response_builder.py` | Weak trip briefs should not trigger noisy enrichment | Gate providers on structured readiness, not guessed values |
+| PI-23 | P2 | done | Build planner evaluation conversation set | `backend/tests/fixtures/planner_evaluation_cases.json`, `backend/tests/test_planner_runtime_quality.py` | We need a repeatable way to tell whether intelligence actually improved | Add representative conversations and expected state outcomes |
+| PI-24 | P2 | done | Add planner-specific regression tests | `backend/tests/` | We need protection for merge rules and phase transitions | Test structured state behavior instead of string-only outputs |
+| PI-25 | P2 | done | Add planner-quality observability | `backend/app/graph/planner/runner.py`, `backend/tests/test_planner_runtime_quality.py` | We need to see weak turns and unexpected planner behavior | Log structured planner outcomes, confidence, and fallbacks |
 
 ## Detailed Change Notes
 
@@ -808,6 +808,13 @@ Planner behavior:
 
 ## PI-02. Add Per-Field Source Semantics
 
+Progress update:
+- 2026-04-21: implemented.
+- 2026-04-21: testing done once.
+- 2026-04-21: testing done once.
+- 2026-04-21: testing done once.
+- 2026-04-21: Added structured `field_sources` to the planner turn schema, persisted source-aware field memory for LLM and board-confirmed updates, and kept board-originated facts counted as confirmed without pretending they came from typed chat text.
+
 ### What this change is
 
 Every planner fact should say where it came from.
@@ -855,6 +862,7 @@ Planner state:
 
 Progress update:
 - 2026-04-20: Preserved stronger explicit field memory when a later turn only repeats or revisits the same stored fact as inference, so confirmed planner facts no longer get downgraded silently in status bookkeeping.
+- 2026-04-21: Verified the merge behavior with the targeted planner merge suite and the full backend test suite, so PI-03 can now be treated as complete.
 
 ### What this change is
 
@@ -900,6 +908,9 @@ Good result:
 - Rome stays in history as a rejected or corrected option
 
 ## PI-04. Improve Correction Handling
+
+Progress update:
+- 2026-04-21: Added explicit corrected-field detection in the planner merge path, recorded first-class `Trip details corrected` decision-history events, and used those corrections to invalidate earlier brief confirmation state until the user confirms again.
 
 ### What this change is
 
@@ -947,6 +958,9 @@ Good result:
 
 ## PI-05. Improve Confirmation Detection Through Schema Output
 
+Progress update:
+- 2026-04-21: Stopped the board and assistant response layers from recomputing brief confirmation from stale history alone, and instead routed them through the same resolved `brief_confirmed` value that accounts for structured confirmation plus later corrections.
+
 ### What this change is
 
 The planner needs a better way to distinguish:
@@ -990,6 +1004,10 @@ Good result:
 
 ## PI-06. Improve Open-Question Structure And Priority
 
+Progress update:
+- 2026-04-21: Replaced loose open-question strings with structured question updates in the planner turn contract, added field/step/priority/why metadata to persisted question state, and introduced deterministic ranking plus deduping so Wandrix asks the highest-value next question first.
+- 2026-04-21: Added regression coverage proving that broad trip asks prioritize destination before timing details and that satisfied questions are marked answered instead of hanging around as stale open prompts.
+
 ### What this change is
 
 Open questions should be first-class objects, not just loose strings.
@@ -1031,6 +1049,11 @@ because that is the actual highest-value next question.
 
 ## PI-07. Improve Ambiguity Preservation In The Understanding Prompt
 
+Progress update:
+- 2026-04-21: Strengthened the planner extraction prompt with explicit ambiguity-preservation rules and examples for broad destinations, tentative origins, rough timing, and uncertain traveller counts.
+- 2026-04-21: Added prompt-level regression coverage to verify the structured extraction contract now explicitly teaches the model to preserve ambiguity instead of overcommitting.
+- 2026-04-21: Re-verified the ambiguity-preservation prompt contract while landing PI-08, and the full backend suite stayed green with the shared understanding tests in place.
+
 ### What this change is
 
 The prompt should explicitly teach the model to preserve ambiguity.
@@ -1066,6 +1089,11 @@ Good result:
 - planner stays broad and offers a shortlist
 
 ## PI-08. Improve Rough Timing Handling
+
+Progress update:
+- 2026-04-21: Strengthened the planner extraction prompt so rough timing phrases like `early October`, `around Easter`, `sometime in spring`, `long weekend`, and `five-ish days` stay in `travel_window` and `trip_length` instead of being flattened into invented exact dates.
+- 2026-04-21: Added merge-time timing normalization so inferred exact dates no longer override rough timing, confirmed rough timing clears stale exact dates, and confirmed exact dates clear stale rough timing.
+- 2026-04-21: Added regression coverage for prompt behavior plus timing merge semantics, then re-ran the full backend suite successfully.
 
 ### What this change is
 
@@ -1107,6 +1135,11 @@ Good result:
 
 ## PI-09. Improve Origin Handling For Tentative Phrasing
 
+Progress update:
+- 2026-04-21: Strengthened the planner prompt so likely or fallback origins can remain provisional, with one inferred working origin allowed while alternative origins stay preserved in `mentioned_options`.
+- 2026-04-21: Softened the default origin follow-up wording to ask for the user's most likely departure point rather than sounding like Wandrix needs a fully locked route immediately.
+- 2026-04-21: Added prompt-level and merge-layer regression coverage, then re-ran the full backend suite successfully.
+
 ### What this change is
 
 This change helps the planner handle soft route language like:
@@ -1142,6 +1175,11 @@ Good result:
 - planner can still shape the trip while keeping the route flexible
 
 ## PI-10. Improve Budget Posture Handling
+
+Progress update:
+- 2026-04-21: Strengthened the planner prompt so mixed budget signals like `not too expensive`, `keep hotels sensible`, and `happy to splurge on food` stay nuanced and inferred unless the user made the posture explicit.
+- 2026-04-21: Replaced the default budget follow-up with a more natural tradeoff-oriented question that can capture mixed posture rather than forcing the user into a blunt label too early.
+- 2026-04-21: Added prompt-level and merge-layer regression coverage, then re-ran the full backend suite successfully.
 
 ### What this change is
 
@@ -1181,6 +1219,11 @@ Good result:
 
 ## PI-11. Improve Traveler Understanding
 
+Progress update:
+- 2026-04-21: Strengthened the planner prompt so explicit traveller counts can be captured normally, couples can map to a soft `adults=2` inference when clear, and family or child context without counts no longer invites invented numbers.
+- 2026-04-21: Replaced the default traveller follow-up with group-makeup wording that explicitly leaves room for children instead of asking only for a blunt headcount.
+- 2026-04-21: Added prompt-level and merge-layer regression coverage, then re-ran the full backend suite successfully.
+
 ### What this change is
 
 This change improves how the planner understands who is travelling.
@@ -1218,6 +1261,11 @@ Good result:
 
 ## PI-12. Improve Module-Scope Understanding
 
+Progress update:
+- 2026-04-21: Strengthened the planner prompt so booked items, deferred items, and single-focus requests update `selected_modules` meaningfully instead of leaving every module active by default.
+- 2026-04-21: Reframed the default module-scope follow-up around what Wandrix should actually help with first, and treated the default all-modules state as unresolved scope so the planner can ask that question instead of silently assuming full planning.
+- 2026-04-21: Added prompt-level, merge-layer, and missing-field regression coverage, then re-ran the full backend suite successfully.
+
 ### What this change is
 
 The planner should understand whether the user wants:
@@ -1254,6 +1302,11 @@ Good result:
 
 ## PI-13. Improve Destination Suggestion Discipline
 
+Progress update:
+- 2026-04-21: Tightened suggestion-board gating so destination cards only stay visible while the destination is still unresolved, and they now clear cleanly when the user switches to `own choice`.
+- 2026-04-21: Added regression coverage proving that `own_choice` clears stale shortlist cards and that concrete destinations no longer keep the board stuck in exploration mode.
+- 2026-04-21: Re-ran the full backend suite successfully.
+
 ### What this change is
 
 Destination suggestions should appear only when the user is still broad enough to need them.
@@ -1286,6 +1339,11 @@ Good result:
 - planner moves to the next real decision instead
 
 ## PI-14. Improve Decision-Card Generation Quality
+
+Progress update:
+- 2026-04-21: Replaced the most generic fallback decision cards with more contextual ones around timing shape, departure choice, and trip feel.
+- 2026-04-21: Added deterministic decision-card filtering so filler cards like `Next trip decisions` or placeholder option lists do not survive into planner state, and added response framing that explicitly references the real next decision instead of sounding templated.
+- 2026-04-21: Added regression coverage for contextual fallback cards, filler-card filtering, and decision-card response framing, then re-ran the full backend suite successfully.
 
 ### What this change is
 
@@ -1351,6 +1409,23 @@ The planner says:
 
 `I can already sketch a strong first direction for this Barcelona long weekend and refine the rest with you after.`
 
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- `conversation_state.determine_phase(...)` now moves the planner into `shaping_trip` once the brief has a destination plus usable timing, instead of waiting for every downstream detail.
+- The new `_is_early_draft_ready(...)` check treats rough timing like `early October` and soft trip-length phrasing like `long weekend` as enough signal for a first draft direction.
+- `build_last_turn_summary(...)` now reflects that the planner has enough shape for a useful first direction even when budget, traveller makeup, module scope, or departure point are still open.
+
+What this means in practice:
+- Wandrix no longer stays trapped in requirement-gathering just because a few secondary fields are missing.
+- The planner can start shaping the trip earlier, while still keeping unresolved details visible as open questions.
+
+Verification:
+- Added bootstrap coverage for a turn like `Barcelona in early October for a long weekend` and confirmed the planner now enters `shaping_trip`.
+- Verified that the missing fields remain soft and visible instead of silently blocking early draft progression.
+
 ## PI-16. Improve Planner Response Framing
 
 ### What this change is
@@ -1384,6 +1459,23 @@ Do not make the assistant sound like an extraction bot or a generic chatbot.
 
 `I now have Lisbon in early October with a roughly five-day window and a food-first city-break direction. Your departure point still feels flexible, so that is the main thing I would confirm next before I tighten flights.`
 
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- `_build_progress_response(...)` now frames replies around the current working shape, provisional assumptions, and the next confirmation target.
+- `shaping_trip` replies now explicitly tell the user that Wandrix can already sketch a strong first direction and refine from there.
+- The decision-card response path was tightened too, so the same framing carries through when the board is leading the next meaningful choice.
+
+What this means in practice:
+- Replies no longer sound like generic state-sync acknowledgements.
+- Users can see what Wandrix believes the trip currently is, which parts are still provisional, and which single next answer would most improve the plan.
+
+Verification:
+- Added regression coverage for shaping responses that mention the working destination, rough timing, provisional details, and the main next confirmation.
+- Re-verified the decision-card reply branch so it now carries the same early-draft momentum language instead of falling back to a flatter generic prompt.
+
 ## PI-17. Improve Profile-Context Usage
 
 ### What this change is
@@ -1415,6 +1507,24 @@ The planner says, in effect:
 
 `I can use your London-area default as a starting point if that is still right for this trip.`
 
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- The understanding prompt now explicitly teaches that profile context is for personalization and soft grounding, not for silently filling structured trip facts.
+- The runner no longer auto-promotes resolved location context into `from_location` during brief confirmation, which stops saved home-base data from becoming a locked trip origin by side effect.
+- Assistant replies in the opening, shaping, and brief-confirmation stages now mention a saved home base as an optional starting point when helpful, without presenting it as a committed trip fact.
+- Profile-based location messaging was rewritten to make the fallback wording clearer and explicitly provisional.
+
+What this means in practice:
+- Wandrix can still feel personal when a saved home base exists, but it no longer quietly turns that into the trip's departure point.
+- Profile defaults now help the conversation move faster without pretending the user already confirmed them for this trip.
+
+Verification:
+- Added prompt-contract coverage to ensure profile context is described as soft and optional.
+- Added runtime coverage proving a saved home base stays out of `configuration.from_location` even when the user confirms the trip brief.
+
 ## PI-18. Improve Planning-Mode Selection Semantics
 
 ### What this change is
@@ -1443,6 +1553,23 @@ Planner distinguishes:
 - brief confirmation
 - quick-plan request
 - deeper refinement request
+
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- The understanding prompt now teaches that planning mode is a separate explicit lifecycle choice from trip-brief confirmation, and that generic approval should usually confirm the brief first rather than auto-select a mode.
+- Assistant response selection now only shows Quick Plan or Advanced Planning fallback copy when that mode request was actually accepted into conversation state for the current turn.
+- Decision-history recording now only logs planning-mode selection events when the runtime really accepted that mode, preventing weak or premature requests from polluting planner memory.
+
+What this means in practice:
+- A vague `go ahead` on an incomplete brief no longer makes Wandrix behave as if Quick Plan was intentionally chosen.
+- A clearly explicit `build the quick draft` request still works, but only once the planner has enough confirmed shape to treat mode selection as a real lifecycle step.
+
+Verification:
+- Added prompt-contract coverage for explicit planning-mode semantics.
+- Added runtime coverage proving weak pre-confirmation Quick Plan requests are ignored cleanly, while explicit post-confirmation Quick Plan requests are accepted and recorded.
 
 ## PI-19. Improve Timeline Preview Quality
 
@@ -1478,6 +1605,24 @@ The timeline looks like:
 
 The timeline feels like an actual trip direction with meaningful pacing and rationale.
 
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- The quick-plan drafting prompt now pushes much harder for distinct day shapes, stronger thematic pacing, destination-specific anchors, and clear sequencing logic rather than generic city-break filler.
+- The prompt now explicitly tells the model to connect itinerary blocks into a real route through the city, adapt pacing to weather when weather data exists, and avoid vague placeholders like `Explore the city` or `Dinner in town`.
+- Timeline assembly now refines preview items before merging them with provider-backed anchors, which filters out generic arrival, departure, and check-in filler when real flight or hotel blocks already cover those moments.
+- Generic repeated preview filler on the same day is also deduped so the timeline keeps the stronger blocks.
+
+What this means in practice:
+- Quick-plan timelines now have better odds of feeling editorial and believable instead of reading like a generic travel skeleton.
+- When real flight or hotel data exists, the timeline is less likely to waste space on vague duplicates like `Arrival in Lisbon` next to an actual outbound flight block.
+
+Verification:
+- Added prompt-contract coverage for the richer quick-plan drafting instructions.
+- Added timeline-merge coverage proving generic arrival filler is dropped when a provider-backed flight anchor already exists.
+
 ## PI-20. Improve Rejected And Mentioned Option Memory
 
 ### What this change is
@@ -1506,6 +1651,23 @@ User rejects Prague, but it keeps returning in later suggestions.
 ### After
 
 Prague stays visible only as prior history, not as a fresh recommendation.
+
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- Destination suggestion cards are now filtered against rejected destination memory, so previously ruled-out places do not keep resurfacing on later shortlist turns.
+- Destination suggestions are also deduped more cleanly at the board layer to avoid repeated cards for the same place.
+- Conversation-memory reconciliation now keeps `mentioned_options` and `rejected_options` in sync: newly rejected options stop lingering as active mentions, and explicitly reintroduced options are removed from rejected memory when the user brings them back into play.
+
+What this means in practice:
+- A rejected destination like Prague no longer reappears as a fresh recommendation just because the model suggested it again later.
+- If the user changes their mind and explicitly reintroduces that destination, Wandrix can accept it cleanly instead of permanently treating it as banned.
+
+Verification:
+- Added regression coverage proving rejected destinations are filtered out of later suggestion boards.
+- Added regression coverage proving an explicitly reintroduced destination leaves rejected memory and becomes an active option again.
 
 ## PI-21. Improve Turn Summaries For Resume Quality
 
@@ -1536,6 +1698,22 @@ A resumed trip feels like the planner barely remembers the last meaningful decis
 
 A resumed trip feels like the planner knows the current state and the next unresolved choice.
 
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- `ConversationTurnSummary` now stores structured resume fields instead of only transcript-like text: `summary_text`, `open_fields`, `next_open_question`, and `active_goal`.
+- Turn-summary merging now captures what changed, what is still open, and the planner's active focus in one compact structured record.
+- The summary text is now generated to be low-noise and resume-oriented rather than copying back whole assistant replies.
+
+What this means in practice:
+- Later sessions can inspect the last meaningful planner turn and recover both the current trip state and the next unresolved choice more reliably.
+- Resume behavior is less dependent on re-reading raw conversation text.
+
+Verification:
+- Added regression coverage proving turn summaries now store structured open fields, next question, and active planner focus.
+
 ## PI-22. Improve Provider Activation Discipline
 
 ### What this change is
@@ -1564,6 +1742,24 @@ Broad Italy trip prompts flight and hotel output too early.
 ### After
 
 The planner first shapes the brief, then enriches intentionally.
+
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- The runner now evaluates provider activation through a structured readiness snapshot instead of relying only on `no missing fields`.
+- Provider readiness now considers trip-brief confirmation, active planning mode, explicit module scope, destination reliability, timing reliability, and origin reliability for flight-only work.
+- `build_module_outputs(...)` now accepts `allowed_modules`, so blocked modules keep existing output instead of triggering fresh noisy enrichment.
+- Quick Plan replies now stay honest: if Quick Plan is selected but provider readiness is still blocked, Wandrix says so instead of pretending planning already started.
+
+What this means in practice:
+- Weak briefs no longer trigger live provider work just because they happen to pass a broad missing-field check.
+- Flights are now specifically blocked until the departure point is reliable enough, while non-flight modules can still proceed when their own readiness is satisfied.
+
+Verification:
+- Added runtime coverage proving flights stay blocked without a reliable origin.
+- Added runtime coverage proving ready non-flight modules can still start Quick Plan when the scope and brief are strong enough.
 
 ## PI-23. Build Planner Evaluation Conversation Set
 
@@ -1599,6 +1795,22 @@ We judge planner quality by vibe.
 
 We can compare planner behavior against expected structured outcomes.
 
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- Added a fixed evaluation fixture at `backend/tests/fixtures/planner_evaluation_cases.json`.
+- The set covers broad asks, rough timing, corrections, rejections, soft approvals, explicit confirmation, profile-context handling, and module-scope narrowing.
+- Added validation coverage so the evaluation set itself stays well-formed and does not silently decay.
+
+What this means in practice:
+- Planner quality can now be compared against a fixed scenario set instead of being judged only by memory or vibe.
+- Future planner work has a durable reference pack for common failure modes.
+
+Verification:
+- Added automated validation that the evaluation set includes the expected categories and required structure.
+
 ## PI-24. Add Planner-Specific Regression Tests
 
 ### What this change is
@@ -1629,6 +1841,22 @@ State regressions can slip through because the UI still renders something.
 ### After
 
 Core planner contracts are protected.
+
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- Added new runtime regression coverage around resume summaries, provider gating, non-flight Quick Plan readiness, and evaluation-set structure.
+- Expanded the test surface beyond string assertions so core planner contracts are now checked through state, memory, metadata, and provider-activation decisions.
+- This sits on top of the earlier merge, correction, timing, profile, and planning-mode tests that were already added in previous PI steps.
+
+What this means in practice:
+- Planner regressions are less likely to slip through as long as the UI still renders something plausible.
+- The test suite now protects more of the actual planner state machine and readiness logic.
+
+Verification:
+- Full backend suite now covers 54 passing tests after this block.
 
 ## PI-25. Add Planner-Quality Observability
 
@@ -1664,6 +1892,22 @@ When the planner makes a weak decision, it is hard to tell whether the issue was
 ### After
 
 We can inspect the structured planner path and fix the real failure point.
+
+### Implementation Update - 2026-04-21
+
+Status: done
+
+What changed:
+- The runner now emits a structured `planner_observability` snapshot into runtime metadata for each processed turn.
+- The snapshot includes phase, planning-mode state, confirmation state, changed fields, corrected fields, open-question count, configuration snapshot, and provider-activation reasoning.
+- Provider activation diagnostics now expose allowed modules, blocked modules, and field-readiness snapshots so weak turns can be debugged by cause instead of guesswork.
+
+What this means in practice:
+- When a planner turn feels weak, we can now inspect whether the issue came from readiness, state, or lack of user certainty instead of reverse-engineering the turn from chat output alone.
+- This should make the next round of planner improvements faster and less speculative.
+
+Verification:
+- Added runtime coverage proving planner metadata includes provider activation and structured observability state.
 
 ## Anti-Regression Rule
 

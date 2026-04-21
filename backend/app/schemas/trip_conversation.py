@@ -66,6 +66,7 @@ ConversationFieldSource = Literal[
     "user_inferred",
     "profile_default",
     "assistant_derived",
+    "board_action",
 ]
 ConversationFieldConfidence = Literal["low", "medium", "high"]
 
@@ -154,7 +155,9 @@ class ConversationQuestion(BaseModel):
     id: str
     question: str = Field(..., min_length=1, max_length=240)
     field: TripFieldKey | None = None
+    step: TripDetailsStepKey | None = None
     priority: int = Field(default=1, ge=1, le=5)
+    why: str | None = Field(default=None, max_length=200)
     status: ConversationQuestionStatus = "open"
 
 
@@ -191,7 +194,11 @@ class ConversationTurnSummary(BaseModel):
     turn_id: str
     user_message: str = Field(..., min_length=1, max_length=4000)
     assistant_message: str | None = Field(default=None, max_length=4000)
+    summary_text: str | None = Field(default=None, max_length=400)
     changed_fields: list[TripFieldKey] = Field(default_factory=list)
+    open_fields: list[TripFieldKey] = Field(default_factory=list)
+    next_open_question: str | None = Field(default=None, max_length=240)
+    active_goal: str | None = Field(default=None, max_length=240)
     resulting_phase: ChatPlannerPhase = "opening"
     created_at: datetime | None = None
 

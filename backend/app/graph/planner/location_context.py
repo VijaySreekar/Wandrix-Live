@@ -99,7 +99,10 @@ def _resolve_profile_context(
         city=profile.home_city,
         country=profile.home_country,
         summary=summary,
-        message_context=f"I couldn’t use browser location, so I’m using your saved home base in {summary}",
+        message_context=(
+            f"I couldn't use browser location, so I used your saved home base around {summary} "
+            "as a starting point."
+        ),
     )
 
 

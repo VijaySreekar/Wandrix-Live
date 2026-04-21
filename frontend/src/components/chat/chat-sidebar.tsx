@@ -1,15 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  BookOpen,
   ChevronDown,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Search,
+  SlidersHorizontal,
 } from "lucide-react";
 
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
@@ -237,18 +236,19 @@ export function ChatSidebar({
           collapsed ? "justify-center px-2" : "px-2",
         ].join(" ")}
       >
-        <Link
-          href="/trips?filter=brochure"
+        <button
+          type="button"
+          disabled
           className={[
-            "inline-flex items-center justify-center gap-1.5 rounded-lg text-[0.78rem] font-medium text-[color:var(--sidebar-muted-text)] transition-colors hover:bg-[color:var(--sidebar-surface)] hover:text-[color:var(--sidebar-text)]",
+            "inline-flex items-center justify-center gap-1.5 rounded-lg text-[0.78rem] font-medium text-[color:var(--sidebar-muted-text)] opacity-60",
             collapsed ? "h-10 w-10" : "flex-1 py-1.5",
           ].join(" ")}
-          aria-label="Brochures"
-          title="Brochures"
+          aria-label="Configuration"
+          title="Configuration"
         >
-          <BookOpen className="h-3.5 w-3.5" />
-          {!collapsed ? "Brochures" : null}
-        </Link>
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          {!collapsed ? "Configuration" : null}
+        </button>
       </div>
     </aside>
   );

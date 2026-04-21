@@ -11,6 +11,7 @@ import { createClient as createSupabaseServerClient } from "@/lib/supabase/serve
 const NAV_ITEMS = [
   { label: "Home", href: "/" },
   { label: "Chat", href: "/chat" },
+  { label: "Saved Trips", href: "/trips" },
   { label: "Flights", href: "/flights" },
   { label: "Hotels", href: "/hotels" },
   { label: "Activities", href: "/activities" },
