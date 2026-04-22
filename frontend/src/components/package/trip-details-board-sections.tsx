@@ -55,6 +55,7 @@ type TripDetailsStepperProps = {
   onBudgetAmountChange: (value: number | null) => void;
   onBudgetPostureToggle: (posture: BudgetPosture) => void;
   onChildrenChange: (value: number | null) => void;
+  onOriginFlexibleToggle: () => void;
   onTravelersFlexibleToggle: () => void;
   onFieldChange: (
     field:
@@ -185,6 +186,7 @@ export function TripDetailsStepper({
   onBudgetAmountChange,
   onBudgetPostureToggle,
   onChildrenChange,
+  onOriginFlexibleToggle,
   onTravelersFlexibleToggle,
   onFieldChange,
   onModuleToggle,
@@ -315,7 +317,7 @@ export function TripDetailsStepper({
                     placeholder="Marrakech or Kyoto"
                     value={form.to_location ?? ""}
                     onChange={(value) => onFieldChange("to_location", value)}
-                  />
+                    />
                   {!flightsActive ? (
                     <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)]/55 p-4">
                       <Label className="text-sm font-medium text-[var(--planner-board-text)]">
@@ -324,6 +326,29 @@ export function TripDetailsStepper({
                       <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
                         Optional for the current scope. If you bring flights back in later, Wandrix will surface this again.
                       </p>
+                    </div>
+                  ) : null}
+                  {flightsActive ? (
+                    <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)]/55 p-4 sm:col-span-2">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <Label className="text-sm font-medium text-[var(--planner-board-text)]">
+                            Departure still flexible
+                          </Label>
+                          <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                            Keep this on if you want Wandrix to continue building the brief without locking the exact departure city yet.
+                          </p>
+                        </div>
+                        <ChoiceButton
+                          disabled={disabled}
+                          selected={Boolean(form.from_location_flexible)}
+                          onClick={onOriginFlexibleToggle}
+                        >
+                          {form.from_location_flexible
+                            ? "Flexible for now"
+                            : "Mark flexible"}
+                        </ChoiceButton>
+                      </div>
                     </div>
                   ) : null}
                   {flightsActive && form.from_location_flexible ? (

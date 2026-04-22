@@ -51,7 +51,15 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
   const outboundFlight = moduleOutputs.flights.find(
     (flight) => flight.direction === "outbound",
   );
-  const stay = moduleOutputs.hotels[0] ?? null;
+  const stay =
+    moduleOutputs.hotels.find(
+      (hotel) =>
+        hotel.id === conversation.stay_planning?.selected_hotel_id ||
+        (!!conversation.stay_planning?.selected_hotel_name &&
+          hotel.hotel_name === conversation.stay_planning.selected_hotel_name),
+    ) ??
+    moduleOutputs.hotels[0] ??
+    null;
   const leadActivity = moduleOutputs.activities[0] ?? null;
   const weather = moduleOutputs.weather.slice(0, 3);
   const timelineSections = useMemo(
@@ -146,7 +154,7 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
                 subtitle={stay ? "Current stay direction" : "Hotel still open"}
               >
                 {stay ? (
-                  <HotelSummary hotel={stay} />
+                  <HotelSummary hotel={stay} destination={configuration.to_location} />
                 ) : (
                   <EmptyPanel message="Hotel recommendations will settle here once Wandrix has enough destination and pacing context." />
                 )}

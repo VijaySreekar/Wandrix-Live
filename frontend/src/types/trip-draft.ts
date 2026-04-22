@@ -80,7 +80,16 @@ export type FlightDetail = {
 export type HotelStayDetail = {
   id: string;
   hotel_name: string;
+  hotel_key?: string | null;
   area: string | null;
+  address?: string | null;
+  image_url?: string | null;
+  source_url?: string | null;
+  source_label?: string | null;
+  nightly_rate_amount?: number | null;
+  nightly_rate_currency?: string | null;
+  nightly_tax_amount?: number | null;
+  rate_provider_name?: string | null;
   check_in: string | null;
   check_out: string | null;
   notes: string[];

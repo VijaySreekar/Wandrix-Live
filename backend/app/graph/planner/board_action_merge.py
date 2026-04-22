@@ -40,6 +40,36 @@ def apply_board_action_updates(
         merged_update.planner_intent = "reopen_plan"
         return merged_update
 
+    if action.type in {"select_date_option", "pick_dates_for_me"}:
+        merged_update = llm_update.model_copy(deep=True)
+        merged_update.start_date = None
+        merged_update.end_date = None
+        merged_update.confirmed_fields = [
+            field
+            for field in merged_update.confirmed_fields
+            if field not in {"start_date", "end_date"}
+        ]
+        return merged_update
+
+    if action.type == "confirm_working_dates":
+        merged_update = llm_update.model_copy(deep=True)
+        parsed_start_date = _parse_optional_date(action.start_date)
+        if parsed_start_date:
+            merged_update.start_date = parsed_start_date
+            _mark_confirmed(merged_update, "start_date")
+
+        parsed_end_date = _parse_optional_date(action.end_date)
+        if parsed_end_date:
+            merged_update.end_date = parsed_end_date
+            _mark_confirmed(merged_update, "end_date")
+
+        if action.trip_length:
+            merged_update.trip_length = action.trip_length.strip()
+            _mark_confirmed(merged_update, "trip_length")
+
+        merged_update.confirmed_trip_brief = True
+        return merged_update
+
     if action.type != "confirm_trip_details":
         return llm_update
 
@@ -48,6 +78,10 @@ def apply_board_action_updates(
     if action.from_location:
         merged_update.from_location = action.from_location.strip()
         _mark_confirmed(merged_update, "from_location")
+
+    if action.from_location_flexible is not None:
+        merged_update.from_location_flexible = action.from_location_flexible
+        _mark_confirmed(merged_update, "from_location_flexible")
 
     if action.to_location:
         merged_update.to_location = action.to_location.strip()

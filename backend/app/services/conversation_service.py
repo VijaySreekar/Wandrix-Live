@@ -9,13 +9,36 @@ from app.repositories.trip_draft_repository import (
 )
 from app.repositories.trip_repository import get_trip_for_user
 from app.repositories.trip_repository import update_trip_title as update_trip_title_record
+from app.graph.planner.opening_turn import decide_opening_turn
 from app.schemas.conversation import (
     CheckpointConversationHistoryResponse,
+    OpeningTurnRequest,
+    OpeningTurnResponse,
     TripConversationMessageRequest,
     TripConversationMessageResponse,
 )
 from app.schemas.trip_draft import TripDraft, TripPlanningPhase
 from app.services.brochure_service import create_brochure_snapshot_for_trip
+
+
+def respond_to_opening_turn(
+    *,
+    payload: OpeningTurnRequest,
+) -> OpeningTurnResponse:
+    decision = decide_opening_turn(
+        user_message=payload.message,
+        profile_context=payload.profile_context.model_dump(mode="json")
+        if payload.profile_context
+        else {},
+        current_location_context=payload.current_location_context.model_dump(mode="json")
+        if payload.current_location_context
+        else {},
+    )
+
+    return OpeningTurnResponse(
+        should_start_trip=decision.should_start_trip,
+        message=decision.message,
+    )
 
 
 def send_trip_message(

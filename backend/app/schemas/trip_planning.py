@@ -76,7 +76,16 @@ class FlightDetail(BaseModel):
 class HotelStayDetail(BaseModel):
     id: str
     hotel_name: str
+    hotel_key: str | None = Field(default=None, max_length=160)
     area: str | None = None
+    address: str | None = Field(default=None, max_length=240)
+    image_url: str | None = Field(default=None, max_length=1000)
+    source_url: str | None = Field(default=None, max_length=1000)
+    source_label: str | None = Field(default=None, max_length=80)
+    nightly_rate_amount: float | None = Field(default=None, ge=0)
+    nightly_rate_currency: str | None = Field(default=None, max_length=8)
+    nightly_tax_amount: float | None = Field(default=None, ge=0)
+    rate_provider_name: str | None = Field(default=None, max_length=120)
     check_in: datetime | None = None
     check_out: datetime | None = None
     notes: list[str] = Field(default_factory=list)

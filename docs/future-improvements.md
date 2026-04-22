@@ -296,6 +296,127 @@ Why this matters:
 - this is how Wandrix becomes more than an itinerary generator
 - the user should feel like the agent is helping them build the actual trip, not just sketching one
 
+### Resolve Working Dates Before Anchor Choice
+
+Advanced Planning should not jump straight from a rough brief into the four main anchors when timing is still vague.
+
+If the user says things like:
+- `late March`
+- `around five nights`
+- `long weekend in May`
+- `sometime next month`
+
+Wandrix should first run a dedicated `working date resolution` step before it asks whether flights, stay, trip style, or activities should lead the trip.
+
+That step should mean:
+- generate `3` concrete date options from the rough timing
+- explain in chat why those windows are plausible interpretations
+- show those options on the board as the working date-choice workspace
+- let the user choose one or use `Pick for me`
+- require an explicit `Proceed with this trip window` confirmation before moving on
+
+Core rule:
+- the chosen trip window is a `working date lock`, not a permanent lock
+
+That means:
+- it is concrete enough to unlock better stay, hotel, flight, budget, and activity planning
+- it can still be revised later in chat if the user changes their mind
+- the board should complement the reasoning, not replace it
+
+The intended Advanced Planning flow becomes:
+1. shared intake
+2. resolve the working trip window if timing is still rough
+3. confirm the working date window
+4. only then show the four Advanced anchors
+
+### Build Stay As The First Revisable Decision
+
+The first real deep Advanced Planning path should be `stay`.
+
+This should not begin as hotel inventory or a booking flow.
+
+The first stay implementation should be:
+- `area-strategy selection`
+- `4` stay strategy options on the board
+- each option representing a `working stay direction`, not a hotel
+- each option being explained in plain traveler language
+
+Core rule:
+- Advanced Planning decisions should be treated as `working decisions`, not one-way locks
+
+That means:
+- a selected stay should mean `this is the current direction Wandrix is building around`
+- it should not mean `the hotel is chosen`
+- it should not mean `anything is booked`
+- it should remain revisable if later planning evidence makes it weaker
+
+Later planner evidence should be allowed to challenge the selected stay, including:
+- activity anchors
+- trip style decisions
+- arrival and departure practicality
+- one-base versus split-stay logic
+
+When that happens, Wandrix should not silently overwrite the selection.
+
+Instead it should:
+- explain the tension in chat
+- reflect the problem on the board
+- mark the stay as `selected`, `strained`, or `needs review`
+- suggest a better stay strategy if the old one no longer fits well
+
+This pattern matters because it should become the reusable model for later anchors too:
+- flights
+- activities
+- trip style
+
+So the first stay implementation should establish the planner pattern of:
+- recommend
+- select
+- keep as a working decision
+- review later if the trip logic changes
+
+### Turn Selected Stay Into A Hotel Shortlist
+
+Once the user picks a stay strategy, Advanced Planning should move immediately into a hotel shortlist inside that selected stay direction.
+
+That next step should mean:
+- keep the selected stay strategy pinned and visible on the board
+- use live hotel discovery first when the destination and timing are ready
+- normalize those hotel results into planner-owned hotel cards
+- explain each hotel in relation to the selected stay direction, not as generic hotel facts
+- let the user choose a `working hotel selected` option
+
+Core rule:
+- selected hotel is still a `working decision`, not a booking and not a permanent lock
+
+That means:
+- `selected_stay_option_id` still means the current area strategy
+- `selected_hotel_id` means the current working hotel inside that strategy
+- neither should imply the hotel is booked
+- later activities, flights, or trip structure can still strengthen or strain that hotel choice
+
+The first hotel shortlist should:
+- try live hotel discovery first
+- fall back to planner-safe hotel suggestions only if live hotel results are unavailable or too weak
+- keep all hotel cards clearly framed as fitting the chosen stay direction
+- keep the selected stay strategy visible while the user is choosing hotels
+
+The board should then support:
+- `advanced_stay_hotel_choice`
+- `advanced_stay_hotel_selected`
+- later `advanced_stay_hotel_review`
+
+This matters because:
+- stay strategy without real hotel follow-through feels unfinished
+- raw hotel cards without stay strategy feel shallow
+- the product needs both layers to feel genuinely intelligent
+
+So the intended planner pattern becomes:
+1. choose the stay direction
+2. shortlist hotels inside that direction
+3. select a working hotel
+4. review it later if newer trip evidence makes it weaker
+
 ### Keep Booking External
 
 Advanced Planning should help the user decide what to choose, but not complete the booking inside Wandrix.

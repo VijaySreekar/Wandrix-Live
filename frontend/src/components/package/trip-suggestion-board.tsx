@@ -1,14 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import Image from "next/image";
+import {
+  ArrowRight,
+  CalendarRange,
+  MapPin,
+} from "lucide-react";
 
 import { getLiveDestinationImage } from "@/components/package/trip-board-cards";
 import { resolveDestinationSuggestionImage } from "@/lib/destination-images";
 import { cn } from "@/lib/utils";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type {
+  AdvancedDateOptionCard,
   AdvancedAnchorChoiceCard,
+  AdvancedStayHotelOptionCard,
+  AdvancedStayOptionCard,
   DestinationSuggestionCard,
   PlanningModeChoiceCard,
   PlannerDecisionCard,
@@ -69,6 +77,29 @@ export function TripSuggestionBoard({
               />
             ))}
           </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (board.mode === "advanced_date_resolution") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <AdvancedDateResolutionPanel
+            board={board}
+            disabled={disabled}
+            onAction={onAction}
+          />
         </div>
       </section>
     );
@@ -139,6 +170,85 @@ export function TripSuggestionBoard({
               ))}
             </ul>
           </article>
+        </div>
+      </section>
+    );
+  }
+
+  if (
+    board.mode === "advanced_stay_choice" ||
+    board.mode === "advanced_stay_selected" ||
+    board.mode === "advanced_stay_review"
+  ) {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          {(board.mode === "advanced_stay_selected" ||
+            board.mode === "advanced_stay_review") &&
+          board.selected_stay_option_id ? (
+            <AdvancedStayStatusPanel board={board} />
+          ) : null}
+
+          <div className="grid gap-4">
+            {(board.stay_cards ?? []).map((card) => (
+              <AdvancedStayOptionCardView
+                key={card.id}
+                card={card}
+                board={board}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (
+    board.mode === "advanced_stay_hotel_choice" ||
+    board.mode === "advanced_stay_hotel_selected" ||
+    board.mode === "advanced_stay_hotel_review"
+  ) {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <AdvancedStayStatusPanel board={board} />
+          {(board.mode === "advanced_stay_hotel_selected" ||
+            board.mode === "advanced_stay_hotel_review") &&
+          board.selected_hotel_id ? (
+            <AdvancedStayHotelStatusPanel board={board} />
+          ) : null}
+
+          <div className="grid gap-4">
+            {(board.hotel_cards ?? []).map((card) => (
+              <AdvancedStayHotelCardView
+                key={card.id}
+                card={card}
+                board={board}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
         </div>
       </section>
     );
@@ -403,6 +513,866 @@ function AdvancedAnchorOptionCard({
   );
 }
 
+function AdvancedStayStatusPanel({
+  board,
+}: {
+  board: TripSuggestionBoardState;
+}) {
+  const selectedCard = (board.stay_cards ?? []).find(
+    (card) => card.id === board.selected_stay_option_id,
+  );
+
+  if (!selectedCard) {
+    return null;
+  }
+
+  const statusLabel =
+    board.mode === "advanced_stay_review"
+      ? "Stay needs review"
+      : board.stay_selection_status === "selected"
+        ? "Current stay base"
+        : "Stay base";
+
+  return (
+    <article className="mb-4 rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_6px_14px_rgba(0,0,0,0.04)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+            {statusLabel}
+          </p>
+          <h3 className="mt-1 font-display text-lg font-bold tracking-[-0.02em] text-[var(--planner-board-text)]">
+            {selectedCard.title}
+          </h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--planner-board-muted)]">
+            {board.stay_selection_rationale || selectedCard.summary}
+          </p>
+        </div>
+        <span
+          className={cn(
+            "rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]",
+            board.mode === "advanced_stay_review"
+              ? "border-[color:color-mix(in_srgb,#b45309_28%,transparent)] bg-[color:color-mix(in_srgb,#f59e0b_12%,transparent)] text-[#92400e]"
+              : "border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] text-[color:var(--accent)]",
+          )}
+        >
+          {board.mode === "advanced_stay_review" ? "Review" : "Active"}
+        </span>
+      </div>
+
+      {(board.stay_selection_assumptions?.length ||
+        board.stay_compatibility_notes?.length) ? (
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {board.stay_selection_assumptions?.length ? (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+                Built Around
+              </p>
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {board.stay_selection_assumptions.slice(0, 3).map((item) => (
+                  <li
+                    key={item}
+                    className="rounded-md border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-2.5 py-1 text-xs text-[var(--planner-board-muted)]"
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {board.stay_compatibility_notes?.length ? (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+                Compatibility Notes
+              </p>
+              <ul className="mt-2 space-y-2">
+                {board.stay_compatibility_notes.slice(0, 1).map((item) => (
+                  <li
+                    key={item}
+                    className="rounded-lg border border-[color:color-mix(in_srgb,#b45309_18%,transparent)] bg-[color:color-mix(in_srgb,#f59e0b_8%,transparent)] px-3 py-2 text-xs leading-5 text-[var(--planner-board-muted)]"
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function AdvancedStayOptionCardView({
+  card,
+  board,
+  disabled,
+  onAction,
+}: {
+  card: AdvancedStayOptionCard;
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const isSelected = board.selected_stay_option_id === card.id;
+  const isReviewMode = board.mode === "advanced_stay_review" && isSelected;
+
+  return (
+    <article
+      className={cn(
+        "rounded-xl border bg-[var(--planner-board-card)] px-6 py-6 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]",
+        isSelected
+          ? "border-[color:color-mix(in_srgb,var(--accent)_30%,transparent)]"
+          : "border-[var(--planner-board-border)]",
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-display text-xl font-bold tracking-[-0.02em] text-[var(--planner-board-text)]">
+              {card.title}
+            </h3>
+            {card.badge ? (
+              <span className="rounded-md border border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+                {card.badge}
+              </span>
+            ) : null}
+            {isSelected ? (
+              <span
+                className={cn(
+                  "rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]",
+                  isReviewMode
+                    ? "border-[color:color-mix(in_srgb,#b45309_28%,transparent)] bg-[color:color-mix(in_srgb,#f59e0b_12%,transparent)] text-[#92400e]"
+                    : "border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] text-[color:var(--accent)]",
+                )}
+              >
+                {isReviewMode ? "Needs review" : "Selected"}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-2 max-w-xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {card.summary}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+            {card.strategy_type === "split_stay" ? "Strategy" : "Area direction"}
+          </p>
+          <p className="mt-1 text-sm font-medium text-[var(--planner-board-text)]">
+            {card.area_label || card.areas.join(", ") || "Flexible area base"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+            Best For
+          </p>
+          <ul className="mt-3 space-y-2">
+            {card.best_for.map((bullet) => (
+              <li
+                key={bullet}
+                className="flex items-start gap-3 text-sm leading-7 text-[var(--planner-board-muted)]"
+              >
+                <span className="mt-2 block h-1.5 w-1.5 rounded-full bg-[color:var(--accent)]" />
+                <span>{bullet}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+            Tradeoffs
+          </p>
+          <ul className="mt-3 space-y-2">
+            {card.tradeoffs.map((bullet) => (
+              <li
+                key={bullet}
+                className="flex items-start gap-3 text-sm leading-7 text-[var(--planner-board-muted)]"
+              >
+                <span className="mt-2 block h-1.5 w-1.5 rounded-full bg-[var(--planner-board-muted-strong)]" />
+                <span>{bullet}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() =>
+            onAction({
+              action_id: crypto.randomUUID(),
+              type: "select_stay_option",
+              stay_option_id: card.id,
+              stay_segment_id: card.segment_id,
+            })
+          }
+          className={cn(
+            "inline-flex items-center rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors",
+            disabled
+              ? "cursor-not-allowed border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
+              : isSelected
+                ? "border-[color:var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,white)] text-[color:var(--accent)] hover:bg-[color:color-mix(in_srgb,var(--accent)_14%,white)]"
+                : "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:bg-[color:color-mix(in_srgb,var(--accent)_92%,black)]",
+          )}
+        >
+          {isSelected ? "Selected stay direction" : card.cta_label || "Choose this base"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function AdvancedStayHotelStatusPanel({
+  board,
+}: {
+  board: TripSuggestionBoardState;
+}) {
+  const selectedHotel = (board.hotel_cards ?? []).find(
+    (card) => card.id === board.selected_hotel_id,
+  );
+
+  if (!selectedHotel) {
+    return null;
+  }
+
+  const statusLabel =
+    board.mode === "advanced_stay_hotel_review"
+      ? "Hotel needs review"
+      : "Current hotel";
+  const nightlyRate = formatNightlyRate(selectedHotel);
+  const stayWindow = formatBoardDateRange(
+    selectedHotel.check_in,
+    selectedHotel.check_out,
+  );
+
+  return (
+    <article className="mb-4 overflow-hidden rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]">
+      <div className="grid gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <HotelVisual
+          imageUrl={selectedHotel.image_url}
+          hotelName={selectedHotel.hotel_name}
+          area={selectedHotel.area}
+          variant="featured"
+          badges={[
+            board.mode === "advanced_stay_hotel_review"
+              ? "Review this hotel"
+              : "Current hotel",
+            ...(selectedHotel.recommended ? ["Recommended"] : []),
+          ]}
+        />
+
+        <div className="px-5 py-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+                {statusLabel}
+              </p>
+                <h3 className="mt-1 text-lg font-semibold tracking-tight text-[var(--planner-board-text)]">
+                  {selectedHotel.hotel_name}
+                </h3>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--planner-board-muted)]">
+                <span className="inline-flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-[var(--accent)]" />
+                  {selectedHotel.area || "Area still flexible"}
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <CalendarRange className="h-4 w-4 text-[var(--accent)]" />
+                  {stayWindow}
+                </span>
+              </div>
+            </div>
+
+              <PricePanel
+                title={nightlyRate.title}
+                primary={nightlyRate.primary}
+                secondary={nightlyRate.secondary}
+              />
+            </div>
+
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-[var(--planner-board-muted)]">
+              {board.hotel_selection_rationale || selectedHotel.why_it_fits}
+            </p>
+
+            {(board.hotel_selection_assumptions?.length ||
+              board.hotel_compatibility_notes?.length) ? (
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              {board.hotel_selection_assumptions?.length ? (
+                <DetailList
+                  title="Why it is working"
+                  tone="accent"
+                  items={board.hotel_selection_assumptions}
+                />
+              ) : null}
+
+              {board.hotel_compatibility_notes?.length ? (
+                <DetailList
+                  title="Watchouts"
+                  tone="muted"
+                  items={board.hotel_compatibility_notes}
+                />
+              ) : null}
+              </div>
+            ) : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function AdvancedStayHotelCardView({
+  card,
+  board,
+  disabled,
+  onAction,
+}: {
+  card: AdvancedStayHotelOptionCard;
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const isSelected = board.selected_hotel_id === card.id;
+  const isReviewMode = board.mode === "advanced_stay_hotel_review" && isSelected;
+  const nightlyRate = formatNightlyRate(card);
+  const stayWindow = formatBoardDateRange(card.check_in, card.check_out);
+
+  return (
+    <article
+      className={cn(
+        "overflow-hidden rounded-xl border bg-[var(--planner-board-card)] shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]",
+        isSelected
+          ? "border-[color:color-mix(in_srgb,var(--accent)_30%,transparent)]"
+          : "border-[var(--planner-board-border)]",
+      )}
+    >
+      <div className="grid gap-0 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <HotelVisual
+          imageUrl={card.image_url}
+          hotelName={card.hotel_name}
+          area={card.area}
+          badges={[
+            ...(card.recommended ? ["Recommended"] : []),
+            ...(isSelected ? [isReviewMode ? "Needs review" : "Selected"] : []),
+          ]}
+        />
+
+        <div className="px-5 py-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-lg font-semibold tracking-tight text-[var(--planner-board-text)]">
+                  {card.hotel_name}
+                </h3>
+                {card.recommended ? (
+                  <span className="rounded-md border border-[color:color-mix(in_srgb,var(--accent)_22%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_8%,transparent)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--accent)]">
+                    Best fit
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--planner-board-muted)]">
+                <span className="inline-flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-[var(--accent)]" />
+                  {card.area || "Area still flexible"}
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <CalendarRange className="h-4 w-4 text-[var(--accent)]" />
+                  {stayWindow}
+                </span>
+              </div>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--planner-board-muted)]">
+                  {card.summary}
+                </p>
+              </div>
+
+              <PricePanel
+                title={nightlyRate.title}
+                primary={nightlyRate.primary}
+                secondary={nightlyRate.secondary}
+              />
+            </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                Why it fits
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                {card.why_it_fits}
+              </p>
+            </div>
+            {card.tradeoffs.length ? (
+              <div className="flex flex-wrap gap-2 lg:max-w-[280px] lg:justify-end">
+                {card.tradeoffs.slice(0, 2).map((item) => (
+                  <span
+                    key={item}
+                    className="rounded-md border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-2.5 py-1 text-xs text-[var(--planner-board-muted)]"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-5">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "select_stay_hotel",
+                  stay_hotel_id: card.id,
+                  stay_hotel_name: card.hotel_name,
+                })
+              }
+              className={cn(
+                "inline-flex items-center rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors",
+                disabled
+                  ? "cursor-not-allowed border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
+                  : isSelected
+                    ? "border-[color:var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,white)] text-[color:var(--accent)] hover:bg-[color:color-mix(in_srgb,var(--accent)_14%,white)]"
+                    : "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:bg-[color:color-mix(in_srgb,var(--accent)_92%,black)]",
+              )}
+            >
+              {isSelected ? "Selected hotel" : card.cta_label || "Choose this hotel"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function HotelVisual({
+  imageUrl,
+  hotelName,
+  area,
+  badges,
+  variant = "default",
+}: {
+  imageUrl?: string | null;
+  hotelName: string;
+  area?: string | null;
+  badges: string[];
+  variant?: "default" | "featured";
+}) {
+  const heightClass =
+    variant === "featured" ? "min-h-[240px]" : "min-h-[220px]";
+
+  if (imageUrl) {
+    return (
+      <div className={cn("relative overflow-hidden bg-[var(--planner-board-soft)]", heightClass)}>
+        <Image
+          src={imageUrl}
+          alt={hotelName}
+          fill
+          className="object-cover"
+          sizes={variant === "featured" ? "(max-width: 1024px) 100vw, 320px" : "(max-width: 1024px) 100vw, 260px"}
+        />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(17,24,39,0.04),rgba(17,24,39,0.34))]" />
+        <div className="absolute left-4 top-4 flex flex-wrap gap-2">
+          {badges.map((badge) => (
+            <span
+              key={badge}
+              className="rounded-md border border-[rgba(255,255,255,0.28)] bg-[rgba(255,255,255,0.78)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--planner-board-text)] backdrop-blur-sm"
+            >
+              {badge}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "relative overflow-hidden border-r border-[var(--planner-board-border)] bg-[linear-gradient(145deg,#fbf7ee_0%,#f3ece1_100%)]",
+        heightClass,
+      )}
+    >
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(189,151,89,0.18),transparent_45%)]" />
+      <div className="absolute left-4 top-4 flex flex-wrap gap-2">
+        {badges.map((badge) => (
+          <span
+            key={badge}
+            className="rounded-md border border-[rgba(133,109,73,0.22)] bg-[rgba(255,255,255,0.72)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5f4d32]"
+          >
+            {badge}
+          </span>
+        ))}
+      </div>
+      <div className="flex h-full flex-col justify-end px-5 py-5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8a7657]">
+            No hotel photo yet
+          </p>
+        <p className="mt-2 text-xl font-semibold tracking-tight text-[#251f17]">
+            {hotelName}
+          </p>
+        <p className="mt-2 text-sm leading-6 text-[#5f5341]">
+          {area || "Area still being refined"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function PricePanel({
+  title,
+  primary,
+  secondary,
+}: {
+  title: string;
+  primary: string;
+  secondary: string;
+}) {
+  return (
+    <div className="min-w-[172px] rounded-lg border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-3.5 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+        {title}
+      </p>
+      <p className="mt-1.5 text-base font-semibold tracking-tight text-[var(--planner-board-text)]">
+        {primary}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-[var(--planner-board-muted)]">
+        {secondary}
+      </p>
+    </div>
+  );
+}
+
+function DetailList({
+  title,
+  items,
+  tone,
+}: {
+  title: string;
+  items: string[];
+  tone: "accent" | "muted";
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+        {title}
+      </p>
+      <ul className="mt-3 space-y-2">
+        {items.map((item) => (
+          <li
+            key={item}
+            className="flex items-start gap-3 text-sm leading-7 text-[var(--planner-board-muted)]"
+          >
+            <span
+              className={cn(
+                "mt-2 block h-1.5 w-1.5 rounded-full",
+                tone === "accent"
+                  ? "bg-[color:var(--accent)]"
+                  : "bg-[var(--planner-board-muted-strong)]",
+              )}
+            />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function AdvancedDateResolutionPanel({
+  board,
+  disabled,
+  onAction,
+}: {
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const selectedOption =
+    (board.date_option_cards ?? []).find(
+      (option) => option.id === board.selected_date_option_id,
+    ) ?? null;
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] p-5">
+        <div className="grid gap-3 md:grid-cols-2">
+          <ContextStat
+            label="Destination"
+            value={board.have_details.find((item) => item.id === "destination")?.value || "Still shaping"}
+          />
+          <ContextStat
+            label="Rough timing"
+            value={board.source_timing_text || "Still flexible"}
+          />
+          <ContextStat
+            label="Trip length"
+            value={board.source_trip_length_text || "Still flexible"}
+          />
+          <ContextStat
+            label="Route"
+            value={
+              board.have_details.find((item) => item.id === "route")?.value ||
+              "Departure can still stay flexible"
+            }
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        {(board.date_option_cards ?? []).map((card) => (
+          <AdvancedDateOptionCardView
+            key={card.id}
+            card={card}
+            board={board}
+            disabled={disabled}
+            onAction={onAction}
+          />
+        ))}
+      </div>
+
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() =>
+          onAction({
+            action_id: crypto.randomUUID(),
+            type: "pick_dates_for_me",
+          })
+        }
+        className={cn(
+          "flex w-full items-center justify-between rounded-2xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4 text-left transition-colors duration-150",
+          disabled
+            ? "cursor-wait opacity-70"
+            : "hover:bg-[var(--planner-board-card-hover)]",
+        )}
+      >
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+            Wandrix can choose
+          </p>
+          <p className="mt-1 text-sm font-semibold text-[var(--planner-board-text)]">
+            Pick the strongest date option for me
+          </p>
+          <p className="mt-1 text-sm text-[var(--planner-board-muted)]">
+            I’ll choose the recommended window, explain why it wins, and still wait for your go-ahead before proceeding.
+          </p>
+        </div>
+        <ArrowRight className="h-4 w-4 text-[var(--planner-board-cta)]" />
+      </button>
+
+      {selectedOption ? (
+        <div className="rounded-2xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+                Working trip window
+              </p>
+              <h3 className="mt-1 text-base font-semibold text-[var(--planner-board-text)]">
+                {selectedOption.title}
+              </h3>
+              <p className="mt-1 text-sm text-[var(--planner-board-muted)]">
+                {selectedOption.reason}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "confirm_working_dates",
+                  date_option_id: selectedOption.id,
+                  start_date: selectedOption.start_date,
+                  end_date: selectedOption.end_date,
+                  trip_length: board.source_trip_length_text || null,
+                })
+              }
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg bg-[var(--planner-board-cta)] px-4 py-2 text-sm font-semibold text-white transition-opacity duration-150",
+                disabled ? "cursor-wait opacity-70" : "hover:opacity-90",
+              )}
+            >
+              Proceed with this trip window
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AdvancedDateOptionCardView({
+  card,
+  board,
+  disabled,
+  onAction,
+}: {
+  card: AdvancedDateOptionCard;
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const isSelected = board.selected_date_option_id === card.id;
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() =>
+        onAction({
+          action_id: crypto.randomUUID(),
+          type: "select_date_option",
+          date_option_id: card.id,
+        })
+      }
+      className={cn(
+        "w-full rounded-2xl border px-5 py-4 text-left transition-colors duration-150",
+        isSelected
+          ? "border-[var(--planner-board-cta)] bg-[var(--planner-board-card)]"
+          : "border-[var(--planner-board-border)] bg-[var(--planner-board-card)] hover:bg-[var(--planner-board-card-hover)]",
+        disabled ? "cursor-wait opacity-70" : "cursor-pointer",
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-semibold text-[var(--planner-board-text)]">
+              {card.title}
+            </h3>
+            {card.recommended ? (
+              <span className="rounded-md bg-[var(--planner-board-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--planner-board-accent-text)]">
+                Recommended
+              </span>
+            ) : null}
+            {isSelected ? (
+              <span className="rounded-md bg-[var(--planner-board-accent-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--planner-board-accent-text)]">
+                Selected
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-2 text-sm text-[var(--planner-board-muted)]">
+            {card.reason}
+          </p>
+        </div>
+        <div className="min-w-[148px] rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-3 py-3">
+          <div className="flex items-center gap-2 text-[var(--planner-board-text)]">
+            <CalendarRange className="h-4 w-4" />
+            <span className="text-sm font-semibold">
+              {formatBoardDateShort(card.start_date)} to{" "}
+              {formatBoardDateShort(card.end_date)}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-[var(--planner-board-muted)]">
+            {card.nights} {card.nights === 1 ? "night" : "nights"}
+          </p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function ContextStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-medium text-[var(--planner-board-text)]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function formatNightlyRate(card: AdvancedStayHotelOptionCard) {
+  if (typeof card.nightly_rate_amount === "number") {
+    const currency = (card.nightly_rate_currency || "GBP").toUpperCase();
+    const formatter = new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    });
+
+    const primary = `${formatter.format(card.nightly_rate_amount)} / night`;
+    const noteParts = [
+      card.rate_provider_name ? `via ${card.rate_provider_name}` : null,
+      typeof card.nightly_tax_amount === "number"
+        ? `taxes about ${formatter.format(card.nightly_tax_amount)}`
+        : null,
+    ].filter(Boolean);
+
+    return {
+      title: "Nightly rate",
+      primary,
+      secondary:
+        card.rate_note ||
+        noteParts.join(" | ") ||
+        "Live rate pulled for the exact stay dates.",
+    };
+  }
+
+  if (card.check_in && card.check_out) {
+    return {
+      title: "Nightly rate",
+      primary: "Live rate unavailable",
+      secondary:
+        card.rate_note ||
+        "These dates are fixed, but this provider did not return a usable nightly rate yet.",
+    };
+  }
+
+  return {
+    title: "Nightly rate",
+    primary: "Dates needed",
+    secondary:
+      card.rate_note ||
+      "Lock the stay dates to compare exact nightly hotel prices.",
+  };
+}
+
+function formatBoardDateRange(
+  checkIn: string | null | undefined,
+  checkOut: string | null | undefined,
+) {
+  if (!checkIn && !checkOut) {
+    return "Stay window still flexible";
+  }
+
+  return `${formatBoardDateShort(checkIn)} to ${formatBoardDateShort(checkOut)}`;
+}
+
+function formatBoardDateShort(value: string | null | undefined) {
+  if (!value) {
+    return "TBD";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
 function badgeLabel(card: DestinationSuggestionCard) {
   const label = card.practicality_label?.trim();
   if (label) {
@@ -478,11 +1448,13 @@ function DestinationSuggestionOption({
           : "hover:-translate-y-0.5 hover:bg-[var(--planner-board-card-hover)] hover:shadow-[0_1px_1px_rgba(0,0,0,0.04),0_16px_30px_rgba(0,0,0,0.08)]",
       )}
     >
-      <div className="h-44 overflow-hidden bg-[var(--planner-board-soft)]">
-        <img
+      <div className="relative h-44 overflow-hidden bg-[var(--planner-board-soft)]">
+        <Image
           src={resolvedImage}
           alt={card.destination_name}
-          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+          fill
+          className="object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+          sizes="(max-width: 1280px) 100vw, 50vw"
         />
       </div>
       <div className="flex flex-1 flex-col p-6">

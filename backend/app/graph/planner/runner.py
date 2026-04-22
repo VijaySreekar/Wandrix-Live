@@ -126,6 +126,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         current_conversation=current_conversation,
         llm_update=effective_input_update,
         board_action=state.get("board_action", {}),
+        brief_confirmed=brief_confirmed,
         user_input=user_input,
     )
     advanced_anchor = _resolve_advanced_anchor(
@@ -138,6 +139,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
     advanced_step = _resolve_advanced_step(
         current_conversation=current_conversation,
         planning_mode=planning_mode,
+        configuration=next_configuration,
         brief_confirmed=brief_confirmed,
         board_action=state.get("board_action", {}),
         advanced_anchor=advanced_anchor,
@@ -171,6 +173,14 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         planning_mode=planning_mode,
     )
     should_enrich_modules = provider_activation["quick_plan_ready"]
+    should_enrich_advanced_stay_hotels = _should_enrich_advanced_stay_hotels(
+        current_conversation=current_conversation,
+        board_action=state.get("board_action", {}),
+        configuration=next_configuration,
+        planning_mode=planning_mode,
+        advanced_step=advanced_step,
+        advanced_anchor=advanced_anchor,
+    )
     allowed_modules = set(provider_activation["allowed_modules"])
     if locked_without_reopen or preserve_existing_quick_plan:
         module_outputs = existing_module_outputs
@@ -181,9 +191,15 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
                 next_configuration,
                 previous_configuration,
                 existing_module_outputs,
-                allowed_modules=allowed_modules,
+                allowed_modules=(
+                    allowed_modules
+                    if should_enrich_modules
+                    else {"hotels"}
+                    if should_enrich_advanced_stay_hotels
+                    else set()
+                ),
             )
-            if should_enrich_modules
+            if should_enrich_modules or should_enrich_advanced_stay_hotels
             else existing_module_outputs
         )
         effective_preview = effective_llm_update.timeline_preview
@@ -344,6 +360,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
                 configuration=next_configuration,
                 conversation=next_conversation,
                 provider_activation=provider_activation,
+                advanced_stay_hotels_ready=should_enrich_advanced_stay_hotels,
                 corrected_fields=corrected_fields,
                 locked_without_reopen=locked_without_reopen,
                 preserve_existing_quick_plan=preserve_existing_quick_plan,
@@ -466,6 +483,7 @@ def _should_require_planning_mode_choice(
     current_conversation: TripConversationState,
     llm_update,
     board_action: dict,
+    brief_confirmed: bool,
     user_input: str,
 ) -> bool:
     if current_conversation.planning_mode in {"quick", "advanced"}:
@@ -477,14 +495,34 @@ def _should_require_planning_mode_choice(
 
     if llm_update.requested_planning_mode in {"quick", "advanced"} and _chat_planning_mode_request_is_actionable(
         current_conversation=current_conversation,
-        brief_confirmed=False,
+        brief_confirmed=brief_confirmed,
     ):
         return False
 
-    if user_input.strip():
+    if brief_confirmed:
+        return bool(user_input.strip() or current_conversation.memory.turn_summaries)
+
+    if user_input.strip() and _has_trip_signal_for_mode_gate(llm_update):
         return True
 
-    return bool(current_conversation.memory.turn_summaries)
+    return False
+
+
+def _has_trip_signal_for_mode_gate(llm_update: TripTurnUpdate) -> bool:
+    return bool(
+        llm_update.to_location
+        or llm_update.from_location
+        or llm_update.from_location_flexible
+        or llm_update.travel_window
+        or llm_update.trip_length
+        or llm_update.start_date
+        or llm_update.end_date
+        or llm_update.weather_preference
+        or llm_update.activity_styles
+        or llm_update.custom_style
+        or llm_update.destination_suggestions
+        or llm_update.mentioned_options
+    )
 
 
 def _chat_planning_mode_request_is_actionable(
@@ -536,6 +574,7 @@ def _resolve_advanced_step(
     *,
     current_conversation: TripConversationState,
     planning_mode: str | None,
+    configuration: TripConfiguration,
     brief_confirmed: bool,
     board_action: dict,
     advanced_anchor: PlannerAdvancedAnchor | None,
@@ -548,12 +587,20 @@ def _resolve_advanced_step(
 
     if (
         not brief_confirmed
-        and prior_advanced_step not in {"choose_anchor", "anchor_flow", "review"}
+        and prior_advanced_step
+        not in {"resolve_dates", "choose_anchor", "anchor_flow", "review"}
     ):
         return "intake"
 
     if prior_advanced_step in {"anchor_flow", "review"}:
         return prior_advanced_step
+
+    if (
+        brief_confirmed
+        and advanced_anchor is None
+        and _needs_advanced_date_resolution(configuration=configuration)
+    ):
+        return "resolve_dates"
 
     if (
         action
@@ -566,6 +613,16 @@ def _resolve_advanced_step(
         return "anchor_flow"
 
     return "choose_anchor"
+
+
+def _needs_advanced_date_resolution(*, configuration: TripConfiguration) -> bool:
+    if configuration.start_date and configuration.end_date:
+        return False
+
+    if not configuration.travel_window and not configuration.trip_length:
+        return False
+
+    return True
 
 
 def _resolve_advanced_anchor(
@@ -788,6 +845,7 @@ def _build_planner_observability_snapshot(
     configuration: TripConfiguration,
     conversation: TripConversationState,
     provider_activation: dict,
+    advanced_stay_hotels_ready: bool,
     corrected_fields: list[str],
     locked_without_reopen: bool,
     preserve_existing_quick_plan: bool,
@@ -822,6 +880,7 @@ def _build_planner_observability_snapshot(
             "selected_modules": configuration.selected_modules.model_dump(mode="json"),
         },
         "provider_activation": provider_activation,
+        "advanced_stay_hotels_ready": advanced_stay_hotels_ready,
     }
 
 
@@ -854,6 +913,38 @@ def _is_reopen_requested(*, llm_update, board_action: dict) -> bool:
         (action and action.type == "reopen_plan")
         or getattr(llm_update, "planner_intent", "none") == "reopen_plan"
     )
+
+
+def _should_enrich_advanced_stay_hotels(
+    *,
+    current_conversation: TripConversationState,
+    board_action: dict,
+    configuration: TripConfiguration,
+    planning_mode: str | None,
+    advanced_step: PlannerAdvancedStep | None,
+    advanced_anchor: PlannerAdvancedAnchor | None,
+) -> bool:
+    if planning_mode != "advanced" or advanced_step != "anchor_flow" or advanced_anchor != "stay":
+        return False
+    if not configuration.selected_modules.hotels:
+        return False
+    if not configuration.to_location:
+        return False
+    if not (
+        configuration.start_date
+        or configuration.end_date
+        or configuration.travel_window
+        or configuration.trip_length
+    ):
+        return False
+
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action and action.type == "select_stay_option" and action.stay_option_id:
+        return True
+    if action and action.type == "select_stay_hotel" and action.stay_hotel_id:
+        return True
+
+    return bool(current_conversation.stay_planning.selected_stay_option_id)
 
 
 def _resolve_confirmation_state(

@@ -24,6 +24,7 @@ import {
 import { TravelPlannerBoardActions } from "@/components/assistant/travel-planner-board-actions";
 import { AgentThinkingTyping } from "@/components/assistant/agent-thinking-indicator";
 import {
+  getOpeningTurnResponse,
   getTripConversationHistory,
   sendTripConversationMessage,
 } from "@/lib/api/conversation";
@@ -99,6 +100,60 @@ function serializePersistedThreadMessages(messages: PersistedThreadMessage[]) {
       ...message,
       createdAt: message.createdAt ?? null,
     })),
+  );
+}
+
+function cacheAssistantTurn(
+  tripId: string,
+  userMessage: string,
+  assistantMessage: string,
+) {
+  const nowIso = new Date().toISOString();
+  const existingMessages = readCachedThreadMessages(tripId);
+  const nextMessages = [
+    ...existingMessages,
+    {
+      id: `${tripId}-user-${existingMessages.length}`,
+      role: "user" as const,
+      content: userMessage,
+      createdAt: nowIso,
+    },
+    {
+      id: `${tripId}-assistant-${existingMessages.length + 1}`,
+      role: "assistant" as const,
+      content: assistantMessage,
+      createdAt: nowIso,
+    },
+  ];
+
+  writeCachedThreadMessages(tripId, nextMessages);
+}
+
+function shouldActivatePersistedTrip(tripDraft: TripDraft) {
+  const configuration = tripDraft.configuration;
+  const hasStructuredTripSignal = Boolean(
+    configuration.to_location ||
+      configuration.from_location ||
+      configuration.start_date ||
+      configuration.end_date ||
+      configuration.travel_window ||
+      configuration.trip_length ||
+      configuration.weather_preference ||
+      configuration.budget_posture ||
+      configuration.budget_gbp ||
+      configuration.travelers.adults ||
+      configuration.travelers.children ||
+      configuration.travelers_flexible ||
+      configuration.activity_styles.length > 0 ||
+      configuration.custom_style,
+  );
+  const boardMode = tripDraft.conversation.suggestion_board.mode;
+
+  return (
+    tripDraft.status.phase !== "opening" ||
+    hasStructuredTripSignal ||
+    boardMode !== "helper" ||
+    tripDraft.title.trim().toLowerCase() !== "trip planner"
   );
 }
 
@@ -411,6 +466,7 @@ function TravelPlannerAssistantRuntime({
   );
   const showInitialWorkspaceShell =
     isBootstrapping && !tripId && !hasWorkspace && !hasError;
+  const hasHydratedMessages = hydratedMessages.length > 0;
 
   const runtime = useLocalRuntime(adapter, {
     initialMessages: hydratedMessages,
@@ -424,6 +480,7 @@ function TravelPlannerAssistantRuntime({
         hydratedMessages={hydratedMessages}
       />
       <PersistedThreadStateSync tripId={tripId} />
+      <EmptyThreadViewportReset />
       <TravelPlannerBoardActions
         pendingBoardAction={pendingBoardAction}
         disabled={isBootstrapping || isSwitchingTrips || !hasWorkspace || hasError}
@@ -436,8 +493,8 @@ function TravelPlannerAssistantRuntime({
           data-switching={isSwitchingTrips ? "true" : "false"}
           className="trip-switch-content flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-        <ThreadPrimitive.Viewport className="chat-workspace-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-8">
-          {isSyncingHistory ? <ConversationSyncBanner /> : null}
+          <ThreadPrimitive.Viewport className="chat-workspace-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-8">
+            {isSyncingHistory ? <ConversationSyncBanner /> : null}
             <ThreadPrimitive.Empty>
               {showInitialWorkspaceShell ? (
                 <InitialAssistantShell />
@@ -451,7 +508,11 @@ function TravelPlannerAssistantRuntime({
               )}
             </ThreadPrimitive.Empty>
 
-            <div className="mx-auto mt-auto flex w-full max-w-[52rem] flex-col gap-6 pb-40">
+            <div
+              className={`mx-auto flex w-full max-w-[52rem] flex-col gap-6 ${
+                hasHydratedMessages ? "mt-auto pb-40" : "pb-4"
+              }`}
+            >
               <ThreadPrimitive.Messages
                 components={{
                   UserMessage,
@@ -593,6 +654,46 @@ function PersistedThreadStateSync({ tripId }: { tripId: string | null }) {
   return null;
 }
 
+function EmptyThreadViewportReset() {
+  const messages = useThread((state) => state.messages);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      return;
+    }
+
+    let frame = 0;
+    let nestedFrame = 0;
+    let timeout = 0;
+
+    const resetViewport = () => {
+      const viewport = document.querySelector<HTMLElement>(
+        ".chat-workspace-scroll",
+      );
+      viewport?.scrollTo({ top: 0, behavior: "auto" });
+    };
+
+    resetViewport();
+    frame = window.requestAnimationFrame(() => {
+      resetViewport();
+      nestedFrame = window.requestAnimationFrame(() => {
+        resetViewport();
+      });
+    });
+    timeout = window.setTimeout(() => {
+      resetViewport();
+    }, 96);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(nestedFrame);
+      window.clearTimeout(timeout);
+    };
+  }, [messages.length]);
+
+  return null;
+}
+
 function ConversationSyncBanner() {
   return (
     <div className="mx-auto mb-5 flex w-full max-w-[52rem] items-center justify-center">
@@ -623,18 +724,33 @@ function TripSwitchOverlay({
 
 function InitialAssistantShell() {
   return (
-    <div className="mx-auto flex h-full min-h-[24rem] w-full max-w-[52rem] flex-col justify-end gap-6 px-1 pt-2">
-      <div className="space-y-3">
-        <div className="text-xs font-medium uppercase tracking-[0.22em] text-[color:var(--accent)]">
-          Wandrix planner
-        </div>
-        <div className="max-w-2xl space-y-3">
-          <div className="h-4 w-40 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]" />
-          <div className="space-y-2">
-            <div className="h-3 w-full animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/90" />
-            <div className="h-3 w-[88%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/75" />
-            <div className="h-3 w-[62%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/60" />
+    <div className="mx-auto w-full max-w-[52rem] px-1 pb-6 pt-2">
+      <div className="overflow-hidden rounded-[1.4rem] border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface-strong)] shadow-[var(--chat-shadow-soft)]">
+        <div className="border-b border-[color:var(--chat-rail-border)] px-5 py-4 sm:px-6">
+          <div className="h-3 w-28 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]" />
+          <div className="mt-4 max-w-2xl space-y-3">
+            <div className="h-8 w-[62%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/88" />
+            <div className="space-y-2">
+              <div className="h-3 w-full animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/72" />
+              <div className="h-3 w-[86%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/56" />
+            </div>
           </div>
+        </div>
+
+        <div className="grid gap-3 px-5 py-4 sm:grid-cols-3 sm:px-6">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="rounded-[1.1rem] border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4"
+            >
+              <div className="h-3 w-24 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/90" />
+              <div className="mt-3 space-y-2">
+                <div className="h-4 w-28 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/70" />
+                <div className="h-3 w-full animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/58" />
+                <div className="h-3 w-[74%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/46" />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -642,16 +758,16 @@ function InitialAssistantShell() {
         {Array.from({ length: 4 }).map((_, index) => (
           <div
             key={index}
-            className="rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 shadow-[var(--chat-shadow-soft)]"
+            className="rounded-[1.15rem] border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 shadow-[var(--chat-shadow-soft)]"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="h-9 w-9 animate-pulse rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)]" />
-              <div className="h-3 w-3 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/80" />
+              <div className="h-3 w-12 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/80" />
             </div>
             <div className="mt-4 space-y-2">
               <div className="h-4 w-32 animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/90" />
-              <div className="h-3 w-full animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/70" />
-              <div className="h-3 w-[82%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/55" />
+              <div className="h-3 w-full animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/68" />
+              <div className="h-3 w-[78%] animate-pulse rounded-full bg-[color:var(--chat-rail-control-bg)]/52" />
             </div>
           </div>
         ))}
@@ -660,7 +776,8 @@ function InitialAssistantShell() {
   );
 }
 
-function AssistantWelcome({
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function AssistantWelcomeLegacy({
   disabled,
   hasWorkspace,
   hasError,
@@ -678,7 +795,7 @@ function AssistantWelcome({
   const contextLine = buildWelcomeContextLine(profileContext);
 
   return (
-    <div className="mx-auto flex h-full min-h-[24rem] w-full max-w-[52rem] flex-col justify-end gap-6 px-1 pt-2">
+    <div className="mx-auto flex w-full max-w-[52rem] flex-col gap-5 px-1 pb-6 pt-2">
       <div className="space-y-2">
         <div className="text-xs font-medium uppercase tracking-[0.22em] text-[color:var(--accent)]">
           Wandrix planner
@@ -802,6 +919,150 @@ function AssistantWelcome({
   );
 }
 
+function AssistantWelcome({
+  disabled,
+  hasWorkspace,
+  hasError,
+  profileContext,
+}: {
+  disabled: boolean;
+  hasWorkspace: boolean;
+  hasError: boolean;
+  profileContext: PlannerProfileContext | null;
+}) {
+  const greetingName =
+    profileContext?.first_name ||
+    profileContext?.display_name?.split(" ")[0] ||
+    "there";
+  const contextLine = buildWelcomeContextLine(profileContext);
+
+  return (
+    <div className="mx-auto w-full max-w-[52rem] px-1 pb-6 pt-2">
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <div className="text-xs font-medium uppercase tracking-[0.22em] text-[color:var(--accent)]">
+            Wandrix planner
+          </div>
+          <div className="space-y-2">
+            <div className="text-sm font-semibold text-foreground">
+              {`Hey ${greetingName}, I’m Wandrix.`}
+            </div>
+            <p className="max-w-2xl text-sm text-muted-foreground">
+              {contextLine}
+            </p>
+          </div>
+          {disabled ? (
+            <p className="text-sm text-muted-foreground">
+              Finishing workspace setup before the first run.
+            </p>
+          ) : null}
+          {!disabled && !hasWorkspace && !hasError ? (
+            <p className="text-sm text-muted-foreground">
+              Sign in first so the assistant can attach the conversation to a trip.
+            </p>
+          ) : null}
+          {!disabled && hasError ? (
+            <p className="text-sm text-muted-foreground">
+              The workspace needs attention before the assistant can fully attach to it.
+            </p>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ThreadPrimitive.Suggestion
+            className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+            prompt={
+              profileContext?.home_airport
+                ? `Plan a 5-day food and culture trip to Kyoto from ${profileContext.home_airport} for two adults.`
+                : "Plan a 5-day food and culture trip to Kyoto for two adults."
+            }
+            autoSend
+            disabled={disabled || !hasWorkspace}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
+            </div>
+            <div className="mt-4 text-base font-semibold text-foreground">
+              Kyoto food and culture
+            </div>
+            <div className="mt-1 text-sm leading-6 text-muted-foreground">
+              {profileContext?.home_airport
+                ? `Plan a 5-day food and culture trip to Kyoto from ${profileContext.home_airport} for two adults.`
+                : "Plan a 5-day food and culture trip to Kyoto for two adults."}
+            </div>
+          </ThreadPrimitive.Suggestion>
+          <ThreadPrimitive.Suggestion
+            className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+            prompt={
+              profileContext?.preferred_currency
+                ? `Help me shape a luxury long weekend in Lisbon with flights and hotel ideas, and keep the budget in ${profileContext.preferred_currency}.`
+                : "Help me shape a luxury long weekend in Lisbon with flights and hotel ideas."
+            }
+            autoSend
+            disabled={disabled || !hasWorkspace}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
+            </div>
+            <div className="mt-4 text-base font-semibold text-foreground">
+              Lisbon luxury weekend
+            </div>
+            <div className="mt-1 text-sm leading-6 text-muted-foreground">
+              {profileContext?.preferred_currency
+                ? `Help me shape a luxury long weekend in Lisbon with flights and hotel ideas, and keep the budget in ${profileContext.preferred_currency}.`
+                : "Help me shape a luxury long weekend in Lisbon with flights and hotel ideas."}
+            </div>
+          </ThreadPrimitive.Suggestion>
+          <ThreadPrimitive.Suggestion
+            className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+            prompt="Suggest a relaxed family trip to Barcelona with weather-aware activities."
+            autoSend
+            disabled={disabled || !hasWorkspace}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
+            </div>
+            <div className="mt-4 text-base font-semibold text-foreground">
+              Barcelona family escape
+            </div>
+            <div className="mt-1 text-sm leading-6 text-muted-foreground">
+              Suggest a relaxed family trip to Barcelona with weather-aware activities.
+            </div>
+          </ThreadPrimitive.Suggestion>
+          <ThreadPrimitive.Suggestion
+            className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+            prompt="What should the live trip board show as I refine my itinerary?"
+            autoSend
+            disabled={disabled}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
+            </div>
+            <div className="mt-4 text-base font-semibold text-foreground">
+              Live board guidance
+            </div>
+            <div className="mt-1 text-sm leading-6 text-muted-foreground">
+              What should the live trip board show as I refine my itinerary?
+            </div>
+          </ThreadPrimitive.Suggestion>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UserMessage() {
   return (
     <MessagePrimitive.Root className="flex justify-end">
@@ -852,6 +1113,9 @@ function Composer({
   disabled: boolean;
   disabledPlaceholder: string;
 }) {
+  const messages = useThread((state) => state.messages);
+  const isEmptyThread = messages.length === 0;
+
   return (
     <ComposerPrimitive.Root className="border-t border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)] px-4 pb-4 pt-3 sm:px-8">
       <div className="mx-auto w-full max-w-[52rem]">
@@ -859,9 +1123,14 @@ function Composer({
           <div className="flex items-end gap-2">
             <div className="flex min-w-0 flex-1 rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] px-3 py-2.5 transition-colors focus-within:border-[color:var(--accent)]/45">
               <ComposerPrimitive.Input
+                name="trip-message"
                 rows={1}
                 placeholder={
-                  disabled ? disabledPlaceholder : "Continue planning your trip..."
+                  disabled
+                    ? disabledPlaceholder
+                    : isEmptyThread
+                      ? "Start with a destination, a season, or just the kind of trip you want..."
+                      : "Continue shaping your trip..."
                 }
                 disabled={disabled}
                 className="min-h-12 max-h-40 w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
@@ -938,6 +1207,31 @@ async function buildAssistantReply({
   }
 
   try {
+    const currentLocationContext = await resolvePlannerLocationForTurn({
+      tripId: activeTripId,
+      profileContext,
+      tripDraft: workspace?.tripDraft ?? null,
+    });
+
+    if (workspace?.isEphemeral && !pendingBoardAction) {
+      try {
+        const openingTurn = await getOpeningTurnResponse(
+          {
+            message: latestText,
+            profile_context: profileContext ?? undefined,
+            current_location_context: currentLocationContext ?? undefined,
+          },
+          authSnapshot.accessToken,
+        );
+
+        if (!openingTurn.should_start_trip) {
+          return openingTurn.message;
+        }
+      } catch {
+        // Fall through to the full persisted planner flow if the lightweight opening gate is unavailable.
+      }
+    }
+
     const persistedWorkspace =
       workspace?.isEphemeral ? await onEnsurePersistedTrip() : workspace;
     const resolvedTripId = persistedWorkspace?.trip.trip_id ?? activeTripId;
@@ -945,12 +1239,6 @@ async function buildAssistantReply({
     if (!resolvedTripId) {
       return "I could not prepare a real trip yet, so I’m holding here until the workspace is ready.";
     }
-
-    const currentLocationContext = await resolvePlannerLocationForTurn({
-      tripId: resolvedTripId,
-      profileContext,
-      tripDraft: workspace?.tripDraft ?? null,
-    });
 
     const response = await sendTripConversationMessage(
       resolvedTripId,
@@ -963,33 +1251,28 @@ async function buildAssistantReply({
       authSnapshot.accessToken,
     );
 
+    const shouldSurfacePersistedWorkspace =
+      Boolean(workspace?.isEphemeral && persistedWorkspace) &&
+      shouldActivatePersistedTrip(response.trip_draft);
+
     if (workspace?.isEphemeral && persistedWorkspace) {
-      const nowIso = new Date().toISOString();
-      writeCachedThreadMessages(resolvedTripId, [
-        {
-          id: `${resolvedTripId}-user-0`,
-          role: "user",
-          content: latestText,
-          createdAt: nowIso,
-        },
-        {
-          id: `${resolvedTripId}-assistant-0`,
-          role: "assistant",
-          content: response.message,
-          createdAt: nowIso,
-        },
-      ]);
-      onActivatePersistedTrip({
-        ...persistedWorkspace,
-        trip: {
-          ...persistedWorkspace.trip,
-          title: response.trip_draft.title,
-        },
-        tripDraft: response.trip_draft,
-      });
+      cacheAssistantTurn(resolvedTripId, latestText, response.message);
+
+      if (shouldSurfacePersistedWorkspace) {
+        onActivatePersistedTrip({
+          ...persistedWorkspace,
+          trip: {
+            ...persistedWorkspace.trip,
+            title: response.trip_draft.title,
+          },
+          tripDraft: response.trip_draft,
+        });
+      }
     }
 
-    onDraftUpdated(response.trip_draft);
+    if (!workspace?.isEphemeral || shouldSurfacePersistedWorkspace) {
+      onDraftUpdated(response.trip_draft);
+    }
 
     return response.message;
   } catch (error) {

@@ -1,10 +1,13 @@
 from datetime import datetime
 from uuid import uuid4
 
+from app.graph.planner.date_resolution import build_advanced_date_options
 from app.graph.planner.details_collection import compute_scope_missing_fields
 from app.graph.planner.location_context import ResolvedPlannerLocationContext
 from app.graph.planner.provider_enrichment import has_any_module_output
 from app.graph.planner.suggestion_board import (
+    build_advanced_stay_hotel_options,
+    build_advanced_stay_options,
     build_default_decision_cards,
     build_destination_mentioned_options,
     build_suggestion_board_state,
@@ -21,6 +24,9 @@ from app.schemas.trip_conversation import (
     ConversationFieldMemory,
     ConversationFieldSource,
     ConversationOptionMemory,
+    AdvancedDateResolutionState,
+    AdvancedStayPlanningSegment,
+    AdvancedStayPlanningState,
     PlannerConfirmationStatus,
     PlannerAdvancedStep,
     PlannerAdvancedAnchor,
@@ -125,6 +131,22 @@ def build_conversation_state(
         )
     )
     conversation.active_goals = merge_active_goals(current.active_goals, llm_update.active_goals)
+    conversation.advanced_date_resolution = merge_advanced_date_resolution_state(
+        current=current.advanced_date_resolution,
+        configuration=next_configuration,
+        planning_mode=planning_mode,
+        advanced_step=advanced_step,
+        board_action=board_action or {},
+    )
+    conversation.stay_planning = merge_stay_planning_state(
+        current=current.stay_planning,
+        configuration=next_configuration,
+        module_outputs=module_outputs,
+        planning_mode=planning_mode,
+        advanced_step=advanced_step,
+        advanced_anchor=advanced_anchor,
+        board_action=board_action or {},
+    )
     conversation.suggestion_board = build_suggestion_board_state(
         current=conversation,
         configuration=next_configuration,
@@ -577,6 +599,494 @@ def build_last_turn_summary(
     return f"The trip shape is stable enough to start building around {destination}."
 
 
+def _evaluate_stay_compatibility(
+    *,
+    configuration: TripConfiguration,
+    module_outputs: TripModuleOutputs,
+    selected_option_id: str,
+) -> tuple[str, list[str]]:
+    activity_styles = set(configuration.activity_styles)
+    custom_style = (configuration.custom_style or "").lower()
+    activities = module_outputs.activities
+
+    wants_food = "food" in activity_styles or any(
+        token in custom_style for token in ["food", "market", "markets", "dining", "cafe"]
+    )
+    wants_quiet = any(
+        style in activity_styles for style in ["relaxed", "romantic", "luxury"]
+    ) or any(token in custom_style for token in ["quiet", "calm", "slow", "easy mornings"])
+    wants_nightlife = "nightlife" in activity_styles or any(
+        token in custom_style
+        for token in ["nightlife", "late night", "late-night", "bars", "cocktails", "club", "party"]
+    )
+    has_day_trip_signal = "outdoors" in activity_styles or "adventure" in activity_styles or any(
+        token in custom_style
+        for token in ["day trip", "day-trip", "hike", "hiking", "beach", "coast", "nature"]
+    )
+    dense_activity_signal = len(activities) >= 5
+
+    severe_notes: list[str] = []
+    moderate_notes: list[str] = []
+
+    if selected_option_id == "stay_quiet_local":
+        if wants_nightlife:
+            severe_notes.append(
+                "the trip now leans too heavily on later nights for a quieter local base to stay effortless"
+            )
+        if dense_activity_signal or has_day_trip_signal:
+            moderate_notes.append(
+                "the activity anchors now spread across the trip enough that this calmer base may add daily travel friction"
+            )
+    elif selected_option_id == "stay_food_forward":
+        if has_day_trip_signal:
+            moderate_notes.append(
+                "the trip is now leaning farther toward day-trip or outdoors anchors than this dining-led base naturally supports"
+            )
+        if dense_activity_signal and not wants_food:
+            moderate_notes.append(
+                "the plan now looks denser and less food-led, so this neighbourhood-first base may no longer be the clearest fit"
+            )
+    elif selected_option_id == "stay_central_base":
+        if wants_quiet and not dense_activity_signal and not wants_food:
+            moderate_notes.append(
+                "the trip now sounds gentler and calmer than a busier central base may feel on the ground"
+            )
+    elif selected_option_id == "stay_connected_hub":
+        if wants_food or wants_quiet:
+            moderate_notes.append(
+                "the trip is now leaning more toward neighbourhood feel than a purely practical hub base"
+            )
+    elif selected_option_id == "stay_split_strategy":
+        if not dense_activity_signal and not has_day_trip_signal:
+            moderate_notes.append(
+                "the trip no longer looks varied enough to justify the extra friction of splitting the stay"
+            )
+
+    if severe_notes:
+        return "conflicted", severe_notes[:4]
+    if moderate_notes:
+        return "strained", moderate_notes[:4]
+    return "fit", []
+
+
+def _evaluate_selected_hotel_compatibility(
+    *,
+    selected_option_id: str,
+    selected_option_title: str,
+    selected_hotel,
+    stay_compatibility_status: str,
+    stay_compatibility_notes: list[str],
+) -> tuple[str, list[str]]:
+    hotel_text = " ".join(
+        part
+        for part in [
+            selected_hotel.hotel_name,
+            selected_hotel.area or "",
+            selected_hotel.summary,
+            selected_hotel.why_it_fits,
+        ]
+        if part
+    ).lower()
+
+    if stay_compatibility_status == "conflicted":
+        return (
+            "conflicted",
+            [
+                "this hotel sits inside a stay direction that no longer fits the broader trip as cleanly"
+            ],
+        )
+    if stay_compatibility_status == "strained":
+        return (
+            "strained",
+            [
+                stay_compatibility_notes[0]
+                if stay_compatibility_notes
+                else "this hotel sits inside a stay direction that is now under strain"
+            ],
+        )
+
+    if selected_option_id == "stay_quiet_local" and any(
+        token in hotel_text for token in ["station", "central", "hub"]
+    ):
+        return (
+            "strained",
+            [
+                f"{selected_hotel.hotel_name} is more transit-led than the calmer rhythm {selected_option_title.lower()} was meant to protect"
+            ],
+        )
+    if selected_option_id == "stay_food_forward" and any(
+        token in hotel_text for token in ["station", "airport", "hub"]
+    ):
+        return (
+            "strained",
+            [
+                f"{selected_hotel.hotel_name} feels more practical than neighbourhood-led for a food-forward base"
+            ],
+        )
+    if selected_option_id == "stay_connected_hub" and any(
+        token in hotel_text for token in ["quiet", "residential", "local"]
+    ):
+        return (
+            "strained",
+            [
+                f"{selected_hotel.hotel_name} pulls more local and atmospheric than the current transit-first stay strategy"
+            ],
+        )
+
+    return "fit", []
+
+
+def merge_stay_planning_state(
+    *,
+    current: AdvancedStayPlanningState,
+    configuration: TripConfiguration,
+    module_outputs: TripModuleOutputs,
+    planning_mode: PlannerPlanningMode | None,
+    advanced_step: PlannerAdvancedStep | None,
+    advanced_anchor: PlannerAdvancedAnchor | None,
+    board_action: dict,
+) -> AdvancedStayPlanningState:
+    stay_planning = current.model_copy(deep=True)
+
+    if planning_mode != "advanced":
+        return stay_planning
+
+    if advanced_step != "anchor_flow" or advanced_anchor != "stay":
+        return stay_planning
+
+    active_segment = _build_active_stay_segment(configuration)
+    stay_planning.active_segment_id = active_segment.id
+    stay_planning.segments = _merge_stay_segments(
+        current_segments=stay_planning.segments,
+        active_segment=active_segment,
+    )
+    stay_planning.recommended_stay_options = build_advanced_stay_options(
+        configuration=configuration,
+        segment_id=active_segment.id,
+    )
+
+    selected_option = next(
+        (
+            option
+            for option in stay_planning.recommended_stay_options
+            if option.id == stay_planning.selected_stay_option_id
+        ),
+        None,
+    )
+
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action and action.type == "select_stay_option" and action.stay_option_id:
+        selected_option = next(
+            (
+                option
+                for option in stay_planning.recommended_stay_options
+                if option.id == action.stay_option_id
+                and (
+                    action.stay_segment_id is None
+                    or option.segment_id == action.stay_segment_id
+                )
+            ),
+            None,
+        )
+        if selected_option is not None:
+            strategy_changed = stay_planning.selected_stay_option_id != selected_option.id
+            stay_planning.selected_stay_option_id = selected_option.id
+            stay_planning.selected_stay_direction = selected_option.title
+            stay_planning.selection_status = "selected"
+            stay_planning.selection_rationale = selected_option.summary
+            stay_planning.selection_assumptions = list(selected_option.best_for[:4])
+            stay_planning.hotel_substep = "hotel_shortlist"
+            if stay_planning.compatibility_status not in {"strained", "conflicted"}:
+                stay_planning.compatibility_status = "fit"
+                stay_planning.compatibility_notes = []
+            if strategy_changed:
+                stay_planning.selected_hotel_id = None
+                stay_planning.selected_hotel_name = None
+                stay_planning.hotel_selection_status = "none"
+                stay_planning.hotel_selection_rationale = None
+                stay_planning.hotel_selection_assumptions = []
+                stay_planning.hotel_compatibility_status = "fit"
+                stay_planning.hotel_compatibility_notes = []
+
+    if selected_option is None and stay_planning.selection_status != "needs_review":
+        stay_planning.selected_stay_option_id = None
+        stay_planning.selected_stay_direction = None
+        stay_planning.selection_status = "none"
+        stay_planning.selection_rationale = None
+        stay_planning.selection_assumptions = []
+        stay_planning.hotel_substep = "strategy_choice"
+        stay_planning.recommended_hotels = []
+        stay_planning.selected_hotel_id = None
+        stay_planning.selected_hotel_name = None
+        stay_planning.hotel_selection_status = "none"
+        stay_planning.hotel_selection_rationale = None
+        stay_planning.hotel_selection_assumptions = []
+        stay_planning.hotel_compatibility_status = "fit"
+        stay_planning.hotel_compatibility_notes = []
+    elif selected_option is not None:
+        stay_planning.selected_stay_option_id = selected_option.id
+        stay_planning.selected_stay_direction = selected_option.title
+        if stay_planning.selection_status == "none":
+            stay_planning.selection_status = "selected"
+        if not stay_planning.selection_rationale:
+            stay_planning.selection_rationale = selected_option.summary
+        if not stay_planning.selection_assumptions:
+            stay_planning.selection_assumptions = list(selected_option.best_for[:4])
+        stay_planning.recommended_hotels = build_advanced_stay_hotel_options(
+            configuration=configuration,
+            selected_stay_option=selected_option,
+            hotels=module_outputs.hotels,
+        )
+        if stay_planning.recommended_hotels and stay_planning.hotel_substep == "strategy_choice":
+            stay_planning.hotel_substep = "hotel_shortlist"
+
+        selected_hotel = next(
+            (
+                hotel
+                for hotel in stay_planning.recommended_hotels
+                if hotel.id == stay_planning.selected_hotel_id
+            ),
+            None,
+        )
+        if action and action.type == "select_stay_hotel" and action.stay_hotel_id:
+            selected_hotel = next(
+                (
+                    hotel
+                    for hotel in stay_planning.recommended_hotels
+                    if hotel.id == action.stay_hotel_id
+                ),
+                None,
+            )
+            if selected_hotel is not None:
+                stay_planning.selected_hotel_id = selected_hotel.id
+                stay_planning.selected_hotel_name = selected_hotel.hotel_name
+                stay_planning.hotel_selection_status = "selected"
+                stay_planning.hotel_selection_rationale = selected_hotel.why_it_fits
+                stay_planning.hotel_selection_assumptions = list(
+                    selected_option.best_for[:3]
+                )
+                stay_planning.hotel_compatibility_status = "fit"
+                stay_planning.hotel_compatibility_notes = []
+                stay_planning.hotel_substep = "hotel_selected"
+
+        if selected_hotel is None and stay_planning.hotel_selection_status != "needs_review":
+            stay_planning.selected_hotel_id = None
+            stay_planning.selected_hotel_name = None
+            stay_planning.hotel_selection_status = "none"
+            stay_planning.hotel_selection_rationale = None
+            stay_planning.hotel_selection_assumptions = []
+            if stay_planning.hotel_compatibility_status not in {"strained", "conflicted"}:
+                stay_planning.hotel_compatibility_status = "fit"
+                stay_planning.hotel_compatibility_notes = []
+            stay_planning.hotel_substep = (
+                "hotel_shortlist" if stay_planning.recommended_hotels else "strategy_choice"
+            )
+        elif selected_hotel is not None:
+            stay_planning.selected_hotel_id = selected_hotel.id
+            stay_planning.selected_hotel_name = selected_hotel.hotel_name
+            if stay_planning.hotel_selection_status == "none":
+                stay_planning.hotel_selection_status = "selected"
+            if not stay_planning.hotel_selection_rationale:
+                stay_planning.hotel_selection_rationale = selected_hotel.why_it_fits
+            if not stay_planning.hotel_selection_assumptions:
+                stay_planning.hotel_selection_assumptions = list(
+                    selected_option.best_for[:3]
+                )
+            if stay_planning.hotel_substep == "strategy_choice":
+                stay_planning.hotel_substep = "hotel_selected"
+            elif stay_planning.hotel_substep != "hotel_review":
+                stay_planning.hotel_substep = "hotel_selected"
+
+        stay_compatibility_status, stay_compatibility_notes = _evaluate_stay_compatibility(
+            configuration=configuration,
+            module_outputs=module_outputs,
+            selected_option_id=selected_option.id,
+        )
+        if (
+            stay_compatibility_status == "fit"
+            and stay_planning.selection_status == "needs_review"
+            and stay_planning.compatibility_notes
+        ):
+            stay_compatibility_status = (
+                stay_planning.compatibility_status
+                if stay_planning.compatibility_status in {"strained", "conflicted"}
+                else "strained"
+            )
+            stay_compatibility_notes = list(stay_planning.compatibility_notes[:4])
+        stay_planning.compatibility_status = stay_compatibility_status
+        stay_planning.compatibility_notes = stay_compatibility_notes
+        stay_planning.selection_status = (
+            "needs_review"
+            if stay_compatibility_status in {"strained", "conflicted"}
+            else "selected"
+        )
+
+        selected_hotel = next(
+            (
+                hotel
+                for hotel in stay_planning.recommended_hotels
+                if hotel.id == stay_planning.selected_hotel_id
+            ),
+            None,
+        )
+        if selected_hotel is not None:
+            hotel_compatibility_status, hotel_compatibility_notes = (
+                _evaluate_selected_hotel_compatibility(
+                    selected_option_id=selected_option.id,
+                    selected_option_title=selected_option.title,
+                    selected_hotel=selected_hotel,
+                    stay_compatibility_status=stay_compatibility_status,
+                    stay_compatibility_notes=stay_compatibility_notes,
+                )
+            )
+            if (
+                hotel_compatibility_status == "fit"
+                and stay_planning.hotel_selection_status == "needs_review"
+                and stay_planning.hotel_compatibility_notes
+            ):
+                hotel_compatibility_status = (
+                    stay_planning.hotel_compatibility_status
+                    if stay_planning.hotel_compatibility_status in {"strained", "conflicted"}
+                    else "strained"
+                )
+                hotel_compatibility_notes = list(
+                    stay_planning.hotel_compatibility_notes[:4]
+                )
+            stay_planning.hotel_compatibility_status = hotel_compatibility_status
+            stay_planning.hotel_compatibility_notes = hotel_compatibility_notes
+            stay_planning.hotel_selection_status = (
+                "needs_review"
+                if hotel_compatibility_status in {"strained", "conflicted"}
+                else "selected"
+            )
+            stay_planning.hotel_substep = (
+                "hotel_review"
+                if hotel_compatibility_status in {"strained", "conflicted"}
+                else "hotel_selected"
+            )
+
+    return stay_planning
+
+
+def merge_advanced_date_resolution_state(
+    *,
+    current: AdvancedDateResolutionState,
+    configuration: TripConfiguration,
+    planning_mode: PlannerPlanningMode | None,
+    advanced_step: PlannerAdvancedStep | None,
+    board_action: dict,
+) -> AdvancedDateResolutionState:
+    date_resolution = current.model_copy(deep=True)
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+
+    if planning_mode != "advanced":
+        return date_resolution
+
+    if configuration.start_date and configuration.end_date:
+        date_resolution.selected_start_date = configuration.start_date
+        date_resolution.selected_end_date = configuration.end_date
+        if date_resolution.selection_status != "confirmed":
+            date_resolution.selection_status = "confirmed"
+        date_resolution.requires_confirmation = False
+
+    if advanced_step != "resolve_dates":
+        if action and action.type == "confirm_working_dates":
+            if configuration.start_date and configuration.end_date:
+                date_resolution.selection_status = "confirmed"
+                date_resolution.requires_confirmation = False
+        return date_resolution
+
+    if configuration.travel_window:
+        date_resolution.source_timing_text = configuration.travel_window
+    if configuration.trip_length:
+        date_resolution.source_trip_length_text = configuration.trip_length
+
+    date_resolution.recommended_date_options = build_advanced_date_options(configuration)
+    valid_option_ids = {
+        option.id for option in date_resolution.recommended_date_options
+    }
+    selected_option = next(
+        (
+            option
+            for option in date_resolution.recommended_date_options
+            if option.id == date_resolution.selected_date_option_id
+        ),
+        None,
+    )
+
+    if action and action.type == "pick_dates_for_me":
+        selected_option = next(
+            (
+                option
+                for option in date_resolution.recommended_date_options
+                if option.recommended
+            ),
+            date_resolution.recommended_date_options[0]
+            if date_resolution.recommended_date_options
+            else None,
+        )
+    elif action and action.type == "select_date_option" and action.date_option_id:
+        selected_option = next(
+            (
+                option
+                for option in date_resolution.recommended_date_options
+                if option.id == action.date_option_id
+            ),
+            None,
+        )
+
+    if selected_option is None and date_resolution.selected_date_option_id not in valid_option_ids:
+        date_resolution.selected_date_option_id = None
+        date_resolution.selected_start_date = None
+        date_resolution.selected_end_date = None
+        date_resolution.selection_status = "none"
+        date_resolution.selection_rationale = None
+        date_resolution.requires_confirmation = True
+        return date_resolution
+
+    if selected_option is not None:
+        date_resolution.selected_date_option_id = selected_option.id
+        date_resolution.selected_start_date = selected_option.start_date
+        date_resolution.selected_end_date = selected_option.end_date
+        date_resolution.selection_status = "selected"
+        date_resolution.selection_rationale = selected_option.reason
+        date_resolution.requires_confirmation = True
+
+    return date_resolution
+
+
+def _build_active_stay_segment(
+    configuration: TripConfiguration,
+) -> AdvancedStayPlanningSegment:
+    destination = configuration.to_location or "this trip"
+    timing_bits = [bit for bit in [configuration.travel_window, configuration.trip_length] if bit]
+    summary = (
+        f"Primary stay direction for {destination}."
+        if not timing_bits
+        else f"Primary stay direction for {destination} around {', '.join(timing_bits)}."
+    )
+    return AdvancedStayPlanningSegment(
+        id="segment_primary",
+        title=f"{destination} stay",
+        destination_name=configuration.to_location,
+        summary=summary,
+    )
+
+
+def _merge_stay_segments(
+    *,
+    current_segments: list[AdvancedStayPlanningSegment],
+    active_segment: AdvancedStayPlanningSegment,
+) -> list[AdvancedStayPlanningSegment]:
+    merged = [active_segment]
+    merged.extend(
+        segment
+        for segment in current_segments
+        if segment.id != active_segment.id
+    )
+    return merged[:4]
+
+
 def _merge_option_memory(
     current: list[ConversationOptionMemory],
     candidates: list[ConversationOptionCandidate],
@@ -693,6 +1203,16 @@ def _merge_decision_history(
         item.selected_option.lower()
         for item in merged
         if item.title.lower() == "advanced anchor selected" and item.selected_option
+    }
+    existing_stay_selections = {
+        item.selected_option.lower()
+        for item in merged
+        if item.title.lower() == "stay strategy selected" and item.selected_option
+    }
+    existing_hotel_selections = {
+        item.selected_option.lower()
+        for item in merged
+        if item.title.lower() == "stay hotel selected" and item.selected_option
     }
 
     for card in decision_cards:
@@ -851,6 +1371,38 @@ def _merge_decision_history(
             )
             seen.add(selection_key)
             existing_advanced_anchor_selections.add(advanced_anchor)
+    if action and action.type == "select_stay_option" and action.stay_option_id:
+        selection_key = ("stay strategy selected", (action.stay_option_id,))
+        if action.stay_option_id not in existing_stay_selections:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=action.action_id,
+                    title="Stay strategy selected",
+                    description="The user chose a working stay direction for the next Advanced Planning step.",
+                    options=["working_stay_direction"],
+                    selected_option=action.stay_option_id,
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+            seen.add(selection_key)
+            existing_stay_selections.add(action.stay_option_id)
+    if action and action.type == "select_stay_hotel" and action.stay_hotel_id:
+        selection_key = ("stay hotel selected", (action.stay_hotel_id,))
+        if action.stay_hotel_id not in existing_hotel_selections:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=action.action_id,
+                    title="Stay hotel selected",
+                    description="The user chose a working hotel inside the selected stay direction.",
+                    options=["working_hotel_choice"],
+                    selected_option=action.stay_hotel_id,
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+            seen.add(selection_key)
+            existing_hotel_selections.add(action.stay_hotel_id)
     if (
         llm_update.requested_advanced_anchor
         and not action

@@ -25,11 +25,22 @@ PlannerPlanningModeStatus = Literal[
 ]
 PlannerAdvancedStep = Literal[
     "intake",
+    "resolve_dates",
     "choose_anchor",
     "anchor_flow",
     "review",
 ]
 PlannerAdvancedAnchor = Literal["flight", "stay", "trip_style", "activities"]
+PlannerStaySelectionStatus = Literal["none", "selected", "needs_review"]
+PlannerStayCompatibilityStatus = Literal["fit", "strained", "conflicted"]
+PlannerStayStrategyType = Literal["single_base", "split_stay"]
+PlannerDateResolutionStatus = Literal["none", "selected", "confirmed"]
+PlannerStayHotelSubstep = Literal[
+    "strategy_choice",
+    "hotel_shortlist",
+    "hotel_selected",
+    "hotel_review",
+]
 TripDetailsStepKey = Literal[
     "modules",
     "route",
@@ -44,8 +55,15 @@ TripSuggestionBoardMode = Literal[
     "decision_cards",
     "details_collection",
     "planning_mode_choice",
+    "advanced_date_resolution",
     "advanced_anchor_choice",
     "advanced_next_step",
+    "advanced_stay_choice",
+    "advanced_stay_selected",
+    "advanced_stay_review",
+    "advanced_stay_hotel_choice",
+    "advanced_stay_hotel_selected",
+    "advanced_stay_hotel_review",
     "helper",
 ]
 DestinationSuggestionSelectionStatus = Literal[
@@ -159,6 +177,105 @@ class AdvancedAnchorChoiceCard(BaseModel):
     cta_label: str | None = Field(default=None, max_length=80)
 
 
+class AdvancedDateOptionCard(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    title: str = Field(..., min_length=1, max_length=120)
+    start_date: date
+    end_date: date
+    nights: int = Field(..., ge=1, le=30)
+    reason: str = Field(..., min_length=1, max_length=160)
+    recommended: bool = False
+    cta_label: str | None = Field(default=None, max_length=80)
+
+
+class AdvancedDateResolutionState(BaseModel):
+    source_timing_text: str | None = Field(default=None, max_length=120)
+    source_trip_length_text: str | None = Field(default=None, max_length=120)
+    recommended_date_options: list[AdvancedDateOptionCard] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    selected_date_option_id: str | None = Field(default=None, max_length=80)
+    selected_start_date: date | None = None
+    selected_end_date: date | None = None
+    selection_status: PlannerDateResolutionStatus = "none"
+    selection_rationale: str | None = Field(default=None, max_length=200)
+    requires_confirmation: bool = True
+
+
+class AdvancedStayPlanningSegment(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    title: str = Field(..., min_length=1, max_length=120)
+    destination_name: str | None = Field(default=None, max_length=160)
+    summary: str | None = Field(default=None, max_length=240)
+
+
+class AdvancedStayOptionCard(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    segment_id: str = Field(..., min_length=1, max_length=80)
+    strategy_type: PlannerStayStrategyType = "single_base"
+    title: str = Field(..., min_length=1, max_length=120)
+    summary: str = Field(..., min_length=1, max_length=280)
+    area_label: str | None = Field(default=None, max_length=120)
+    areas: list[str] = Field(default_factory=list, max_length=4)
+    best_for: list[str] = Field(default_factory=list, max_length=4)
+    tradeoffs: list[str] = Field(default_factory=list, max_length=4)
+    recommended: bool = False
+    badge: str | None = Field(default=None, max_length=80)
+    cta_label: str | None = Field(default=None, max_length=80)
+
+
+class AdvancedStayHotelOptionCard(BaseModel):
+    id: str = Field(..., min_length=1, max_length=120)
+    hotel_name: str = Field(..., min_length=1, max_length=160)
+    area: str | None = Field(default=None, max_length=160)
+    image_url: str | None = Field(default=None, max_length=1000)
+    address: str | None = Field(default=None, max_length=240)
+    source_url: str | None = Field(default=None, max_length=1000)
+    source_label: str | None = Field(default=None, max_length=80)
+    summary: str = Field(..., min_length=1, max_length=320)
+    why_it_fits: str = Field(..., min_length=1, max_length=320)
+    tradeoffs: list[str] = Field(default_factory=list, max_length=4)
+    price_signal: str | None = Field(default=None, max_length=80)
+    nightly_rate_amount: float | None = Field(default=None, ge=0)
+    nightly_rate_currency: str | None = Field(default=None, max_length=8)
+    nightly_tax_amount: float | None = Field(default=None, ge=0)
+    rate_provider_name: str | None = Field(default=None, max_length=120)
+    rate_note: str | None = Field(default=None, max_length=160)
+    check_in: datetime | None = None
+    check_out: datetime | None = None
+    recommended: bool = False
+    cta_label: str | None = Field(default=None, max_length=80)
+
+
+class AdvancedStayPlanningState(BaseModel):
+    active_segment_id: str | None = Field(default=None, max_length=80)
+    segments: list[AdvancedStayPlanningSegment] = Field(default_factory=list)
+    hotel_substep: PlannerStayHotelSubstep = "strategy_choice"
+    recommended_stay_options: list[AdvancedStayOptionCard] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    selected_stay_option_id: str | None = Field(default=None, max_length=80)
+    selected_stay_direction: str | None = Field(default=None, max_length=160)
+    selection_status: PlannerStaySelectionStatus = "none"
+    selection_rationale: str | None = Field(default=None, max_length=320)
+    selection_assumptions: list[str] = Field(default_factory=list, max_length=4)
+    compatibility_status: PlannerStayCompatibilityStatus = "fit"
+    compatibility_notes: list[str] = Field(default_factory=list, max_length=4)
+    recommended_hotels: list[AdvancedStayHotelOptionCard] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    selected_hotel_id: str | None = Field(default=None, max_length=120)
+    selected_hotel_name: str | None = Field(default=None, max_length=160)
+    hotel_selection_status: PlannerStaySelectionStatus = "none"
+    hotel_selection_rationale: str | None = Field(default=None, max_length=320)
+    hotel_selection_assumptions: list[str] = Field(default_factory=list, max_length=4)
+    hotel_compatibility_status: PlannerStayCompatibilityStatus = "fit"
+    hotel_compatibility_notes: list[str] = Field(default_factory=list, max_length=4)
+
+
 class TripSuggestionBoardState(BaseModel):
     mode: TripSuggestionBoardMode = "helper"
     source_context: str | None = Field(default=None, max_length=240)
@@ -169,10 +286,37 @@ class TripSuggestionBoardState(BaseModel):
         default_factory=list,
         max_length=2,
     )
+    date_option_cards: list[AdvancedDateOptionCard] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    selected_date_option_id: str | None = Field(default=None, max_length=80)
+    selected_start_date: date | None = None
+    selected_end_date: date | None = None
+    date_selection_status: PlannerDateResolutionStatus | None = None
+    date_selection_rationale: str | None = Field(default=None, max_length=200)
+    date_requires_confirmation: bool = False
+    source_timing_text: str | None = Field(default=None, max_length=120)
+    source_trip_length_text: str | None = Field(default=None, max_length=120)
     advanced_anchor_cards: list[AdvancedAnchorChoiceCard] = Field(
         default_factory=list,
         max_length=4,
     )
+    stay_cards: list[AdvancedStayOptionCard] = Field(default_factory=list, max_length=4)
+    hotel_cards: list[AdvancedStayHotelOptionCard] = Field(default_factory=list, max_length=4)
+    selected_stay_option_id: str | None = Field(default=None, max_length=80)
+    stay_selection_status: PlannerStaySelectionStatus | None = None
+    stay_selection_rationale: str | None = Field(default=None, max_length=320)
+    stay_selection_assumptions: list[str] = Field(default_factory=list, max_length=4)
+    stay_compatibility_status: PlannerStayCompatibilityStatus | None = None
+    stay_compatibility_notes: list[str] = Field(default_factory=list, max_length=4)
+    selected_hotel_id: str | None = Field(default=None, max_length=120)
+    selected_hotel_name: str | None = Field(default=None, max_length=160)
+    hotel_selection_status: PlannerStaySelectionStatus | None = None
+    hotel_selection_rationale: str | None = Field(default=None, max_length=320)
+    hotel_selection_assumptions: list[str] = Field(default_factory=list, max_length=4)
+    hotel_compatibility_status: PlannerStayCompatibilityStatus | None = None
+    hotel_compatibility_notes: list[str] = Field(default_factory=list, max_length=4)
     have_details: list[PlannerChecklistItem] = Field(default_factory=list)
     need_details: list[PlannerChecklistItem] = Field(default_factory=list)
     visible_steps: list[TripDetailsStepKey] = Field(default_factory=list)
@@ -257,6 +401,12 @@ class TripConversationState(BaseModel):
     decision_cards: list[PlannerDecisionCard] = Field(default_factory=list)
     last_turn_summary: str | None = Field(default=None, max_length=400)
     active_goals: list[str] = Field(default_factory=list)
+    advanced_date_resolution: AdvancedDateResolutionState = Field(
+        default_factory=AdvancedDateResolutionState
+    )
+    stay_planning: AdvancedStayPlanningState = Field(
+        default_factory=AdvancedStayPlanningState
+    )
     suggestion_board: TripSuggestionBoardState = Field(
         default_factory=TripSuggestionBoardState
     )

@@ -117,9 +117,13 @@ def _build_flight_outputs(
 
     if not current_ready:
         return existing_module_outputs.flights
-    if previous_ready and not _did_flight_inputs_change(
-        previous_configuration,
-        configuration,
+    if (
+        previous_ready
+        and existing_module_outputs.flights
+        and not _did_flight_inputs_change(
+            previous_configuration,
+            configuration,
+        )
     ):
         return existing_module_outputs.flights
     try:
@@ -141,9 +145,17 @@ def _build_hotel_outputs(
         return existing_module_outputs.hotels
     if not _is_hotel_search_ready(configuration):
         return existing_module_outputs.hotels
-    if _is_hotel_search_ready(previous_configuration) and not _did_hotel_inputs_change(
-        previous_configuration,
-        configuration,
+    if (
+        _is_hotel_search_ready(previous_configuration)
+        and existing_module_outputs.hotels
+        and _hotel_outputs_are_rich_enough(
+            existing_module_outputs.hotels,
+            configuration=configuration,
+        )
+        and not _did_hotel_inputs_change(
+            previous_configuration,
+            configuration,
+        )
     ):
         return existing_module_outputs.hotels
     try:
@@ -151,6 +163,31 @@ def _build_hotel_outputs(
     except Exception:
         live_hotels = []
     return live_hotels or existing_module_outputs.hotels
+
+
+def _hotel_outputs_are_rich_enough(
+    hotels: list[HotelStayDetail],
+    *,
+    configuration: TripConfiguration,
+) -> bool:
+    if not hotels:
+        return False
+
+    # Older cached hotel outputs only carried names and notes, which now
+    # produce weak board cards with random fallback imagery and no pricing.
+    # Refresh those caches even when the trip inputs have not changed.
+    has_any_hotel_image = any(bool(hotel.image_url) for hotel in hotels)
+    if not has_any_hotel_image:
+        return False
+
+    if configuration.start_date and configuration.end_date:
+        has_any_live_rate = any(
+            hotel.nightly_rate_amount is not None for hotel in hotels
+        )
+        if not has_any_live_rate:
+            return False
+
+    return True
 
 
 def _build_weather_outputs(
@@ -169,9 +206,13 @@ def _build_weather_outputs(
 
     if not current_ready:
         return existing_module_outputs.weather
-    if previous_ready and not _did_weather_inputs_change(
-        previous_configuration,
-        configuration,
+    if (
+        previous_ready
+        and existing_module_outputs.weather
+        and not _did_weather_inputs_change(
+            previous_configuration,
+            configuration,
+        )
     ):
         return existing_module_outputs.weather
     try:
@@ -200,9 +241,13 @@ def _build_activity_outputs(
 
     if not current_ready:
         return existing_module_outputs.activities
-    if previous_ready and not _did_activity_inputs_change(
-        previous_configuration,
-        configuration,
+    if (
+        previous_ready
+        and existing_module_outputs.activities
+        and not _did_activity_inputs_change(
+            previous_configuration,
+            configuration,
+        )
     ):
         return existing_module_outputs.activities
     try:

@@ -432,8 +432,8 @@ def test_process_trip_turn_ignores_weak_quick_plan_request_before_brief_confirma
 
     assert conversation["planning_mode"] is None
     assert conversation["planning_mode_status"] == "not_selected"
-    assert "before i proceed" in result["assistant_response"].lower()
-    assert conversation["suggestion_board"]["mode"] == "planning_mode_choice"
+    assert "tell me where you want to go" in result["assistant_response"].lower()
+    assert conversation["suggestion_board"]["mode"] != "planning_mode_choice"
     assert "Planning mode selected" not in history_titles
 
 

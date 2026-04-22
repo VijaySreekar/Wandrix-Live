@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useMemo, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   PanelLeftClose,
@@ -32,6 +32,7 @@ const LOAD_MORE_COUNT = 5;
 
 type ChatSidebarProps = {
   activeTripId: string | null;
+  chatRoute?: string;
   collapsed: boolean;
   onSelectTrip: (tripId: string) => void;
   onPrefetchTrip: (tripId: string) => void;
@@ -48,6 +49,7 @@ type ChatSidebarProps = {
 
 export function ChatSidebar({
   activeTripId,
+  chatRoute = "/chat",
   collapsed,
   onSelectTrip,
   onPrefetchTrip,
@@ -62,9 +64,13 @@ export function ChatSidebar({
   recentTrips,
 }: ChatSidebarProps) {
   const router = useRouter();
-  const pathname = usePathname();
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+  const isHydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   const currentTripId = activeTripId ?? workspace?.trip.trip_id ?? null;
   const recentSessions = useMemo(
@@ -77,10 +83,12 @@ export function ChatSidebar({
             trip.trip_id === currentTripId && workspace?.trip.trip_id === trip.trip_id
               ? workspace.tripDraft.title
               : trip.title,
-          activityTime: formatTripActivityTime(trip.updated_at),
+          activityTime: isHydrated
+            ? formatTripActivityTime(trip.updated_at)
+            : "Recently updated",
           isCurrent: trip.trip_id === currentTripId,
         })),
-    [currentTripId, query, recentTrips, workspace],
+    [currentTripId, isHydrated, query, recentTrips, workspace],
   );
   const currentSessionIndex = recentSessions.findIndex((session) => session.isCurrent);
   const effectiveVisibleCount =
@@ -149,6 +157,8 @@ export function ChatSidebar({
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[color:var(--sidebar-muted-text)]" />
             <input
+              id="chat-sidebar-search"
+              name="chat-sidebar-search"
               type="search"
               value={query}
               onChange={(event) => {
@@ -174,7 +184,7 @@ export function ChatSidebar({
         {!collapsed ? (
           <>
             <div className="space-y-0.5">
-              {visibleSessions.length > 0 ? (
+              {isHydrated && visibleSessions.length > 0 ? (
                 visibleSessions.map((session) => (
                   <div
                     key={session.id}
@@ -195,7 +205,7 @@ export function ChatSidebar({
                         }
 
                         onSelectTrip(session.id);
-                        router.push(`${pathname}?trip=${session.id}`);
+                        router.push(`${chatRoute}?trip=${session.id}`);
                       }}
                       className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent)]/40"
                     >
@@ -252,7 +262,7 @@ export function ChatSidebar({
           </>
         ) : (
           <div className="flex flex-col items-center gap-2 pb-3">
-            {visibleSessions.length > 0 ? (
+            {isHydrated && visibleSessions.length > 0 ? (
               visibleSessions.map((session) => (
                 <button
                   key={session.id}
@@ -265,7 +275,7 @@ export function ChatSidebar({
                     }
 
                     onSelectTrip(session.id);
-                    router.push(`${pathname}?trip=${session.id}`);
+                    router.push(`${chatRoute}?trip=${session.id}`);
                   }}
                   className={[
                     "flex h-10 w-10 items-center justify-center rounded-lg border text-[0.72rem] font-semibold uppercase transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent)]/40",

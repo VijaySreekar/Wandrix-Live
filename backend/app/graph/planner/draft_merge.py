@@ -18,13 +18,13 @@ def merge_trip_configuration(
         configuration.from_location = llm_update.from_location
         configuration.from_location_flexible = None
 
-    if llm_update.from_location_flexible and _should_apply_field(
+    if llm_update.from_location_flexible is not None and _should_apply_field(
         field="from_location_flexible",
         llm_update=llm_update,
         current_value=configuration.from_location_flexible,
         next_value=llm_update.from_location_flexible,
     ):
-        configuration.from_location_flexible = True
+        configuration.from_location_flexible = llm_update.from_location_flexible
 
     if llm_update.to_location and _should_apply_field(
         field="to_location",

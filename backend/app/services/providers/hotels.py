@@ -20,7 +20,7 @@ class LlmHotelSuggestionItem(BaseModel):
 
 
 class LlmHotelSuggestionResponse(BaseModel):
-    suggestions: list[LlmHotelSuggestionItem] = Field(default_factory=list, max_length=3)
+    suggestions: list[LlmHotelSuggestionItem] = Field(default_factory=list, max_length=4)
 
 
 def enrich_hotels(configuration: TripConfiguration) -> list[HotelStayDetail]:
@@ -73,15 +73,15 @@ def enrich_hotels_from_xotelo(
         response.raise_for_status()
         payload = response.json()
 
-    result = payload.get("result") or {}
-    hotel_candidates = result.get("list") or []
-    if not isinstance(hotel_candidates, list) or not hotel_candidates:
-        return []
+        result = payload.get("result") or {}
+        hotel_candidates = result.get("list") or []
+        if not isinstance(hotel_candidates, list) or not hotel_candidates:
+            return []
 
-    return [
-        _map_xotelo_hotel(candidate, configuration, index)
-        for index, candidate in enumerate(hotel_candidates[:3], start=1)
-    ]
+        return [
+            _map_xotelo_hotel(client, candidate, configuration, index)
+            for index, candidate in enumerate(hotel_candidates[:4], start=1)
+        ]
 
 
 def enrich_hotels_from_llm(
@@ -90,7 +90,7 @@ def enrich_hotels_from_llm(
     prompt = f"""
 You are Wandrix's hotel suggestion fallback.
 
-Generate 3 hotel stay suggestions for the destination and trip profile below.
+Generate 4 hotel stay suggestions for the destination and trip profile below.
 
 Rules:
 - These are fallback planning suggestions, not live inventory.
@@ -130,11 +130,12 @@ Trip configuration:
                 *suggestion.notes,
             ],
         )
-        for index, suggestion in enumerate(response.suggestions[:3], start=1)
+        for index, suggestion in enumerate(response.suggestions[:4], start=1)
     ]
 
 
 def _map_xotelo_hotel(
+    client,
     candidate: dict,
     configuration: TripConfiguration,
     index: int,
@@ -155,14 +156,106 @@ def _map_xotelo_hotel(
     if isinstance(short_place_name, str) and short_place_name.strip():
         notes.append(f"Area fit: {short_place_name.strip()}")
 
+    rate_snapshot = _fetch_xotelo_rate_snapshot(
+        client=client,
+        hotel_key=_coerce_text(candidate.get("hotel_key")),
+        configuration=configuration,
+    )
+
     return HotelStayDetail(
         id=f"xotelo_hotel_{candidate.get('location_id') or index}",
         hotel_name=_coerce_text(candidate.get("name"), fallback="Hotel option"),
+        hotel_key=_coerce_text(candidate.get("hotel_key")),
         area=_coerce_text(candidate.get("place_name")),
+        address=_coerce_text(street_address),
+        image_url=_coerce_text(candidate.get("image")),
+        source_url=_coerce_text(tripadvisor_url),
+        source_label="TripAdvisor" if tripadvisor_url else None,
+        nightly_rate_amount=rate_snapshot["rate"],
+        nightly_rate_currency=rate_snapshot["currency"],
+        nightly_tax_amount=rate_snapshot["tax"],
+        rate_provider_name=rate_snapshot["provider"],
         check_in=_to_check_in(configuration),
         check_out=_to_check_out(configuration),
         notes=notes,
     )
+
+
+def _fetch_xotelo_rate_snapshot(
+    *,
+    client,
+    hotel_key: str | None,
+    configuration: TripConfiguration,
+) -> dict[str, float | str | None]:
+    if not hotel_key or not _has_exact_stay_dates(configuration):
+        return {
+            "rate": None,
+            "currency": None,
+            "tax": None,
+            "provider": None,
+        }
+
+    response = client.get(
+        "/api/rates",
+        params={
+            "hotel_key": hotel_key,
+            "chk_in": configuration.start_date.isoformat(),
+            "chk_out": configuration.end_date.isoformat(),
+            "currency": "GBP",
+        },
+    )
+    succeeded = response.is_success
+    record_provider_usage(
+        provider_key=XOTELO_PROVIDER_KEY,
+        succeeded=succeeded,
+        quota_limit=1000,
+        last_status=str(response.status_code),
+    )
+    if not succeeded:
+        return {
+            "rate": None,
+            "currency": None,
+            "tax": None,
+            "provider": None,
+        }
+
+    payload = response.json()
+    result = payload.get("result") or {}
+    rates = result.get("rates") or []
+    if not isinstance(rates, list) or not rates:
+        return {
+            "rate": None,
+            "currency": _coerce_text(result.get("currency"), fallback="GBP"),
+            "tax": None,
+            "provider": None,
+        }
+
+    ranked_rates = []
+    for item in rates:
+        if not isinstance(item, dict):
+            continue
+        rate_value = _coerce_number(item.get("rate"))
+        if rate_value is None:
+            continue
+        ranked_rates.append(
+            {
+                "rate": rate_value,
+                "currency": _coerce_text(result.get("currency"), fallback="GBP"),
+                "tax": _coerce_number(item.get("tax")),
+                "provider": _coerce_text(item.get("name")),
+            }
+        )
+
+    if not ranked_rates:
+        return {
+            "rate": None,
+            "currency": _coerce_text(result.get("currency"), fallback="GBP"),
+            "tax": None,
+            "provider": None,
+        }
+
+    ranked_rates.sort(key=lambda item: item["rate"])
+    return ranked_rates[0]
 
 
 def _can_search_hotels(configuration: TripConfiguration) -> bool:
@@ -176,6 +269,10 @@ def _has_timing_signal(configuration: TripConfiguration) -> bool:
         or configuration.travel_window
         or configuration.trip_length
     )
+
+
+def _has_exact_stay_dates(configuration: TripConfiguration) -> bool:
+    return bool(configuration.start_date and configuration.end_date)
 
 
 def _to_check_in(configuration: TripConfiguration) -> datetime | None:
@@ -196,3 +293,18 @@ def _coerce_text(value: object, *, fallback: str | None = None) -> str | None:
         if text:
             return text
     return fallback
+
+
+def _coerce_number(value: object) -> float | None:
+    if isinstance(value, (int, float)):
+        number = float(value)
+        if number >= 0:
+            return number
+    if isinstance(value, str):
+        try:
+            number = float(value)
+        except ValueError:
+            return None
+        if number >= 0:
+            return number
+    return None

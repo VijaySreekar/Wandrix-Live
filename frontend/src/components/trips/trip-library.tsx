@@ -121,6 +121,8 @@ export function TripLibrary() {
       <div className="relative mb-10">
         <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground/30" />
         <input
+          id="trip-library-search"
+          name="trip-library-search"
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

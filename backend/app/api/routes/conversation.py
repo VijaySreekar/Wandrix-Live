@@ -7,16 +7,29 @@ from app.graph.checkpointer import compile_planning_graph_with_pool
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.conversation import (
     CheckpointConversationHistoryResponse,
+    OpeningTurnRequest,
+    OpeningTurnResponse,
     TripConversationMessageRequest,
     TripConversationMessageResponse,
 )
 from app.services.conversation_service import (
     get_trip_conversation_history,
+    respond_to_opening_turn,
     send_trip_message,
 )
 
 
 router = APIRouter(prefix="/trips", tags=["conversation"])
+chat_router = APIRouter(prefix="/chat", tags=["conversation"])
+
+
+@chat_router.post("/opening-turn", response_model=OpeningTurnResponse)
+def opening_turn_route(
+    payload: OpeningTurnRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> OpeningTurnResponse:
+    del current_user
+    return respond_to_opening_turn(payload=payload)
 
 
 @router.post("/{trip_id}/conversation", response_model=TripConversationMessageResponse)

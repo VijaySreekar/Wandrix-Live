@@ -6,7 +6,26 @@ import type { NextConfig } from "next";
 dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+      },
+      {
+        protocol: "https",
+        hostname: "upload.wikimedia.org",
+      },
+      {
+        protocol: "https",
+        hostname: "dynamic-media-cdn.tripadvisor.com",
+      },
+      {
+        protocol: "https",
+        hostname: "media-cdn.tripadvisor.com",
+      },
+    ],
+  },
 };
 
 export default nextConfig;

@@ -51,8 +51,15 @@ export function TripBoardPreview({
       "destination_suggestions",
       "decision_cards",
       "planning_mode_choice",
+      "advanced_date_resolution",
       "advanced_anchor_choice",
       "advanced_next_step",
+      "advanced_stay_choice",
+      "advanced_stay_selected",
+      "advanced_stay_review",
+      "advanced_stay_hotel_choice",
+      "advanced_stay_hotel_selected",
+      "advanced_stay_hotel_review",
     ].includes(suggestionBoard.mode)
   ) {
     return (

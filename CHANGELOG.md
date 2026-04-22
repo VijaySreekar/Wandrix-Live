@@ -9,6 +9,438 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-22 - Refined Advanced Hotel Cards Into A Cleaner Selection Layout
+
+Technical Summary:
+- Updated `frontend/src/components/package/trip-suggestion-board.tsx` to give hotel cards larger visuals, a cleaner hierarchy, and denser result layouts inside the Advanced stay flow.
+- Increased hotel image prominence for both selected and shortlist cards while reducing the bulk of the pinned stay summary and simplifying badge treatment.
+- Reworked hotel result cards to use a more minimal structure: stronger hotel name and price hierarchy, leaner metadata, concise fit explanation, and compact tradeoff chips instead of heavier stacked blocks.
+- Removed the unused `DetailBody` helper left over from the previous hotel-card version and revalidated the frontend with fresh lint and build checks.
+- Live-tested the updated Kyoto hotel shortlist in Chrome DevTools after refreshing live nightly rates.
+
+Plain-English Summary:
+- The hotel cards on the right-side board now feel less bulky and more intentional.
+- Hotel photos take up more space, the current stay summary is less oversized, and each result is easier to scan quickly.
+- The whole hotel step now reads more like a real selection surface and less like a long stack of generic info blocks.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Restored Exact Hotel Pricing And Tightened The Advanced Hotel Workspace
+
+Technical Summary:
+- Fixed `backend/app/services/providers/hotels.py` so Xotelo rate parsing reads the real nested `result.rates` payload shape instead of incorrectly looking for top-level `rates`, which was causing exact-date hotel searches to lose valid nightly prices.
+- Updated `backend/tests/test_hotels_provider.py` so provider coverage matches the real Xotelo rate-response structure.
+- Refined `frontend/src/components/package/trip-suggestion-board.tsx` so Advanced hotel cards now prioritize exact nightly pricing, taxes, and provider notes instead of vague `mid-range fit` style fallback language.
+- Tightened the selected-stay and hotel card layouts by shrinking the oversized pinned stay panel, reducing hotel image heights, and compacting the pricing panel so the shortlist feels more like a usable selection workspace.
+- Live-tested the Kyoto Advanced stay flow in Chrome DevTools after a refresh turn and confirmed exact nightly pricing now renders on the hotel shortlist for fixed dates.
+
+Plain-English Summary:
+- The hotel cards now show real nightly prices again when the dates are fixed.
+- The vague budget-fit wording is gone, and the stay header no longer takes over so much space above the results.
+- The right-side board feels more like a real hotel-picking workspace now, with the hotels themselves taking priority.
+
+Files / Areas Touched:
+- `backend/app/services/providers/hotels.py`
+- `backend/tests/test_hotels_provider.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Made Advanced Stay And Hotel Choices Revisable From Real Trip Signals
+
+Technical Summary:
+- Updated `backend/app/graph/planner/conversation_state.py` so the Advanced `stay` branch now evaluates selected stay strategies against real downstream trip signals instead of only storing static review fields.
+- Added compatibility heuristics for stay strategies based on activity style, custom trip style, day-trip/outdoors bias, nightlife bias, and overall activity density.
+- Added hotel compatibility evaluation so a selected working hotel inherits tension from a stay direction that is now under strain, and can also be flagged directly when its fit conflicts with the selected stay strategy.
+- Preserved existing review states when no new turn evidence resolves them yet, so previously flagged stay/hotel review states do not silently disappear on the next turn.
+- Expanded `backend/tests/test_planner_runtime_quality.py` with regressions proving a quieter stay can move into review when the trip turns nightlife-heavy, and that a selected hotel can move into review when its stay direction no longer fits the evolving trip.
+
+Plain-English Summary:
+- Wandrix can now actually notice when a stay or hotel choice stops fitting the shape of the trip.
+- For example, if the user picked a calm local base and later turns the trip into a nightlife-heavy plan, the planner can now flag that stay as needing review instead of blindly continuing.
+- The same is true for the hotel inside that stay strategy, so Advanced Planning is starting to behave more like a real connected planning system and less like a one-way checklist.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Refreshed Supabase Auth Snapshots In The Chat Workspace
+
+## 2026-04-22 - Fixed Advanced Date Resolution Board Rendering And Confirmation Gating
+
+Technical Summary:
+- Updated `frontend/src/components/package/trip-board-preview.tsx` so the right-side board recognizes `advanced_date_resolution` as a first-class suggestion-board mode instead of falling back to the old placeholder shell.
+- Updated `frontend/src/components/package/trip-suggestion-board.tsx` so selecting a date option no longer sends exact `start_date` / `end_date` during the provisional selection step.
+- Hardened `backend/app/graph/planner/board_action_merge.py` so provisional date actions (`select_date_option`, `pick_dates_for_me`) strip any leaked exact dates and confirmed-field markers before trip configuration is merged.
+- Added a regression in `backend/tests/test_planner_runtime_quality.py` proving provisional date selection keeps the planner in `resolve_dates` and does not persist exact dates until the explicit `confirm_working_dates` action.
+- Revalidated the frontend with fresh `lint` and `build` checks after the board-preview and date-selection changes.
+
+Plain-English Summary:
+- The new working-date step now shows up properly on the right-side board instead of disappearing behind the old “we’ll use this later” placeholder.
+- Picking a date option is once again just a provisional choice, not an automatic date lock.
+- Wandrix now waits for the explicit `Proceed with this trip window` confirmation before moving into the four Advanced Planning anchors.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+Technical Summary:
+- Updated `frontend/src/components/package/travel-package-workspace.tsx` so the workspace no longer trusts a stale in-memory auth snapshot for protected trip requests.
+- `resolveWorkspaceAuthSnapshot` now re-reads the current Supabase session instead of immediately returning an existing snapshot, which allows fresh access tokens to flow into chat, board, trip-list, and trip-management requests.
+- Added a Supabase `onAuthStateChange` subscription in the workspace so `SIGNED_IN`, `TOKEN_REFRESHED`, and `SIGNED_OUT` session changes keep the shared `authSnapshot` current while the page remains open.
+- Kept the rest of the conversation-first `/chat` architecture unchanged; this is a frontend auth-refresh fix to unblock long-lived live-planning sessions and browser testing.
+
+Plain-English Summary:
+- The chat workspace was sometimes hanging onto an old Supabase access token for too long.
+- Wandrix now asks Supabase for the latest session before protected trip calls and updates itself when Supabase refreshes the token in the background.
+- This should stop the live `/chat` flow from suddenly failing with `Invalid or expired Supabase access token` just because the tab stayed open for a while.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Added Advanced Working Date Resolution Before Anchor Choice
+
+Technical Summary:
+- Recorded the new Advanced Planning timing rule in `docs/future-improvements.md`: rough timing must be narrowed into a working trip window before the main Advanced anchors appear.
+- Added a new `resolve_dates` Advanced step, `advanced_date_resolution` board mode, and a typed date-option contract across backend and frontend conversation schemas.
+- Introduced `advanced_date_resolution` conversation state and a new date-resolution generator that turns rough timing like `late March` or `long weekend` into three concrete date windows plus a recommended option.
+- Added new board actions for `select_date_option`, `pick_dates_for_me`, and `confirm_working_dates`, including backend merge behavior that persists confirmed exact dates and advances Advanced Planning into anchor choice.
+- Updated assistant responses and the right-side board so the user sees a dedicated date-choice workspace with pinned rough brief context, three date options, a `Pick for me` action, and an explicit proceed confirmation step.
+- Expanded runtime coverage to prove rough-timing Advanced turns now enter date resolution, exact dates skip it, weekend prompts generate weekend windows, and confirmed working dates advance to anchor choice.
+
+Plain-English Summary:
+- Advanced Planning now pauses to lock a workable trip window before it asks what should lead the trip.
+- If the user gives rough timing like `late March` or `long weekend`, Wandrix narrows that into three concrete date options, explains the reasoning, and waits for the user to approve one before moving on.
+- This makes the later stay, hotel, flight, and activity decisions much more grounded instead of asking the user to choose anchors while the trip dates are still fuzzy.
+
+Files / Areas Touched:
+- `docs/future-improvements.md`
+- `backend/app/graph/planner/date_resolution.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Cleaned Up Advanced Hotel Cards And Refreshed Stale Hotel Data
+
+Technical Summary:
+- Tightened hotel module cache reuse in `provider_enrichment.py` so previously saved hotel outputs are only reused when they are rich enough for the new card UI. Older cache entries without hotel imagery now trigger a fresh provider fetch instead of staying stuck on weak data.
+- Added a regression test proving stale image-less hotel caches are refreshed even when the trip inputs themselves have not changed.
+- Refined Advanced hotel-card shaping so rough-date trips fall back to planning-grade spend labels instead of the harsher old “Dates not fixed” treatment, while exact-date trips still show real nightly pricing when available.
+- Simplified the Advanced hotel card and selected-hotel panel UI by removing address/source rows, dropping random destination-image fallbacks, and replacing them with a calmer hotel-specific visual treatment that only uses real hotel imagery or an explicit placeholder state.
+- Applied the same no-random-image cleanup to supporting hotel surfaces so live-board and hotel reference cards no longer pretend a city photo is a hotel photo.
+
+Plain-English Summary:
+- The hotel cards on the Advanced board now look cleaner and more honest.
+- If Wandrix has a real hotel photo, it uses it. If it does not, it now says so clearly instead of showing a random destination image as if it were the hotel.
+- The cards also stop surfacing noisy address/source rows, and older trips can now refresh into the richer hotel data instead of staying trapped on outdated shortlist results.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/tests/test_provider_enrichment.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `frontend/src/components/hotels/hotel-reference-card.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Upgraded Advanced Hotel Cards With Images And Live Nightly Rates
+
+Technical Summary:
+- Extended hotel provider normalization so `HotelStayDetail` now preserves structured hotel metadata including image URL, street address, source URL and label, hotel key, and live nightly-rate fields.
+- Updated the Xotelo provider adapter to request live nightly pricing from `/api/rates` when exact stay dates exist, then keep the lowest live rate, tax estimate, and provider name alongside the search result.
+- Expanded the Advanced stay hotel card contract across backend and frontend so shortlist cards can render real hotel imagery, nightly pricing, address, and source metadata instead of only summary text and a soft price hint.
+- Redesigned the Advanced stay hotel shortlist and selected-hotel panels in `trip-suggestion-board.tsx` with image-led layouts, pinned nightly-rate blocks, address/source strips, and stronger visual hierarchy tied to the actual hotel fields.
+- Updated supporting hotel displays on the live board and hotel reference card so selected hotels now surface richer visuals and pricing outside the shortlist too.
+- Added provider-focused tests for Xotelo search and rate mapping, and expanded planner runtime assertions to verify the richer hotel metadata reaches the Advanced hotel shortlist.
+- Added remote image allowlists in `frontend/next.config.ts` and moved the destination suggestion board image to `next/image`, removing the previous lint warning in the shortlist view.
+
+Plain-English Summary:
+- Hotel selection on the board now feels much closer to a real travel product instead of a plain text list.
+- Wandrix can now show proper hotel photos, an honest nightly budget when exact dates exist, the hotel address, and the external source behind each option.
+- The selected hotel also looks richer on the live trip board, so users can understand what they picked at a glance.
+
+Files / Areas Touched:
+- `backend/app/services/providers/hotels.py`
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_hotels_provider.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/next.config.ts`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/hotels/hotel-reference-card.tsx`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Fixed Empty Module Cache Reuse Blocking Live Shortlists
+
+Technical Summary:
+- Fixed `provider_enrichment.py` so flights, hotels, weather, and activities only reuse prior module outputs when those cached outputs actually contain data.
+- Previously, if a module was ready and the configuration had not changed, Wandrix would reuse even an empty cached list, which prevented the first real live provider fetch from ever running on later planning steps like `stay -> hotel shortlist`.
+- Added focused regression tests in `backend/tests/test_provider_enrichment.py` to prove that hotel and activity enrichment now refresh when the existing cached outputs are empty but the trip inputs are already ready.
+
+Plain-English Summary:
+- Wandrix was sometimes getting stuck with no live options because it treated an empty old result like a valid cache.
+- This fix makes it try the real provider again when the trip is ready, so hotel shortlists and similar live results can actually appear instead of stopping at an empty state.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/tests/test_provider_enrichment.py`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Added Hotel Shortlists Inside Selected Stay Strategies
+
+Technical Summary:
+- Extended `docs/future-improvements.md` to record the next Advanced Planning rule: once a stay strategy is selected, Wandrix should move directly into a hotel shortlist inside that chosen base while keeping both the stay direction and hotel choice revisable.
+- Expanded the stay-planning conversation schema and frontend mirrored types with hotel shortlist state, hotel board modes, a normalized hotel card contract, selected hotel fields, and the new `select_stay_hotel` board action.
+- Added stay-driven hotel shortlist generation in `suggestion_board.py`, ranking normalized hotel outputs against the selected stay strategy so hotel cards explain fit relative to that base instead of reading like generic hotel facts.
+- Updated the stay-planning merge logic and runner flow so Advanced stay mode now triggers hotel enrichment, stores recommended hotels under the existing stay-planning block, and persists a working hotel selection without treating it as booked.
+- Extended assistant responses and the suggestion board UI to support `advanced_stay_hotel_choice`, `advanced_stay_hotel_selected`, and `advanced_stay_hotel_review`, while keeping the selected stay strategy pinned above the hotel shortlist.
+- Updated the live board stay panel to prefer the selected working hotel when one exists.
+- Added backend regression coverage for hotel-shortlist activation, hotel selection persistence, and the live-hotels-first handoff inside the stay branch.
+
+Plain-English Summary:
+- Advanced Planning now goes one step further after the user chooses a stay direction.
+- Instead of stopping at “what kind of area should I stay in,” Wandrix now moves into real hotel options inside that chosen base, lets the user pick a working hotel, and keeps that choice editable later if the rest of the trip changes.
+- The board and planner now feel much closer to a real guided stay-selection flow rather than a placeholder stay step.
+
+Files / Areas Touched:
+- `docs/future-improvements.md`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Added Stay As The First Revisable Advanced Planning Branch
+
+Technical Summary:
+- Updated `docs/future-improvements.md` to record the new Advanced Planning rule that `stay` is the first real deep anchor path and that stay selections are working decisions that can later be reviewed instead of silently overwritten.
+- Added a dedicated stay-planning state block to the planner conversation schema, including active segment tracking, recommended stay options, selected stay direction, selection rationale, assumptions, and compatibility or review status.
+- Replaced the generic stay anchor placeholder with real stay-specific board modes: `advanced_stay_choice`, `advanced_stay_selected`, and `advanced_stay_review`.
+- Added a shared stay card contract across backend and frontend and generated four area-strategy stay options for the first stay-first flow.
+- Added the `select_stay_option` board action and persisted selected stay direction state without treating it as a hotel or booking.
+- Updated assistant responses so stay-first planning now explains whether the user is choosing a stay direction, building around one, or reviewing one under strain.
+- Added backend regression coverage for stay anchor selection, stay option selection persistence, review-state rendering, and non-stay anchor fallback behavior.
+
+Plain-English Summary:
+- Advanced Planning can now do something real when the user chooses `stay` first.
+- Instead of stopping at a generic placeholder, Wandrix now shows four stay strategies, lets the user choose one as the current base for the trip, and keeps that choice explicitly revisable if later planning makes it weaker.
+- The board and chat now stay aligned around that stay decision, which makes Advanced Planning feel more like guided trip-building and less like a staged mock flow.
+
+Files / Areas Touched:
+- `docs/future-improvements.md`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Restored The Original New Chat Prompt Cards
+
+Technical Summary:
+- Removed the newer prompt-card helper layer from the `/chat/new` welcome surface and restored the older four-card starter set directly in the assistant welcome component.
+- Kept the previously restored board helper copy and retained the empty-thread scroll reset so the original presentation still opens from the top correctly.
+- Cleaned up the restored greeting text so the original assistant intro renders correctly again.
+
+Plain-English Summary:
+- The new chat page now uses the older prompt cards again instead of the newer prompt style you called out.
+- The original look is back, but the fix for the cut-off opening behavior is still in place.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Restored The Previous New Chat Welcome And Board Copy
+
+Technical Summary:
+- Reverted the most recent `/chat/new` welcome-surface simplification and restored the earlier assistant intro, starter prompt layout, and helper card presentation.
+- Restored the previous starter-board loading shell and board-stage helper copy, including the original text for the early planning state.
+- Kept the underlying empty-thread scroll reset in place so the restored layout still opens from the top correctly.
+
+Plain-English Summary:
+- The new chat page is back to the earlier version you had before the latest redesign pass.
+- The board text now matches the original wording again, while the fix for the cut-off loading issue stays intact.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Reset The New Chat Opening Surface
+
+Technical Summary:
+- Reworked the `/chat/new` assistant welcome state into a simpler chat-native layout with a short intro, a smaller starter list, and a lighter loading shell while keeping the empty-thread scroll reset in place.
+- Reduced the starter prompts from a taller multi-card stack to a cleaner compact set so the first screen sits naturally above the composer without feeling like a landing page inside the thread.
+- Simplified the starter live board shell and helper copy so the right pane reads as a quiet staged placeholder instead of a large mockup block.
+
+Plain-English Summary:
+- The new chat screen has been reset to feel cleaner and calmer.
+- The opening chat view is simpler now, and the board side stays present without pulling too much attention before trip planning really begins.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Fixed New Chat Welcome Clipping
+
+Technical Summary:
+- Simplified the `/chat/new` empty-state assistant layout so the opening content behaves like a compact chat surface instead of a stacked hero block inside the thread.
+- Split the empty-thread viewport behavior from the normal conversation layout and added an explicit top-scroll reset so brand-new chats no longer load at the bottom of the chat pane.
+- Kept the richer starter prompts and composer guidance from the earlier first-turn polish while making the initial shell fit safely above the fixed composer.
+
+Plain-English Summary:
+- The new chat screen no longer opens in a cut-off or partially scrolled state.
+- Starting a fresh trip should now feel cleaner and more stable, with the welcome content showing from the top instead of looking chopped off.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Fixed Advanced Brief Flexibility And Anchor Flow Sync
+
+## 2026-04-21 - Polished The First-Turn Chat Surface
+
+Technical Summary:
+- Reworked the empty `/chat` assistant surface into a more intentional opening layout with a stronger intro, clearer "talk naturally" guidance, and richer starter prompts that better match the conversation-first product shape.
+- Added reusable starter-prompt helpers and refreshed the initial loading shell so the first-load state mirrors the real chat surface instead of feeling like a generic skeleton.
+- Updated the composer placeholder so the first input reads more like a natural travel conversation prompt and shifts to a lighter follow-up prompt once the thread has started.
+
+Plain-English Summary:
+- The first chat screen should now feel more polished and easier to start from.
+- Instead of a plain empty state, users now get clearer examples, better starter ideas, and a prompt that encourages natural conversation rather than form-filling.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+Technical Summary:
+- Added `from_location_flexible` to the structured board action contract end to end, wired the Advanced details board to let users explicitly mark departure as flexible, and persisted that flag through board confirmation into planner memory and draft state.
+- Fixed the planner merge path so departure flexibility can be turned on or off cleanly instead of only sticking once set.
+- Tightened assistant-response branching so Advanced anchor selection now returns the anchor-specific reply even when the chat audit message also contains `requested_planning_mode="advanced"`.
+- Stabilized the chat sidebar's first render during hydration by deferring live trip-row rendering and relative-time formatting until the client is hydrated.
+- Replaced the theme bootstrap `next/script` usage with a static inline head script to reduce the client-side script-tag warning observed during live testing.
+- Added backend regression coverage for flexible-departure board confirmation and for Advanced anchor selection winning over stale mode-selection echo behavior.
+
+Plain-English Summary:
+- The Advanced brief board now truly supports "departure still flexible" instead of quietly forcing the user to enter an origin.
+- After choosing an Advanced anchor like `stay`, the chat reply now matches the board instead of repeating the older "Advanced Planning is selected" message.
+- The left sidebar should now hydrate more cleanly on load instead of briefly rendering the wrong empty state before recent trips appear.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/app/layout.tsx`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/draft_merge.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Kept Greeting Turns Light Before Trip Planning Starts
+
+Technical Summary:
+- Added an LLM-driven opening-turn endpoint so Wandrix can decide whether a first message is still generic conversation or the real start of trip planning before a persisted trip is created.
+- Added a detached persisted-trip handoff in the chat workspace so `/chat/new` can create a real backend thread behind the scenes without immediately swapping the visible UI onto a saved trip after the first planning message.
+- Updated the assistant runtime to keep non-planning opening turns on the lightweight draft surface, append hidden backend turns into the real trip cache only after planning begins, and only activate the persisted trip once the backend draft shows actual trip-planning signal.
+- Tightened the backend planning-mode gate so generic conversation no longer triggers Quick Plan versus Advanced Planning before the trip brief is actually confirmed, and refreshed the opening-phase assistant copy to introduce Wandrix more naturally.
+
+Plain-English Summary:
+- Saying something simple like "hi" should no longer make the chat feel like it reloads into a saved trip before the reply appears.
+- Wandrix now stays conversational for generic opening messages, introduces itself more clearly, and only brings in planning-mode choices once the trip has genuinely started.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/lib/api/conversation.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `backend/app/api/router.py`
+- `backend/app/api/routes/conversation.py`
+- `backend/app/graph/planner/opening_turn.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/services/conversation_service.py`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Kept Sidebar Sessions Stable While Opening /chat/new
+
+Technical Summary:
+- Added route-memory and pre-paint cached-trip hydration to the chat workspace so navigating between `/chat` and `/chat/new` no longer remounts the sidebar into an empty state before recent trips reload.
+- Passed the signed-in user ID from the shared chat page shell so the client workspace can immediately restore the correct recent-trip cache for that user without waiting for the slower auth/trip bootstrap flow.
+
+Plain-English Summary:
+- Clicking New Trip should no longer wipe the left sidebar for a moment before your saved chats come back.
+- The new chat route now opens quickly while the existing recent sessions stay visible and steady.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-page-shell.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-21 - Added A Real /chat/new Route For The New Trip Button
+
+Technical Summary:
+- Added a dedicated `/chat/new` route and shared server-side chat page shell so the New Trip action can open a fresh planner state without reusing the same `/chat` URL.
+- Updated the chat workspace to honor an `initialMode="new"` fast path that opens an ephemeral local draft immediately, while still hydrating the saved-trip sidebar in the background.
+- Ensured saved-trip selection and trip persistence route back onto the normal `/chat?trip=...` path so only the New Trip flow uses `/chat/new`.
+
+Plain-English Summary:
+- Clicking New Trip now has its own clean URL, `/chat/new`, instead of pretending to be the same page as an existing chat.
+- That makes a fresh chat open more predictably and keeps the saved chats behavior separate from the new-chat flow.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-page-shell.tsx`
+- `frontend/src/app/chat/page.tsx`
+- `frontend/src/app/chat/new/page.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
 ## 2026-04-21 - Stopped Saved-Trip Sidebar Loads Timing Out Too Early
 
 Technical Summary:

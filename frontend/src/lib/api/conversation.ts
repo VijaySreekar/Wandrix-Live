@@ -1,10 +1,25 @@
 import { postJson } from "@/lib/api/client";
 import type {
   CheckpointConversationHistoryResponse,
+  OpeningTurnRequest,
+  OpeningTurnResponse,
   TripConversationMessageRequest,
   TripConversationMessageResponse,
 } from "@/types/conversation";
 import { getJson } from "@/lib/api/client";
+
+
+export function getOpeningTurnResponse(
+  payload: OpeningTurnRequest,
+  accessToken?: string,
+  signal?: AbortSignal,
+) {
+  return postJson<OpeningTurnResponse, OpeningTurnRequest>(
+    "/api/v1/chat/opening-turn",
+    payload,
+    { accessToken, signal, timeoutMs: 20000 },
+  );
+}
 
 
 export function sendTripConversationMessage(

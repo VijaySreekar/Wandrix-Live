@@ -14,6 +14,7 @@ export type PlannerPlanningModeStatus =
   | "advanced_unavailable_fallback";
 export type PlannerAdvancedStep =
   | "intake"
+  | "resolve_dates"
   | "choose_anchor"
   | "anchor_flow"
   | "review";
@@ -22,6 +23,21 @@ export type PlannerAdvancedAnchor =
   | "stay"
   | "trip_style"
   | "activities";
+export type PlannerStaySelectionStatus =
+  | "none"
+  | "selected"
+  | "needs_review";
+export type PlannerStayCompatibilityStatus =
+  | "fit"
+  | "strained"
+  | "conflicted";
+export type PlannerDateResolutionStatus = "none" | "selected" | "confirmed";
+export type PlannerStayStrategyType = "single_base" | "split_stay";
+export type PlannerStayHotelSubstep =
+  | "strategy_choice"
+  | "hotel_shortlist"
+  | "hotel_selected"
+  | "hotel_review";
 export type TripDetailsStepKey =
   | "modules"
   | "route"
@@ -72,8 +88,15 @@ export type TripSuggestionBoardMode =
   | "decision_cards"
   | "details_collection"
   | "planning_mode_choice"
+  | "advanced_date_resolution"
   | "advanced_anchor_choice"
   | "advanced_next_step"
+  | "advanced_stay_choice"
+  | "advanced_stay_selected"
+  | "advanced_stay_review"
+  | "advanced_stay_hotel_choice"
+  | "advanced_stay_hotel_selected"
+  | "advanced_stay_hotel_review"
   | "helper";
 export type DestinationSuggestionSelectionStatus =
   | "suggested"
@@ -138,6 +161,96 @@ export type AdvancedAnchorChoiceCard = {
   cta_label?: string | null;
 };
 
+export type AdvancedDateOptionCard = {
+  id: string;
+  title: string;
+  start_date: string;
+  end_date: string;
+  nights: number;
+  reason: string;
+  recommended: boolean;
+  cta_label?: string | null;
+};
+
+export type AdvancedDateResolutionState = {
+  source_timing_text?: string | null;
+  source_trip_length_text?: string | null;
+  recommended_date_options: AdvancedDateOptionCard[];
+  selected_date_option_id?: string | null;
+  selected_start_date?: string | null;
+  selected_end_date?: string | null;
+  selection_status: PlannerDateResolutionStatus;
+  selection_rationale?: string | null;
+  requires_confirmation: boolean;
+};
+
+export type AdvancedStayPlanningSegment = {
+  id: string;
+  title: string;
+  destination_name?: string | null;
+  summary?: string | null;
+};
+
+export type AdvancedStayOptionCard = {
+  id: string;
+  segment_id: string;
+  strategy_type: PlannerStayStrategyType;
+  title: string;
+  summary: string;
+  area_label?: string | null;
+  areas: string[];
+  best_for: string[];
+  tradeoffs: string[];
+  recommended: boolean;
+  badge?: string | null;
+  cta_label?: string | null;
+};
+
+export type AdvancedStayHotelOptionCard = {
+  id: string;
+  hotel_name: string;
+  area?: string | null;
+  image_url?: string | null;
+  address?: string | null;
+  source_url?: string | null;
+  source_label?: string | null;
+  summary: string;
+  why_it_fits: string;
+  tradeoffs: string[];
+  price_signal?: string | null;
+  nightly_rate_amount?: number | null;
+  nightly_rate_currency?: string | null;
+  nightly_tax_amount?: number | null;
+  rate_provider_name?: string | null;
+  rate_note?: string | null;
+  check_in?: string | null;
+  check_out?: string | null;
+  recommended: boolean;
+  cta_label?: string | null;
+};
+
+export type AdvancedStayPlanningState = {
+  active_segment_id?: string | null;
+  segments: AdvancedStayPlanningSegment[];
+  hotel_substep: PlannerStayHotelSubstep;
+  recommended_stay_options: AdvancedStayOptionCard[];
+  selected_stay_option_id?: string | null;
+  selected_stay_direction?: string | null;
+  selection_status: PlannerStaySelectionStatus;
+  selection_rationale?: string | null;
+  selection_assumptions: string[];
+  compatibility_status: PlannerStayCompatibilityStatus;
+  compatibility_notes: string[];
+  recommended_hotels: AdvancedStayHotelOptionCard[];
+  selected_hotel_id?: string | null;
+  selected_hotel_name?: string | null;
+  hotel_selection_status: PlannerStaySelectionStatus;
+  hotel_selection_rationale?: string | null;
+  hotel_selection_assumptions: string[];
+  hotel_compatibility_status: PlannerStayCompatibilityStatus;
+  hotel_compatibility_notes: string[];
+};
+
 export type PlannerChecklistItem = {
   id: string;
   label: string;
@@ -171,7 +284,31 @@ export type TripSuggestionBoardState = {
   subtitle?: string | null;
   cards: DestinationSuggestionCard[];
   planning_mode_cards: PlanningModeChoiceCard[];
+  date_option_cards?: AdvancedDateOptionCard[];
+  selected_date_option_id?: string | null;
+  selected_start_date?: string | null;
+  selected_end_date?: string | null;
+  date_selection_status?: PlannerDateResolutionStatus | null;
+  date_selection_rationale?: string | null;
+  date_requires_confirmation?: boolean;
+  source_timing_text?: string | null;
+  source_trip_length_text?: string | null;
   advanced_anchor_cards?: AdvancedAnchorChoiceCard[];
+  stay_cards?: AdvancedStayOptionCard[];
+  hotel_cards?: AdvancedStayHotelOptionCard[];
+  selected_stay_option_id?: string | null;
+  stay_selection_status?: PlannerStaySelectionStatus | null;
+  stay_selection_rationale?: string | null;
+  stay_selection_assumptions?: string[];
+  stay_compatibility_status?: PlannerStayCompatibilityStatus | null;
+  stay_compatibility_notes?: string[];
+  selected_hotel_id?: string | null;
+  selected_hotel_name?: string | null;
+  hotel_selection_status?: PlannerStaySelectionStatus | null;
+  hotel_selection_rationale?: string | null;
+  hotel_selection_assumptions?: string[];
+  hotel_compatibility_status?: PlannerStayCompatibilityStatus | null;
+  hotel_compatibility_notes?: string[];
   have_details: PlannerChecklistItem[];
   need_details: PlannerChecklistItem[];
   visible_steps: TripDetailsStepKey[];
@@ -250,6 +387,8 @@ export type TripConversationState = {
   decision_cards: PlannerDecisionCard[];
   last_turn_summary?: string | null;
   active_goals: string[];
+  advanced_date_resolution?: AdvancedDateResolutionState;
+  stay_planning?: AdvancedStayPlanningState;
   suggestion_board: TripSuggestionBoardState;
   memory: TripConversationMemory;
 };

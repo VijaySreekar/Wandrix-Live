@@ -153,6 +153,12 @@ function TripDetailsBoardContent({
                 travelers_flexible: !current.travelers_flexible,
               }))
             }
+            onOriginFlexibleToggle={() =>
+              setForm((current) => ({
+                ...current,
+                from_location_flexible: !current.from_location_flexible,
+              }))
+            }
             onFieldChange={(field, value) =>
               setForm((current) => ({
                 ...current,
@@ -187,6 +193,7 @@ function TripDetailsBoardContent({
                   action_id: crypto.randomUUID(),
                   type: "confirm_trip_details",
                   from_location: form.from_location ?? null,
+                  from_location_flexible: form.from_location_flexible ?? null,
                   to_location: form.to_location ?? null,
                   selected_modules: form.selected_modules,
                   travel_window: form.travel_window ?? null,

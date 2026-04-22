@@ -1,15 +1,42 @@
 "use client";
 
-import { ExternalLink, MapPin, MoonStar } from "lucide-react";
+import { MoonStar } from "lucide-react";
 
 import type { HotelStayDetail } from "@/types/trip-draft";
 
 
 export function HotelReferenceCard({ hotel }: { hotel: HotelStayDetail }) {
   const details = splitHotelNotes(hotel.notes);
+  const heroImage = hotel.image_url;
 
   return (
     <article className="overflow-hidden rounded-xl border border-shell-border bg-panel">
+      <div
+        className="h-32 border-b border-shell-border bg-cover bg-center"
+        style={
+          heroImage
+            ? {
+                backgroundImage: `linear-gradient(180deg, rgba(15,23,42,0.08), rgba(15,23,42,0.42)), url(${heroImage})`,
+              }
+            : {
+                background:
+                  "linear-gradient(145deg, #fbf7ee 0%, #f3ece1 100%)",
+              }
+        }
+      >
+        {!heroImage ? (
+          <div className="flex h-full items-end px-4 py-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8a7657]">
+                Hotel image pending
+              </p>
+              <p className="mt-2 text-sm font-medium text-[#2c241a]">
+                {hotel.area || "Stay details"}
+              </p>
+            </div>
+          </div>
+        ) : null}
+      </div>
       <div className="border-b border-shell-border bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent)_10%,transparent),color-mix(in_srgb,var(--accent2)_12%,transparent))] px-4 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -41,36 +68,19 @@ export function HotelReferenceCard({ hotel }: { hotel: HotelStayDetail }) {
               </p>
             </div>
           </div>
-          {details.tripadvisorUrl ? (
-            <a
-              href={details.tripadvisorUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-md border border-shell-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-panel-strong"
-            >
-              Source
-              <ExternalLink className="h-4 w-4 text-foreground/56" />
-            </a>
+          {typeof hotel.nightly_rate_amount === "number" ? (
+            <div className="rounded-lg border border-shell-border bg-background px-3 py-2.5 text-right">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
+                Nightly
+              </p>
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {formatCurrency(hotel.nightly_rate_amount, hotel.nightly_rate_currency)}
+              </p>
+            </div>
           ) : null}
         </div>
 
         <div className="grid gap-3">
-          {details.address ? (
-            <div className="rounded-lg border border-shell-border bg-background px-3 py-3">
-              <div className="flex items-start gap-3">
-                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--accent)]" />
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
-                    Address
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-foreground/70">
-                    {details.address}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           {details.highlights.length > 0 ? (
             <div className="grid gap-2">
               {details.highlights.map((note) => (
@@ -134,6 +144,14 @@ function splitHotelNotes(notes: string[]) {
     address,
     highlights,
   };
+}
+
+function formatCurrency(amount: number, currency: string | null | undefined) {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: (currency || "GBP").toUpperCase(),
+    maximumFractionDigits: 0,
+  }).format(amount);
 }
 
 function looksLikeAddress(value: string) {

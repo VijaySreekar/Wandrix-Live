@@ -122,11 +122,41 @@ export function WeatherCard({ forecasts }: { forecasts: WeatherDetail[] }) {
   );
 }
 
-export function HotelSummary({ hotel }: { hotel: HotelStayDetail }) {
+export function HotelSummary({
+  hotel,
+  destination,
+}: {
+  hotel: HotelStayDetail;
+  destination: string | null;
+}) {
   const details = splitHotelNotes(hotel.notes);
+  const heroImage = hotel.image_url;
+  const pricingLabel =
+    typeof hotel.nightly_rate_amount === "number"
+      ? formatCurrency(hotel.nightly_rate_amount, hotel.nightly_rate_currency)
+      : "Rate will firm up with exact dates";
 
   return (
     <div className="overflow-hidden rounded-xl bg-background">
+      {heroImage ? (
+        <div
+          className="relative h-28 border-b border-shell-border/70 bg-cover bg-center"
+          style={{
+            backgroundImage: `linear-gradient(180deg, rgba(15,23,42,0.08), rgba(15,23,42,0.42)), url(${heroImage})`,
+          }}
+        />
+      ) : (
+        <div className="flex h-28 items-end border-b border-shell-border/70 bg-[linear-gradient(145deg,#fbf7ee_0%,#f3ece1_100%)] px-4 py-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8a7657]">
+              Hotel image pending
+            </p>
+            <p className="mt-2 text-sm font-medium text-[#2c241a]">
+              {destination || hotel.area || "Stay details"}
+            </p>
+          </div>
+        </div>
+      )}
       <div className="border-b border-shell-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent)_18%,transparent),color-mix(in_srgb,var(--accent2)_16%,transparent))] px-4 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -141,22 +171,32 @@ export function HotelSummary({ hotel }: { hotel: HotelStayDetail }) {
         </div>
       </div>
       <div className="px-4 py-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
-          Stay window
-        </p>
-        <p className="mt-2 text-sm leading-7 text-foreground/66">
-          {formatDateRange(hotel.check_in, hotel.check_out)}
-        </p>
-        {details.address ? (
-          <p className="mt-3 text-sm leading-7 text-foreground/66">
-            {details.address}
-          </p>
-        ) : null}
-        {details.highlights[0] ? (
-          <p className="mt-2 text-sm leading-7 text-foreground/66">
-            {details.highlights[0]}
-          </p>
-        ) : null}
+        <div className="grid gap-3">
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-shell-border/70 bg-panel px-3 py-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
+                Stay window
+              </p>
+              <p className="mt-2 text-sm leading-7 text-foreground/66">
+                {formatDateRange(hotel.check_in, hotel.check_out)}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
+                Spend
+              </p>
+              <p className="mt-2 text-sm font-semibold text-foreground">
+                {pricingLabel}
+              </p>
+            </div>
+          </div>
+
+          {details.highlights[0] ? (
+            <p className="text-sm leading-7 text-foreground/66">
+              {details.highlights[0]}
+            </p>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -335,11 +375,13 @@ function formatPrimaryTemperature(forecast: WeatherDetail) {
 }
 
 function splitHotelNotes(notes: string[]) {
+  let tripadvisorUrl: string | null = null;
   let address: string | null = null;
   const highlights: string[] = [];
 
   for (const note of notes) {
     if (note.startsWith("TripAdvisor: ")) {
+      tripadvisorUrl = note.replace("TripAdvisor: ", "").trim();
       continue;
     }
 
@@ -352,9 +394,18 @@ function splitHotelNotes(notes: string[]) {
   }
 
   return {
+    tripadvisorUrl,
     address,
     highlights,
   };
+}
+
+function formatCurrency(amount: number, currency: string | null | undefined) {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: (currency || "GBP").toUpperCase(),
+    maximumFractionDigits: 0,
+  }).format(amount);
 }
 
 function looksLikeAddress(value: string) {

@@ -44,6 +44,11 @@ class ConversationBoardAction(BaseModel):
         "select_quick_plan",
         "select_advanced_plan",
         "select_advanced_anchor",
+        "select_date_option",
+        "pick_dates_for_me",
+        "confirm_working_dates",
+        "select_stay_option",
+        "select_stay_hotel",
         "finalize_quick_plan",
         "reopen_plan",
     ]
@@ -51,7 +56,13 @@ class ConversationBoardAction(BaseModel):
     destination_name: str | None = Field(default=None, max_length=120)
     country_or_region: str | None = Field(default=None, max_length=120)
     suggestion_id: str | None = Field(default=None, max_length=80)
+    date_option_id: str | None = Field(default=None, max_length=80)
+    stay_option_id: str | None = Field(default=None, max_length=80)
+    stay_segment_id: str | None = Field(default=None, max_length=80)
+    stay_hotel_id: str | None = Field(default=None, max_length=120)
+    stay_hotel_name: str | None = Field(default=None, max_length=160)
     from_location: str | None = Field(default=None, max_length=160)
+    from_location_flexible: bool | None = None
     to_location: str | None = Field(default=None, max_length=160)
     selected_modules: TripModuleSelection | None = None
     travel_window: str | None = Field(default=None, max_length=120)
@@ -79,6 +90,17 @@ class TripConversationMessageRequest(BaseModel):
         if self.message.strip() or self.board_action is not None:
             return self
         raise ValueError("A conversation turn needs either a message or a board action.")
+
+
+class OpeningTurnRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    profile_context: PlannerProfileContext | None = None
+    current_location_context: PlannerLocationContext | None = None
+
+
+class OpeningTurnResponse(BaseModel):
+    should_start_trip: bool
+    message: str = Field(..., min_length=1, max_length=4000)
 
 
 class TripConversationMessageResponse(BaseModel):

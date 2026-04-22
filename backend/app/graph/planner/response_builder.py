@@ -92,6 +92,19 @@ def build_assistant_response(
             )
         )
 
+    if (
+        conversation.planning_mode == "advanced"
+        and conversation.advanced_step == "resolve_dates"
+    ):
+        return _sanitize_assistant_text(
+            _build_advanced_date_resolution_response(
+                configuration=configuration,
+                conversation=conversation,
+                greeting_name=greeting_name,
+                action=action,
+            )
+        )
+
     if conversation.planning_mode == "advanced" and conversation.advanced_step == "choose_anchor":
         return _sanitize_assistant_text(
             _build_advanced_choose_anchor_response(
@@ -102,10 +115,10 @@ def build_assistant_response(
 
     if conversation.planning_mode == "advanced" and conversation.advanced_step == "anchor_flow":
         return _sanitize_assistant_text(
-            _build_advanced_anchor_selected_response(
+            _build_advanced_anchor_flow_response(
                 configuration=configuration,
+                conversation=conversation,
                 greeting_name=greeting_name,
-                advanced_anchor=conversation.advanced_anchor,
             )
         )
 
@@ -215,16 +228,16 @@ def build_assistant_response(
     ]
 
     if conversation.phase == "opening":
-        greeting_prefix = f"Hey {greeting_name}, " if greeting_name else ""
+        greeting_prefix = f"Hey {greeting_name}, " if greeting_name else "Hi, "
         profile_soft_start = _build_profile_soft_start_line(
             profile=profile,
             configuration=configuration,
         )
         return _sanitize_assistant_text(
             (
-                f"{greeting_prefix}I am ready to shape this with you. "
-                "Tell me where you want to go, roughly when, and where you would leave from, "
-                "and I will keep the early draft soft until the trip direction is clear."
+                f"{greeting_prefix}I'm Wandrix, and I can help shape anything from a rough travel idea to a polished trip plan. "
+                "Tell me where you want to go, roughly when, or even just the kind of trip you want, "
+                "and I will keep the early draft soft until the direction is clear."
                 f"{' ' + profile_soft_start if profile_soft_start else ''}"
             )
         )
@@ -472,20 +485,190 @@ def _build_advanced_choose_anchor_response(
     )
 
 
-def _build_advanced_anchor_selected_response(
+def _build_advanced_date_resolution_response(
     *,
     configuration: TripConfiguration,
+    conversation: TripConversationState,
     greeting_name: str | None,
-    advanced_anchor: str | None,
+    action: ConversationBoardAction | None,
+) -> str:
+    greeting_prefix = f"Perfect, {greeting_name}. " if greeting_name else "Perfect. "
+    date_resolution = conversation.advanced_date_resolution
+    timing_text = date_resolution.source_timing_text or configuration.travel_window or "the rough timing you gave me"
+    trip_length_text = date_resolution.source_trip_length_text or configuration.trip_length
+    selected_start = date_resolution.selected_start_date
+    selected_end = date_resolution.selected_end_date
+    selected_reason = date_resolution.selection_rationale
+
+    if (
+        action
+        and action.type in {"select_date_option", "pick_dates_for_me"}
+        and selected_start
+        and selected_end
+    ):
+        window_label = _format_date_window(selected_start, selected_end)
+        why_line = (
+            f" I chose it because {selected_reason.lower()}."
+            if selected_reason
+            else ""
+        )
+        return (
+            f"{greeting_prefix}I'll use {window_label} as the current working trip window for now.{why_line} "
+            "If that still looks right, confirm it on the board and then I’ll move into the first real Advanced Planning anchor."
+        )
+
+    if selected_start and selected_end and date_resolution.selection_status == "confirmed":
+        return (
+            f"{greeting_prefix}Great, the working trip window is locked in. "
+            "Now we can move into the first Advanced Planning anchor with much stronger timing underneath it."
+        )
+
+    timing_line = (
+        f"You said {timing_text}"
+        if not trip_length_text
+        else f"You said {timing_text} for {trip_length_text}"
+    )
+    weekend_line = (
+        " I translated that into concrete weekend windows so the rest of the planning can stay practical."
+        if "weekend" in timing_text.lower() or (trip_length_text and "weekend" in trip_length_text.lower())
+        else " I narrowed that into three workable date windows so the next planning step is grounded in something concrete."
+    )
+    return (
+        f"{greeting_prefix}{timing_line}.{weekend_line} "
+        "Pick the date window that feels right, or use Pick for me and I’ll choose the strongest one and explain why before we proceed."
+    )
+
+
+def _build_advanced_anchor_flow_response(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    greeting_name: str | None,
 ) -> str:
     greeting_prefix = f"Perfect, {greeting_name}. " if greeting_name else "Perfect. "
     destination = configuration.to_location or "this trip"
+    if conversation.advanced_anchor == "stay":
+        return _build_advanced_stay_response(
+            configuration=configuration,
+            conversation=conversation,
+            greeting_prefix=greeting_prefix,
+        )
+    advanced_anchor = conversation.advanced_anchor
     anchor_label = (
         advanced_anchor.replace("_", " ") if advanced_anchor else "that planning anchor"
     )
     return (
         f"{greeting_prefix}We'll lead {destination} with {anchor_label} first. "
         "I'll keep this in Advanced Planning mode and use that choice as the first deeper planning path."
+    )
+
+
+def _format_date_window(start_date, end_date) -> str:
+    if start_date.year == end_date.year:
+        return f"{start_date.strftime('%d %b')} to {end_date.strftime('%d %b %Y')}"
+    return f"{start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}"
+
+
+def _build_advanced_stay_response(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    greeting_prefix: str,
+) -> str:
+    destination = configuration.to_location or "this trip"
+    stay_planning = conversation.stay_planning
+    selected_option = next(
+        (
+            option
+            for option in stay_planning.recommended_stay_options
+            if option.id == stay_planning.selected_stay_option_id
+        ),
+        None,
+    )
+    selected_hotel = next(
+        (
+            hotel
+            for hotel in stay_planning.recommended_hotels
+            if hotel.id == stay_planning.selected_hotel_id
+        ),
+        None,
+    )
+
+    if stay_planning.selection_status == "needs_review" or stay_planning.compatibility_status in {
+        "strained",
+        "conflicted",
+    }:
+        review_reason = (
+            stay_planning.compatibility_notes[0]
+            if stay_planning.compatibility_notes
+            else "newer trip decisions are putting the current stay under strain"
+        )
+        stay_label = selected_option.title if selected_option else "the current stay direction"
+        return (
+            f"{greeting_prefix}{stay_label} is still the working stay direction for {destination}, "
+            f"but it needs a second look because {review_reason}. "
+            "I'll keep it visible on the board, explain the tension clearly, and suggest a stronger stay strategy instead of silently replacing it."
+        )
+
+    if (
+        stay_planning.hotel_selection_status == "needs_review"
+        or stay_planning.hotel_compatibility_status in {"strained", "conflicted"}
+    ) and selected_hotel:
+        review_reason = (
+            stay_planning.hotel_compatibility_notes[0]
+            if stay_planning.hotel_compatibility_notes
+            else "later trip choices are putting this hotel under strain"
+        )
+        return (
+            f"{greeting_prefix}{selected_hotel.hotel_name} is still the working hotel inside {selected_option.title.lower() if selected_option else 'the current stay direction'}, "
+            f"but it needs review because {review_reason}. "
+            "I'll keep the stay direction visible, show why the hotel fit has weakened, and suggest a better hotel inside the same strategy if needed."
+        )
+
+    if selected_hotel and selected_option:
+        assumption_line = (
+            f" It is currently supporting {', '.join(stay_planning.hotel_selection_assumptions[:2]).lower()}."
+            if stay_planning.hotel_selection_assumptions
+            else ""
+        )
+        return (
+            f"{greeting_prefix}{selected_hotel.hotel_name} is now the working hotel choice inside {selected_option.title.lower()}. "
+            "That still is not a booking, so I can revise it later if activities, timing, or routing make a different hotel stronger."
+            f"{assumption_line}"
+        )
+
+    if selected_option and stay_planning.recommended_hotels:
+        hotel_count = len(stay_planning.recommended_hotels)
+        recommendation_line = next(
+            (
+                hotel.hotel_name
+                for hotel in stay_planning.recommended_hotels
+                if hotel.recommended
+            ),
+            stay_planning.recommended_hotels[0].hotel_name,
+        )
+        return (
+            f"{greeting_prefix}{selected_option.title} is now the working stay direction for {destination}. "
+            f"I've moved straight into {hotel_count} hotel options inside that base, led by {recommendation_line}. "
+            "Pick the hotel that fits best, and I'll treat it as the working stay choice without pretending it is booked."
+        )
+
+    if selected_option:
+        assumption_line = (
+            f" I'm currently building around it for {', '.join(stay_planning.selection_assumptions[:2]).lower()}."
+            if stay_planning.selection_assumptions
+            else ""
+        )
+        return (
+            f"{greeting_prefix}We'll build {destination} around {selected_option.title.lower()} first. "
+            "That is a working stay direction rather than a hotel selection, so I can still review it later if activities, flights, or trip style pull the trip in a different direction."
+            f"{assumption_line}"
+        )
+
+    return (
+        f"{greeting_prefix}We'll lead {destination} with stay first. "
+        "The board now has four stay strategies to compare, each framed as an area direction rather than a hotel lock. "
+        "Pick the one that feels most right, and I'll use it as the first working stay decision for the trip."
     )
 
 
@@ -891,12 +1074,15 @@ def _requested_advanced_plan(
     llm_update: TripTurnUpdate,
     conversation: TripConversationState,
 ) -> bool:
+    explicit_mode_selection = bool(action and action.type == "select_advanced_plan")
+    chat_mode_selection = bool(
+        llm_update.requested_planning_mode == "advanced"
+        and llm_update.requested_advanced_anchor is None
+        and conversation.advanced_step in {None, "intake"}
+    )
     return bool(
         conversation.planning_mode == "advanced"
         and conversation.planning_mode_status == "selected"
-        and conversation.advanced_step != "choose_anchor"
-        and (
-            (action and action.type == "select_advanced_plan")
-            or llm_update.requested_planning_mode == "advanced"
-        )
+        and conversation.advanced_step in {None, "intake"}
+        and (explicit_mode_selection or chat_mode_selection)
     )

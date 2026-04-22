@@ -57,7 +57,13 @@ export function TravelPlannerBoardActions({
       destination_name: pendingBoardAction.destination_name,
       country_or_region: pendingBoardAction.country_or_region,
       suggestion_id: pendingBoardAction.suggestion_id,
+      date_option_id: pendingBoardAction.date_option_id,
+      stay_option_id: pendingBoardAction.stay_option_id,
+      stay_segment_id: pendingBoardAction.stay_segment_id,
+      stay_hotel_id: pendingBoardAction.stay_hotel_id,
+      stay_hotel_name: pendingBoardAction.stay_hotel_name,
       from_location: pendingBoardAction.from_location,
+      from_location_flexible: pendingBoardAction.from_location_flexible,
       to_location: pendingBoardAction.to_location,
       selected_modules: pendingBoardAction.selected_modules,
       travel_window: pendingBoardAction.travel_window,
@@ -155,6 +161,26 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
     return `In Advanced Planning, start with ${anchorLabel} first.`;
   }
 
+  if (action.type === "select_date_option") {
+    return "Use that date range as the working trip window.";
+  }
+
+  if (action.type === "pick_dates_for_me") {
+    return "Pick the strongest date option for me.";
+  }
+
+  if (action.type === "confirm_working_dates") {
+    return "Proceed with this trip window.";
+  }
+
+  if (action.type === "select_stay_option") {
+    return "Use that stay direction as the current base for the trip.";
+  }
+
+  if (action.type === "select_stay_hotel") {
+    return "Use that hotel as the current working stay choice inside this stay direction.";
+  }
+
   if (action.type === "finalize_quick_plan") {
     return "Finalize this quick plan from the board.";
   }
@@ -179,9 +205,12 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
 }
 
 function buildDetailsSummaryMessage(action: PlannerBoardActionIntent) {
-  const route = [action.from_location, action.to_location]
-    .filter(Boolean)
-    .join(" to ");
+  const route =
+    action.from_location_flexible && action.to_location
+      ? action.from_location
+        ? `${action.from_location} (flexible) to ${action.to_location}`
+        : `flexible departure to ${action.to_location}`
+      : [action.from_location, action.to_location].filter(Boolean).join(" to ");
   const activeModules = action.selected_modules
     ? Object.entries(action.selected_modules)
         .filter(([, enabled]) => enabled)
@@ -190,6 +219,9 @@ function buildDetailsSummaryMessage(action: PlannerBoardActionIntent) {
     : "full trip";
   const detailBits = [
     route ? `route ${route}` : null,
+    action.from_location_flexible && !action.from_location
+      ? "departure still flexible"
+      : null,
     action.travel_window ? `timing ${action.travel_window}` : null,
     action.trip_length ? `trip length ${action.trip_length}` : null,
     action.weather_preference
