@@ -9,6 +9,27 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-23 - Recorded The Next Advanced Planning Priority After Hotels
+
+Technical Summary:
+- Added `docs/advanced-planning-next-steps.md` to capture the current post-hotel roadmap for Advanced Planning based on the implemented flow without disturbing the broader `future-improvements` roadmap.
+- Documented that the next priority is no longer basic date resolution or initial stay selection, because those are already in place.
+- Added the new product direction that Advanced Planning must continue after stay and hotel selection by:
+  - marking `stay` as completed
+  - returning to the remaining anchors
+  - using the selected hotel as real downstream planning context
+  - building `activities` as the next deep anchor
+  - adding cross-anchor review and conflict behavior later
+
+Plain-English Summary:
+- We wrote down the real next step for Advanced Planning now that the hotel-selection flow exists.
+- The product should no longer stop after the user chooses a hotel.
+- Instead, Wandrix should keep going like a connected planner: use the selected stay and hotel as context, move to the next anchor, and later let newer decisions challenge older ones when needed.
+
+Files / Areas Touched:
+- `docs/advanced-planning-next-steps.md`
+- `CHANGELOG.md`
+
 ## 2026-04-23 - Fixed Hotel Selection Runtime And Returned Advanced Planning To Next-Step Anchors
 
 Technical Summary:
