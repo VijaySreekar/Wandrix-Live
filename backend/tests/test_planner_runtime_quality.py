@@ -71,8 +71,54 @@ def _sample_hotel_outputs() -> TripModuleOutputs:
                     "Area fit: quiet local base",
                 ],
             ),
+            HotelStayDetail(
+                id="hotel_karasuma_house",
+                hotel_name="Karasuma House Kyoto",
+                area="Karasuma",
+                address="310 Takoyakushi-dori, Nakagyo-ku, Kyoto",
+                image_url="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/31/example.jpg",
+                source_url="https://www.tripadvisor.com/Hotel_Review-g298564-d4-Reviews-Karasuma_House_Kyoto-Kyoto_Kyoto_Prefecture_Kinki.html",
+                source_label="TripAdvisor",
+                nightly_rate_amount=209,
+                nightly_rate_currency="GBP",
+                nightly_tax_amount=21,
+                rate_provider_name="Hotels.com",
+                notes=[
+                    "Cached hotel search result from Xotelo via RapidAPI.",
+                    "Area fit: central access and dining",
+                ],
+            ),
         ]
     )
+
+
+def _sample_paginated_hotel_outputs() -> TripModuleOutputs:
+    base_hotels = _sample_hotel_outputs().hotels
+    extra_hotels = [
+        HotelStayDetail(
+            id=f"hotel_extra_{index}",
+            hotel_name=f"Kyoto Stay Option {index}",
+            area=area,
+            address=f"{100 + index} Example Street, {area}, Kyoto",
+            image_url=f"https://dynamic-media-cdn.tripadvisor.com/media/photo-o/3{index}/example.jpg",
+            nightly_rate_amount=110 + index * 18,
+            nightly_rate_currency="GBP",
+            nightly_tax_amount=14 + index,
+            rate_provider_name="Trip.com",
+            notes=[
+                "Cached hotel search result from Xotelo via RapidAPI.",
+                note,
+            ],
+        )
+        for index, area, note in [
+            (1, "Nakagyo-ku", "Area fit: central access and dining"),
+            (2, "Shimogyo-ku", "Area fit: practical station access"),
+            (3, "Gion", "Area fit: evening food and culture"),
+            (4, "Higashiyama", "Area fit: quiet local base"),
+            (5, "Karasuma", "Area fit: design-led central base"),
+        ]
+    ]
+    return TripModuleOutputs(hotels=[*base_hotels, *extra_hotels])
 
 
 def _sample_dense_activity_outputs() -> TripModuleOutputs:
@@ -603,6 +649,8 @@ def test_select_advanced_anchor_moves_advanced_flow_forward(monkeypatch) -> None
                 "title": "Trip planner",
                 "configuration": {
                     "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
                     "travel_window": "late March",
                     "trip_length": "5 nights",
                 },
@@ -880,6 +928,8 @@ def test_confirm_working_dates_persists_exact_dates_and_advances_to_anchor_choic
                 "title": "Trip planner",
                 "configuration": {
                     "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
                     "travel_window": "late March",
                     "trip_length": "5 nights",
                 },
@@ -1001,6 +1051,8 @@ def test_chat_requested_advanced_anchor_moves_flow_forward(monkeypatch) -> None:
                 "title": "Trip planner",
                 "configuration": {
                     "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
                     "travel_window": "late March",
                     "trip_length": "5 nights",
                     "selected_modules": {
@@ -1115,6 +1167,8 @@ def test_select_stay_option_persists_working_stay_direction(monkeypatch) -> None
                 "title": "Trip planner",
                 "configuration": {
                     "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
                     "travel_window": "late March",
                     "trip_length": "5 nights",
                     "selected_modules": {
@@ -1147,12 +1201,21 @@ def test_select_stay_option_persists_working_stay_direction(monkeypatch) -> None
     assert stay_planning["selected_stay_direction"] == "Central base for Kyoto"
     assert stay_planning["selection_status"] == "selected"
     assert stay_planning["hotel_substep"] == "hotel_shortlist"
-    assert len(stay_planning["recommended_hotels"]) == 3
+    assert len(stay_planning["recommended_hotels"]) == 4
+    assert stay_planning["hotel_results_status"] == "ready"
+    assert "hotel recommendations" in stay_planning["hotel_results_summary"].lower()
+    assert stay_planning["hotel_filters"]["max_nightly_rate"] is None
+    assert stay_planning["hotel_filters"]["area_filter"] is None
+    assert stay_planning["hotel_filters"]["style_filter"] is None
+    assert stay_planning["available_hotel_areas"] == []
+    assert stay_planning["available_hotel_styles"] == []
     assert stay_planning["recommended_hotels"][0]["hotel_name"] == "Kyoto Station Stay"
     assert stay_planning["recommended_hotels"][0]["image_url"]
     assert stay_planning["recommended_hotels"][0]["address"]
     assert stay_planning["recommended_hotels"][0]["nightly_rate_amount"] == 164
     assert stay_planning["recommended_hotels"][0]["rate_provider_name"] == "Vio.com"
+    assert stay_planning["recommended_hotels"][0]["style_tags"]
+    assert "Daily travel can need more planning" not in stay_planning["recommended_hotels"][0]["tradeoffs"]
     assert stay_planning["compatibility_status"] == "fit"
     assert "hotel" not in (stay_planning["selection_rationale"] or "").lower()
     assert any(
@@ -1160,7 +1223,7 @@ def test_select_stay_option_persists_working_stay_direction(monkeypatch) -> None
         and event["selected_option"] == "stay_central_base"
         for event in decision_history
     )
-    assert "hotel options inside that base" in result["assistant_response"].lower()
+    assert "hotel recommendations inside that base" in result["assistant_response"].lower()
 
 
 def test_select_stay_hotel_persists_working_hotel_choice(monkeypatch) -> None:
@@ -1188,6 +1251,8 @@ def test_select_stay_hotel_persists_working_hotel_choice(monkeypatch) -> None:
                 "title": "Trip planner",
                 "configuration": {
                     "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
                     "travel_window": "late March",
                     "trip_length": "5 nights",
                     "selected_modules": {
@@ -1255,20 +1320,445 @@ def test_select_stay_hotel_persists_working_hotel_choice(monkeypatch) -> None:
     stay_planning = conversation["stay_planning"]
     decision_history = conversation["memory"]["decision_history"]
 
-    assert conversation["suggestion_board"]["mode"] == "advanced_stay_hotel_selected"
+    assert conversation["suggestion_board"]["mode"] == "advanced_anchor_choice"
     assert stay_planning["selected_hotel_id"] == "hotel_station_stay"
     assert stay_planning["selected_hotel_name"] == "Kyoto Station Stay"
     assert stay_planning["hotel_selection_status"] == "selected"
     assert stay_planning["hotel_substep"] == "hotel_selected"
-    assert conversation["suggestion_board"]["hotel_cards"][0]["nightly_rate_amount"] == 164
-    assert conversation["suggestion_board"]["hotel_cards"][0]["source_url"]
+    assert conversation["suggestion_board"]["advanced_anchor_cards"][-1]["id"] == "stay"
+    assert (
+        conversation["suggestion_board"]["advanced_anchor_cards"][-1]["status"]
+        == "completed"
+    )
     assert any(
         event["title"] == "Stay hotel selected"
         and event["selected_option"] == "hotel_station_stay"
         for event in decision_history
     )
-    assert "not a booking" in result["assistant_response"].lower()
+    assert "strong choice" in result["assistant_response"].lower()
+    assert "next" in result["assistant_response"].lower()
 
+
+def test_stay_hotel_actions_do_not_break_curated_recommendations(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: _sample_hotel_outputs(),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_filter_hotels",
+                "type": "set_stay_hotel_filters",
+                "stay_hotel_max_nightly_rate": 170,
+                "stay_hotel_area_filter": "Shimogyo-ku",
+                "stay_hotel_style_filter": "practical",
+            },
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "selected_modules": {
+                        "flights": True,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": _sample_hotel_outputs().model_dump(mode="json"),
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "stay",
+                    "stay_planning": {
+                        "active_segment_id": "segment_primary",
+                        "segments": [
+                            {
+                                "id": "segment_primary",
+                                "title": "Kyoto stay",
+                                "destination_name": "Kyoto",
+                                "summary": "Primary stay direction for Kyoto around late March, 5 nights.",
+                            }
+                        ],
+                        "hotel_substep": "hotel_shortlist",
+                        "selected_stay_option_id": "stay_central_base",
+                        "selected_stay_direction": "Central base for Kyoto",
+                        "selection_status": "selected",
+                        "selection_rationale": "Stay central.",
+                        "selection_assumptions": [
+                            "Short trips that need easy orientation",
+                        ],
+                    },
+                },
+            },
+        }
+    )
+
+    stay_planning = result["trip_draft"]["conversation"]["stay_planning"]
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+
+    assert board["mode"] == "advanced_stay_hotel_choice"
+    assert stay_planning["hotel_filters"]["max_nightly_rate"] is None
+    assert stay_planning["hotel_filters"]["area_filter"] is None
+    assert stay_planning["hotel_filters"]["style_filter"] is None
+    assert len(stay_planning["recommended_hotels"]) == 4
+    assert stay_planning["recommended_hotels"][0]["hotel_name"] == "Kyoto Station Stay"
+    assert stay_planning["hotel_results_status"] == "ready"
+    assert "hotel recommendations" in stay_planning["hotel_results_summary"].lower()
+
+    sort_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_sort_hotels",
+                "type": "set_stay_hotel_sort",
+                "stay_hotel_sort_order": "highest_price",
+            },
+            "trip_draft": result["trip_draft"],
+        }
+    )
+
+    sorted_board = sort_result["trip_draft"]["conversation"]["suggestion_board"]
+    assert sort_result["trip_draft"]["conversation"]["stay_planning"]["hotel_sort_order"] == "best_fit"
+    assert sorted_board["hotel_cards"][0]["hotel_name"] == "Kyoto Station Stay"
+
+
+def test_chat_can_select_working_hotel_and_return_to_next_anchor_cards(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            requested_stay_hotel_name="Kyoto Station Stay",
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: _sample_hotel_outputs(),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "I'd like to proceed with Kyoto Station Stay.",
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "selected_modules": {
+                        "flights": True,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": _sample_hotel_outputs().model_dump(mode="json"),
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "stay",
+                    "stay_planning": {
+                        "active_segment_id": "segment_primary",
+                        "segments": [
+                            {
+                                "id": "segment_primary",
+                                "title": "Kyoto stay",
+                                "destination_name": "Kyoto",
+                                "summary": "Primary stay direction for Kyoto around late March, 5 nights.",
+                            }
+                        ],
+                        "hotel_substep": "hotel_shortlist",
+                        "recommended_stay_options": [
+                            {
+                                "id": "stay_central_base",
+                                "segment_id": "segment_primary",
+                                "strategy_type": "single_base",
+                                "title": "Central base for Kyoto",
+                                "summary": "Stay in the most walkable part of Kyoto so first-time highlights and easier evenings stay simple.",
+                                "area_label": "Most central neighbourhoods",
+                                "areas": [],
+                                "best_for": [
+                                    "Short trips that need easy orientation",
+                                    "Keeping arrival and departure days lighter",
+                                ],
+                                "tradeoffs": ["Usually busier and a little pricier"],
+                                "recommended": True,
+                                "badge": "Recommended",
+                                "cta_label": "Build around this base",
+                            }
+                        ],
+                        "selected_stay_option_id": "stay_central_base",
+                        "selected_stay_direction": "Central base for Kyoto",
+                        "selection_status": "selected",
+                        "selection_rationale": "Stay in the most walkable part of Kyoto so first-time highlights and easier evenings stay simple.",
+                        "selection_assumptions": [
+                            "Short trips that need easy orientation",
+                            "Keeping arrival and departure days lighter",
+                        ],
+                        "compatibility_status": "fit",
+                        "compatibility_notes": [],
+                    },
+                },
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    stay_planning = conversation["stay_planning"]
+    decision_history = conversation["memory"]["decision_history"]
+
+    assert stay_planning["selected_hotel_name"] == "Kyoto Station Stay"
+    assert stay_planning["selected_hotel_id"] == "hotel_station_stay"
+    assert conversation["suggestion_board"]["mode"] == "advanced_anchor_choice"
+    assert conversation["suggestion_board"]["advanced_anchor_cards"][-1]["id"] == "stay"
+    assert (
+        conversation["suggestion_board"]["advanced_anchor_cards"][-1]["status"]
+        == "completed"
+    )
+    assert any(
+        event["title"] == "Stay hotel selected"
+        and event["selected_option"] == "kyoto station stay"
+        for event in decision_history
+    )
+    assert "strong choice" in result["assistant_response"].lower()
+
+
+def test_selected_hotel_stays_visible_when_filters_no_longer_match(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: _sample_hotel_outputs(),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_exclude_selected_hotel",
+                "type": "set_stay_hotel_filters",
+                "stay_hotel_area_filter": "Higashiyama-ku",
+            },
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "selected_modules": {
+                        "flights": True,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": _sample_hotel_outputs().model_dump(mode="json"),
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "stay",
+                    "stay_planning": {
+                        "active_segment_id": "segment_primary",
+                        "segments": [
+                            {
+                                "id": "segment_primary",
+                                "title": "Kyoto stay",
+                                "destination_name": "Kyoto",
+                                "summary": "Primary stay direction for Kyoto around late March, 5 nights.",
+                            }
+                        ],
+                        "hotel_substep": "hotel_selected",
+                        "selected_stay_option_id": "stay_central_base",
+                        "selected_stay_direction": "Central base for Kyoto",
+                        "selection_status": "selected",
+                        "selection_rationale": "Stay central.",
+                        "selection_assumptions": [
+                            "Short trips that need easy orientation",
+                        ],
+                        "selected_hotel_id": "hotel_station_stay",
+                        "selected_hotel_name": "Kyoto Station Stay",
+                        "hotel_selection_status": "selected",
+                        "hotel_selection_rationale": "Practical for transfers.",
+                    },
+                },
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+    stay_planning = conversation["stay_planning"]
+
+    assert board["mode"] == "advanced_anchor_choice"
+    assert stay_planning["selected_hotel_name"] == "Kyoto Station Stay"
+    assert stay_planning["hotel_selection_status"] == "selected"
+    assert board["advanced_anchor_cards"][-1]["id"] == "stay"
+    assert board["advanced_anchor_cards"][-1]["status"] == "completed"
+
+
+def test_stay_hotel_shortlist_stays_curated_to_four_recommendations(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: _sample_paginated_hotel_outputs(),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_page_hotels",
+                "type": "set_stay_hotel_page",
+                "stay_hotel_page": 2,
+            },
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "selected_modules": {
+                        "flights": True,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": _sample_paginated_hotel_outputs().model_dump(mode="json"),
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "stay",
+                    "stay_planning": {
+                        "active_segment_id": "segment_primary",
+                        "segments": [
+                            {
+                                "id": "segment_primary",
+                                "title": "Kyoto stay",
+                                "destination_name": "Kyoto",
+                                "summary": "Primary stay direction for Kyoto around late March, 5 nights.",
+                            }
+                        ],
+                        "hotel_substep": "hotel_shortlist",
+                        "selected_stay_option_id": "stay_central_base",
+                        "selected_stay_direction": "Central base for Kyoto",
+                        "selection_status": "selected",
+                        "selection_rationale": "Stay central.",
+                        "selection_assumptions": [
+                            "Short trips that need easy orientation",
+                        ],
+                    },
+                },
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+    stay_planning = result["trip_draft"]["conversation"]["stay_planning"]
+
+    assert board["hotel_page"] == 1
+    assert board["hotel_total_pages"] == 1
+    assert board["hotel_total_results"] == 4
+    assert len(board["hotel_cards"]) == 4
+    assert stay_planning["hotel_page"] == 1
+
+
+def test_hotel_workspace_blocks_when_exact_dates_are_missing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: _sample_hotel_outputs(),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_select_stay_without_dates",
+                "type": "select_stay_option",
+                "stay_option_id": "stay_central_base",
+                "stay_segment_id": "segment_primary",
+            },
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "selected_modules": {
+                        "flights": True,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": _sample_hotel_outputs().model_dump(mode="json"),
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "stay",
+                },
+            },
+        }
+    )
+
+    stay_planning = result["trip_draft"]["conversation"]["stay_planning"]
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+
+    assert board["mode"] == "advanced_stay_hotel_choice"
+    assert stay_planning["hotel_results_status"] == "blocked"
+    assert "exact hotel comparison needs fixed dates" in stay_planning["hotel_results_summary"].lower()
+    assert result["assistant_response"].lower().count("fixed dates") >= 1
 
 def test_stay_review_state_surfaces_on_the_board(monkeypatch) -> None:
     monkeypatch.setattr(

@@ -29,6 +29,7 @@ def create_postgres_checkpointer_pool():
             "prepare_threshold": 0,
             "row_factory": dict_row,
         },
+        check=ConnectionPool.check_connection,
         min_size=1,
         max_size=10,
         open=False,

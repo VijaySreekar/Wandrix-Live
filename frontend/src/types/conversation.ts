@@ -48,6 +48,10 @@ export type ConversationBoardAction = {
     | "confirm_working_dates"
     | "select_stay_option"
     | "select_stay_hotel"
+    | "set_stay_hotel_filters"
+    | "set_stay_hotel_sort"
+    | "set_stay_hotel_page"
+    | "reset_stay_hotel_filters"
     | "finalize_quick_plan"
     | "reopen_plan";
   advanced_anchor?: PlannerAdvancedAnchor | null;
@@ -59,6 +63,11 @@ export type ConversationBoardAction = {
   stay_segment_id?: string | null;
   stay_hotel_id?: string | null;
   stay_hotel_name?: string | null;
+  stay_hotel_max_nightly_rate?: number | null;
+  stay_hotel_area_filter?: string | null;
+  stay_hotel_style_filter?: string | null;
+  stay_hotel_sort_order?: string | null;
+  stay_hotel_page?: number | null;
   from_location?: string | null;
   from_location_flexible?: boolean | null;
   to_location?: string | null;

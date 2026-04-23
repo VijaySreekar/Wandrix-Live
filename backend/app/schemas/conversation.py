@@ -49,6 +49,10 @@ class ConversationBoardAction(BaseModel):
         "confirm_working_dates",
         "select_stay_option",
         "select_stay_hotel",
+        "set_stay_hotel_filters",
+        "set_stay_hotel_sort",
+        "set_stay_hotel_page",
+        "reset_stay_hotel_filters",
         "finalize_quick_plan",
         "reopen_plan",
     ]
@@ -61,6 +65,11 @@ class ConversationBoardAction(BaseModel):
     stay_segment_id: str | None = Field(default=None, max_length=80)
     stay_hotel_id: str | None = Field(default=None, max_length=120)
     stay_hotel_name: str | None = Field(default=None, max_length=160)
+    stay_hotel_max_nightly_rate: float | None = Field(default=None, ge=0)
+    stay_hotel_area_filter: str | None = Field(default=None, max_length=160)
+    stay_hotel_style_filter: str | None = Field(default=None, max_length=40)
+    stay_hotel_sort_order: str | None = Field(default=None, max_length=40)
+    stay_hotel_page: int | None = Field(default=None, ge=1, le=99)
     from_location: str | None = Field(default=None, max_length=160)
     from_location_flexible: bool | None = None
     to_location: str | None = Field(default=None, max_length=160)

@@ -106,3 +106,55 @@ def test_hotel_outputs_refresh_when_cached_results_are_missing_rich_fields(
 
     assert outputs.hotels[0].id == "live_hotel_1"
     assert outputs.hotels[0].image_url is not None
+
+
+def test_hotel_outputs_refresh_when_cached_results_are_too_shallow(
+    monkeypatch,
+) -> None:
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date="2027-03-22",
+        end_date="2027-03-27",
+    )
+
+    monkeypatch.setattr(
+        provider_enrichment,
+        "enrich_hotels",
+        lambda config: [
+            HotelStayDetail(
+                id=f"live_hotel_{index}",
+                hotel_name=f"Kyoto Hotel {index}",
+                area="Nakagyo-ku",
+                image_url=f"https://example.com/hotel-{index}.jpg",
+                nightly_rate_amount=120 + index,
+                nightly_rate_currency="GBP",
+                notes=["Refreshed live hotel result."],
+            )
+            for index in range(1, 7)
+        ],
+    )
+
+    stale_outputs = TripModuleOutputs(
+        hotels=[
+            HotelStayDetail(
+                id=f"cached_hotel_{index}",
+                hotel_name=f"Cached Kyoto Hotel {index}",
+                area="Nakagyo-ku",
+                image_url=f"https://example.com/cached-{index}.jpg",
+                nightly_rate_amount=90 + index,
+                nightly_rate_currency="GBP",
+                notes=["Old cached shortlist."],
+            )
+            for index in range(1, 5)
+        ]
+    )
+
+    outputs = provider_enrichment.build_module_outputs(
+        configuration=configuration,
+        previous_configuration=configuration.model_copy(deep=True),
+        existing_module_outputs=stale_outputs,
+        allowed_modules={"hotels"},
+    )
+
+    assert len(outputs.hotels) == 6
+    assert outputs.hotels[0].id == "live_hotel_1"

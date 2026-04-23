@@ -9,6 +9,268 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-23 - Fixed Hotel Selection Runtime And Returned Advanced Planning To Next-Step Anchors
+
+Technical Summary:
+- Hardened the LangGraph checkpoint connection path in `backend/app/graph/checkpointer.py` and `backend/app/services/conversation_service.py` by validating pooled psycopg connections before use and retrying checkpoint-backed graph calls once after `OperationalError`.
+- Extended the structured planner update model in `backend/app/graph/planner/turn_models.py` and `backend/app/graph/planner/understanding.py` so hotel selection can also be made in chat via `requested_stay_hotel_name`, then merged that into stay-planning state in `backend/app/graph/planner/conversation_state.py`.
+- Updated `backend/app/graph/planner/suggestion_board.py` and `backend/app/graph/planner/response_builder.py` so selecting a hotel now hands Advanced Planning back to the next-anchor choice, with `stay` marked completed and moved to the bottom instead of trapping the user inside the hotel board.
+- Refined frontend board-action and anchor-card UI in `frontend/src/components/assistant/travel-planner-board-actions.tsx`, `frontend/src/components/package/trip-suggestion-board.tsx`, and `frontend/src/types/trip-conversation.ts` so hotel-selection prompts include the chosen hotel name and completed anchors render as disabled, greyed cards.
+- Added coverage in `backend/tests/test_conversation_service.py` and `backend/tests/test_planner_runtime_quality.py` for retry behavior, chat-based hotel selection, and the post-hotel next-anchor board state.
+
+Plain-English Summary:
+- Clicking `Select this hotel` should no longer blow up the backend just because a stale checkpoint DB connection was reused.
+- Wandrix can now understand hotel selection from chat as well, not only from the board.
+- After you pick a hotel, the assistant responds more naturally, then the board returns to the remaining planning options with `Stay` clearly marked as completed instead of keeping you stuck inside the hotel step.
+
+Files / Areas Touched:
+- `backend/app/graph/checkpointer.py`
+- `backend/app/services/conversation_service.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_conversation_service.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Switched Hotel Card Copy To Validated LLM Writing
+
+Technical Summary:
+- Updated `backend/app/graph/planner/suggestion_board.py` so hotel card `summary`, `why_it_fits`, and `tradeoffs` can now be generated through a structured LLM pass instead of only using rigid template strings.
+- Kept the hotel-copy path schema-validated with deterministic fallback behavior, so planner state still stays safe if the model call fails or returns something incomplete.
+- Separated stay-level tradeoffs from hotel-level tradeoffs, which stops hotel cards from inheriting the same generic stay warning across the whole shortlist.
+- Refined the board fit-line fallback in `frontend/src/components/package/trip-suggestion-board.tsx` so thinner metadata cases still read more naturally on the live board.
+
+Plain-English Summary:
+- Hotel cards should now sound more specific to the actual hotel instead of repeating the same planner sentence again and again.
+- I moved that copy onto the LLM, but kept it structured and validated so the product remains reliable.
+- The repeated “daily travel can need more planning” line should no longer be stamped onto every hotel row.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Removed The Extra Hotel-State Framing From The Live Board
+
+Technical Summary:
+- Updated `backend/app/graph/planner/suggestion_board.py` so the Advanced hotel board title and subtitle no longer announce that a hotel is already selected or that Wandrix is “building around” a chosen base at the top of the board.
+- Refined `frontend/src/components/package/trip-suggestion-board.tsx` so hotel cards use shorter fit-line copy, cleaner visible area labels, and a slimmer four-card shortlist without the old duplicated selected-hotel framing.
+
+Plain-English Summary:
+- The hotel board now reads more like a clean shortlist and less like a system status page.
+- I removed the extra “hotel selected / building around” framing at the top and made the recommendation copy much less repetitive.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/suggestion_board.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Flattened The Hotel Board And Made Cards Expandable
+
+Technical Summary:
+- Reworked `frontend/src/components/package/trip-suggestion-board.tsx` so the Advanced hotel recommendations no longer sit inside a boxed workspace shell with a sticky header, and instead render as a flatter board section with a single intro line and cleaner spacing between hotel rows.
+- Added expandable hotel cards with a compact default state and an inline details section for fuller rationale and tradeoffs, keeping the initial scan lighter while still allowing deeper hotel information on demand.
+- Updated `backend/app/graph/planner/response_builder.py` so the assistant now explicitly invites the user to use chat to reshape the hotel shortlist, instead of relying on the board alone to carry the interaction.
+
+Plain-English Summary:
+- The hotel step should now feel less boxed-in and less like a separate mini app.
+- Each hotel starts cleaner, and you can open a card when you want more detail instead of being forced to read everything at once.
+- The assistant also speaks more naturally about the shortlist now, so the conversation stays central.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `backend/app/graph/planner/response_builder.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Simplified The Live Hotel Board And Removed Repetitive Card Copy
+
+Technical Summary:
+- Tightened `frontend/src/components/package/trip-suggestion-board.tsx` so the Advanced hotel board now renders only the first four hotel recommendations, removes the pinned selected-hotel slab, removes the extra stay-context strip, and reduces the vertical bulk of each hotel row.
+- Shortened hotel card copy by replacing repeated planner-style rationale paragraphs with a compact fit line derived from hotel tags and cleaner fallback wording, while also normalizing visible area labels before rendering them in the card body.
+- Slimmed the hotel image, price, and action layout so the shortlist reads more like the other clean board states in Wandrix and less like a stacked workspace prototype.
+
+Plain-English Summary:
+- The hotel board is now much less repetitive and less bulky.
+- I removed the extra top blocks you called out, kept the shortlist to four recommendations, and made each hotel card read more like a clear recommendation instead of repeating the same planning sentence over and over.
+- The visible area names should also look cleaner and more consistent now.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Polished The Hotel Workspace Hierarchy And Deepened Hotel Metadata
+
+Technical Summary:
+- Expanded hotel metadata and workspace contracts in `backend/app/schemas/trip_conversation.py`, `frontend/src/types/trip-conversation.ts`, and `backend/app/services/providers/hotels.py` by increasing the hotel search pool, allowing richer hotel style tags, and carrying more hotel options into the planner instead of compressing the workspace too early.
+- Improved hotel normalization and ranking in `backend/app/graph/planner/suggestion_board.py` by adding fallback stay-area labels, district extraction for Kyoto-style addresses, broader derived hotel style tags (`traditional`, `nightlife`, `walkable`, `value`), more useful area/style aggregation, and cleaner hotel tradeoff messaging.
+- Reworked the hotel workspace UI in `frontend/src/components/package/trip-suggestion-board.tsx` into a flatter sticky toolbelt with a compact stay context strip, cleaner filter header, numbered pagination, larger hotel imagery, slimmer selected-hotel treatment, and less awkward `current base` language.
+- Added validation-compatible schema updates and re-ran planner regression coverage so the deeper style vocabulary and hotel-card payloads remain stable across Advanced stay selection and hotel filtering flows.
+
+Plain-English Summary:
+- The hotel side of Advanced Planning now feels more like one polished workspace instead of a stack of unrelated panels.
+- There are more hotel options to browse, the area and style filters are richer and more consistent, and the stay direction no longer shows up with that awkward “current base” feel.
+- The hotel cards are also calmer and easier to scan, with larger images, cleaner pagination, and stronger area labels.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/services/providers/hotels.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_provider_enrichment.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Reframed The Hotel Workspace As A Calmer Search Surface
+
+Technical Summary:
+- Redesigned the hotel workspace in `frontend/src/components/package/trip-suggestion-board.tsx` from a stack of bordered sub-panels into a single search surface with one sticky header, a lighter stay-direction context line, a simpler control row, and divider-based hotel result rows.
+- Flattened the visual hierarchy of the selected-hotel treatment and hotel result cards by reducing shadows, removing the heavier boxed `current base` feel, simplifying badges, tightening copy blocks, and moving price/selection controls into a clearer right-hand action column.
+- Kept the richer hotel metadata and pagination behavior from the earlier workspace work, but presented it through calmer pagination, simpler context summaries, and larger but less ornamental hotel imagery.
+
+Plain-English Summary:
+- The hotel step on the right board should now feel less like a pile of UI cards and more like one focused hotel-selection workspace.
+- I removed a lot of the heavy framing and made the results denser, calmer, and easier to scan, while keeping the filters and hotel selection logic intact.
+- The awkward “current base” feel is gone, and the overall page should read more like a polished search flow than a feature demo.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Simplified Advanced Hotels Back To A Curated Four-Hotel Flow
+
+Technical Summary:
+- Simplified `backend/app/graph/planner/suggestion_board.py` so the stay-led hotel step now returns a curated top four hotel recommendations inside the selected stay direction instead of shaping a larger filterable workspace with paging.
+- Updated `backend/app/graph/planner/response_builder.py` so Advanced stay responses now talk about hotel recommendations rather than a hotel workspace with filters and pagination.
+- Reworked `frontend/src/components/package/trip-suggestion-board.tsx` to remove the hotel search controls, filter toolbar, and pagination UI, leaving a simpler recommendation surface with stay context, selected hotel state, and four denser hotel rows.
+- Adjusted `backend/tests/test_planner_runtime_quality.py` to validate the simplified curated shortlist behavior instead of the removed filter-and-pagination workflow.
+
+Plain-English Summary:
+- The hotel step is now intentionally simpler and more honest.
+- Instead of pretending Wandrix is already a full hotel search engine, the board now shows four strong hotel recommendations inside the chosen stay direction and lets the user pick one as the working hotel choice.
+- This should feel cleaner, more focused, and less fake than the earlier filter-heavy version.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Cleared Stale Hotel Filter State And Backfilled Thin Shortlists
+
+Technical Summary:
+- Updated `backend/app/graph/planner/conversation_state.py` so the Advanced stay -> hotel path now forcibly clears old hotel filter, sort, and paging state when using the curated recommendation flow instead of carrying stale workspace values forward in conversation state.
+- Updated `backend/app/services/providers/hotels.py` so thin provider hotel sets are supplemented with fallback hotel suggestions when needed, helping the planner reach a four-item shortlist more reliably.
+- Adjusted `backend/tests/test_planner_runtime_quality.py` to assert that the curated hotel flow ignores stale filter actions and keeps the hotel recommendation state clean.
+
+Plain-English Summary:
+- Old hotel filters should no longer linger in the trip state after we simplified the hotel step.
+- If live provider results are too thin, Wandrix can now fill the shortlist back up so the hotel step is much more likely to show the expected four options.
+- This makes the simplified hotel flow more consistent and less confusing.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/services/providers/hotels.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Turned The Advanced Stay Shortlist Into A Real Hotel Workspace
+
+Technical Summary:
+- Extended the planner conversation contracts in `backend/app/schemas/trip_conversation.py`, `backend/app/schemas/conversation.py`, `frontend/src/types/trip-conversation.ts`, and `frontend/src/types/conversation.ts` with hotel-workspace filters, sort state, available areas/styles, result status, and richer hotel-card metadata like derived style tags and outside-filter visibility.
+- Added hotel-workspace shaping in `backend/app/graph/planner/suggestion_board.py` and `backend/app/graph/planner/conversation_state.py`, including exact-date gating, price/area/style filtering, sort modes, result summaries, selected-hotel persistence outside active filters, and derived hotel style tags for the board.
+- Updated `backend/app/graph/planner/response_builder.py` so Advanced stay replies now acknowledge hotel workspace refreshes, blocked exact-date comparison, and empty filtered states instead of treating every hotel turn like a generic shortlist.
+- Reworked `frontend/src/components/package/trip-suggestion-board.tsx` into a proper hotel workspace with a sticky compact stay summary, sticky controls for nightly cap / area / style / sort, a vertical result list, smaller selected-hotel treatment, and clearer blocked or empty states.
+- Updated sandbox/mock shape coverage in `frontend/src/components/package/trip-board-sandbox.tsx` and expanded `backend/tests/test_planner_runtime_quality.py` with regressions for hotel filtering, selected-hotel persistence outside filters, and exact-date blocking behavior.
+
+Plain-English Summary:
+- The right-side hotel step now behaves much more like a real hotel search workspace.
+- Instead of just showing a static shortlist, the board can now narrow hotels by nightly cap, area, and style, and sort them in different ways while keeping the current hotel choice visible.
+- The planner also now treats exact dates as the gate for true hotel comparison, so the hotel board is more honest about when it is ready for real selection.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Cleaned Up The Selected Hotel Panel Labeling
+
+Technical Summary:
+- Removed the duplicate `Current hotel` kicker text from the selected-hotel panel in `frontend/src/components/package/trip-suggestion-board.tsx` so the selected state is communicated once through the image badge instead of being repeated in the content column.
+
+Plain-English Summary:
+- The selected hotel panel on the right board now reads more cleanly and feels less cluttered.
+- It still shows the hotel as the current working choice, but without repeating the same label twice.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Deepened The Hotel Workspace With Pagination And Richer Stay Metadata
+
+Technical Summary:
+- Expanded hotel discovery in `backend/app/services/providers/hotels.py` from the old 4-result shortlist to a deeper provider-backed pool, and improved area labels by deriving ward-level location names from provider address data when available.
+- Extended the hotel workspace contracts in `backend/app/schemas/trip_conversation.py`, `backend/app/schemas/conversation.py`, `frontend/src/types/trip-conversation.ts`, and `frontend/src/types/conversation.ts` with hotel page state, total result counts, and a persisted `selected_hotel_card` so the working hotel can stay visible even when it falls outside the current page.
+- Reworked hotel workspace shaping in `backend/app/graph/planner/suggestion_board.py` and `backend/app/graph/planner/conversation_state.py` to page through a deeper ranked hotel pool, clamp page changes safely, preserve the selected hotel outside the current slice, and expose richer area/style filter values.
+- Updated `backend/app/graph/planner/provider_enrichment.py` so older shallow hotel caches refresh instead of freezing the workspace on the original thin shortlist, and added regression coverage in `backend/tests/test_provider_enrichment.py` and `backend/tests/test_planner_runtime_quality.py`.
+- Refined the frontend hotel workspace in `frontend/src/components/package/trip-suggestion-board.tsx` with a lighter stay-direction context strip, pager controls, cleaner sticky toolbar behavior, and a safer date fallback for older saved trips.
+
+Plain-English Summary:
+- The hotel workspace can now work with a deeper hotel pool instead of feeling capped at a tiny shortlist.
+- The board is now set up to page through results properly, keep the current hotel choice visible while you browse, and show more useful area/style context.
+- The top of the workspace is also lighter and less awkward, so it reads more like a real hotel-selection tool and less like a stack of unrelated cards.
+
+Files / Areas Touched:
+- `backend/app/services/providers/hotels.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/tests/test_provider_enrichment.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-22 - Tightened The Hotel Workspace Hierarchy And Older-Cache Area Labels
+
+Technical Summary:
+- Updated `backend/app/graph/planner/suggestion_board.py` so hotel cards normalize area labels from address data when provider areas are still generic, and feed that richer area context back into style-tag derivation for the hotel workspace.
+- Slimmed the selected-hotel treatment in `frontend/src/components/package/trip-suggestion-board.tsx` from a large featured panel into a smaller inline summary strip, and improved the compact stay-direction context strip so older saved trips can still show a useful stay window from the visible hotel cards.
+- Refreshed fixture expectations in `backend/tests/test_planner_runtime_quality.py` so the tests reflect the more useful Kyoto ward labels now shown by the planner.
+
+Plain-English Summary:
+- The hotel workspace now looks less top-heavy, because the selected hotel no longer takes over so much of the right board.
+- Older hotel caches also look less generic now, since Wandrix can often pull a more useful area label from the hotel address instead of showing the same broad city text everywhere.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
 ## 2026-04-22 - Refined Advanced Hotel Cards Into A Cleaner Selection Layout
 
 Technical Summary:

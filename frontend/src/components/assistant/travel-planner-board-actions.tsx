@@ -62,6 +62,12 @@ export function TravelPlannerBoardActions({
       stay_segment_id: pendingBoardAction.stay_segment_id,
       stay_hotel_id: pendingBoardAction.stay_hotel_id,
       stay_hotel_name: pendingBoardAction.stay_hotel_name,
+      stay_hotel_max_nightly_rate:
+        pendingBoardAction.stay_hotel_max_nightly_rate,
+      stay_hotel_area_filter: pendingBoardAction.stay_hotel_area_filter,
+      stay_hotel_style_filter: pendingBoardAction.stay_hotel_style_filter,
+      stay_hotel_sort_order: pendingBoardAction.stay_hotel_sort_order,
+      stay_hotel_page: pendingBoardAction.stay_hotel_page,
       from_location: pendingBoardAction.from_location,
       from_location_flexible: pendingBoardAction.from_location_flexible,
       to_location: pendingBoardAction.to_location,
@@ -178,7 +184,25 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
   }
 
   if (action.type === "select_stay_hotel") {
-    return "Use that hotel as the current working stay choice inside this stay direction.";
+    return action.stay_hotel_name
+      ? `I'd like to proceed with ${action.stay_hotel_name} as the working hotel for this trip.`
+      : "I'd like to proceed with this hotel as the working hotel for this trip.";
+  }
+
+  if (action.type === "set_stay_hotel_filters") {
+    return "Update the hotel workspace filters with these choices.";
+  }
+
+  if (action.type === "set_stay_hotel_sort") {
+    return "Reorder the hotel workspace with this sort preference.";
+  }
+
+  if (action.type === "set_stay_hotel_page") {
+    return "Show the next hotel results page in the workspace.";
+  }
+
+  if (action.type === "reset_stay_hotel_filters") {
+    return "Reset the hotel workspace filters to the default view.";
   }
 
   if (action.type === "finalize_quick_plan") {

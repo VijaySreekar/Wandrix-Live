@@ -11,6 +11,7 @@ from app.services.provider_usage_service import record_provider_usage
 
 XOTELO_PROVIDER_KEY = "xotelo"
 XOTELO_PROVIDER_HOST = "xotelo-hotel-prices.p.rapidapi.com"
+HOTEL_SEARCH_RESULT_LIMIT = 24
 
 
 class LlmHotelSuggestionItem(BaseModel):
@@ -20,7 +21,7 @@ class LlmHotelSuggestionItem(BaseModel):
 
 
 class LlmHotelSuggestionResponse(BaseModel):
-    suggestions: list[LlmHotelSuggestionItem] = Field(default_factory=list, max_length=4)
+    suggestions: list[LlmHotelSuggestionItem] = Field(default_factory=list, max_length=12)
 
 
 def enrich_hotels(configuration: TripConfiguration) -> list[HotelStayDetail]:
@@ -33,7 +34,13 @@ def enrich_hotels(configuration: TripConfiguration) -> list[HotelStayDetail]:
         rapidapi_hotels = []
 
     if rapidapi_hotels:
-        return rapidapi_hotels
+        if len(rapidapi_hotels) >= 4:
+            return rapidapi_hotels
+        try:
+            llm_hotels = enrich_hotels_from_llm(configuration)
+        except Exception:
+            llm_hotels = []
+        return _merge_hotel_recommendations(rapidapi_hotels, llm_hotels)
 
     try:
         return enrich_hotels_from_llm(configuration)
@@ -80,7 +87,10 @@ def enrich_hotels_from_xotelo(
 
         return [
             _map_xotelo_hotel(client, candidate, configuration, index)
-            for index, candidate in enumerate(hotel_candidates[:4], start=1)
+            for index, candidate in enumerate(
+                hotel_candidates[:HOTEL_SEARCH_RESULT_LIMIT],
+                start=1,
+            )
         ]
 
 
@@ -90,7 +100,7 @@ def enrich_hotels_from_llm(
     prompt = f"""
 You are Wandrix's hotel suggestion fallback.
 
-Generate 4 hotel stay suggestions for the destination and trip profile below.
+Generate 12 hotel stay suggestions for the destination and trip profile below.
 
 Rules:
 - These are fallback planning suggestions, not live inventory.
@@ -130,7 +140,7 @@ Trip configuration:
                 *suggestion.notes,
             ],
         )
-        for index, suggestion in enumerate(response.suggestions[:4], start=1)
+        for index, suggestion in enumerate(response.suggestions[:12], start=1)
     ]
 
 
@@ -166,7 +176,7 @@ def _map_xotelo_hotel(
         id=f"xotelo_hotel_{candidate.get('location_id') or index}",
         hotel_name=_coerce_text(candidate.get("name"), fallback="Hotel option"),
         hotel_key=_coerce_text(candidate.get("hotel_key")),
-        area=_coerce_text(candidate.get("place_name")),
+        area=_derive_hotel_area_label(candidate),
         address=_coerce_text(street_address),
         image_url=_coerce_text(candidate.get("image")),
         source_url=_coerce_text(tripadvisor_url),
@@ -179,6 +189,30 @@ def _map_xotelo_hotel(
         check_out=_to_check_out(configuration),
         notes=notes,
     )
+
+
+def _derive_hotel_area_label(candidate: dict) -> str | None:
+    street_address = _coerce_text(candidate.get("street_address"))
+    short_place_name = _coerce_text(candidate.get("short_place_name"))
+    place_name = _coerce_text(candidate.get("place_name"))
+
+    for value in (street_address, short_place_name, place_name):
+        if not value:
+            continue
+        ward = _extract_ward_label(value)
+        if ward:
+            return ward
+
+    return short_place_name or place_name
+
+
+def _extract_ward_label(value: str) -> str | None:
+    normalized = " ".join(value.replace("/", " ").split())
+    for chunk in [part.strip() for part in normalized.split(",")]:
+        lower = chunk.lower()
+        if lower.endswith("-ku") or " ward" in lower:
+            return chunk
+    return None
 
 
 def _fetch_xotelo_rate_snapshot(
@@ -308,3 +342,22 @@ def _coerce_number(value: object) -> float | None:
         if number >= 0:
             return number
     return None
+
+
+def _merge_hotel_recommendations(
+    provider_hotels: list[HotelStayDetail],
+    fallback_hotels: list[HotelStayDetail],
+) -> list[HotelStayDetail]:
+    merged: list[HotelStayDetail] = []
+    seen_names: set[str] = set()
+
+    for hotel in [*provider_hotels, *fallback_hotels]:
+        normalized_name = hotel.hotel_name.strip().lower()
+        if not normalized_name or normalized_name in seen_names:
+            continue
+        seen_names.add(normalized_name)
+        merged.append(hotel)
+        if len(merged) >= 12:
+            break
+
+    return merged

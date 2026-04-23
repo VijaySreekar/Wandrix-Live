@@ -34,6 +34,25 @@ PlannerAdvancedAnchor = Literal["flight", "stay", "trip_style", "activities"]
 PlannerStaySelectionStatus = Literal["none", "selected", "needs_review"]
 PlannerStayCompatibilityStatus = Literal["fit", "strained", "conflicted"]
 PlannerStayStrategyType = Literal["single_base", "split_stay"]
+PlannerHotelStyleTag = Literal[
+    "calm",
+    "central",
+    "design",
+    "luxury",
+    "food_access",
+    "practical",
+    "traditional",
+    "nightlife",
+    "walkable",
+    "value",
+]
+PlannerHotelSortOrder = Literal[
+    "best_fit",
+    "lowest_price",
+    "highest_price",
+    "best_area_fit",
+]
+PlannerHotelResultsStatus = Literal["blocked", "ready", "empty"]
 PlannerDateResolutionStatus = Literal["none", "selected", "confirmed"]
 PlannerStayHotelSubstep = Literal[
     "strategy_choice",
@@ -72,6 +91,7 @@ DestinationSuggestionSelectionStatus = Literal[
     "confirmed",
 ]
 PlanningModeCardStatus = Literal["available", "in_development"]
+AdvancedAnchorCardStatus = Literal["available", "completed"]
 
 TripFieldKey = Literal[
     "from_location",
@@ -172,6 +192,7 @@ class AdvancedAnchorChoiceCard(BaseModel):
     title: str = Field(..., min_length=1, max_length=80)
     description: str = Field(..., min_length=1, max_length=240)
     bullets: list[str] = Field(default_factory=list, max_length=5)
+    status: AdvancedAnchorCardStatus = "available"
     recommended: bool = False
     badge: str | None = Field(default=None, max_length=80)
     cta_label: str | None = Field(default=None, max_length=80)
@@ -236,6 +257,9 @@ class AdvancedStayHotelOptionCard(BaseModel):
     summary: str = Field(..., min_length=1, max_length=320)
     why_it_fits: str = Field(..., min_length=1, max_length=320)
     tradeoffs: list[str] = Field(default_factory=list, max_length=4)
+    style_tags: list[PlannerHotelStyleTag] = Field(default_factory=list, max_length=5)
+    fit_score: int = Field(default=0, ge=0, le=100)
+    outside_active_filters: bool = False
     price_signal: str | None = Field(default=None, max_length=80)
     nightly_rate_amount: float | None = Field(default=None, ge=0)
     nightly_rate_currency: str | None = Field(default=None, max_length=8)
@@ -246,6 +270,12 @@ class AdvancedStayHotelOptionCard(BaseModel):
     check_out: datetime | None = None
     recommended: bool = False
     cta_label: str | None = Field(default=None, max_length=80)
+
+
+class AdvancedStayHotelFilters(BaseModel):
+    max_nightly_rate: float | None = Field(default=None, ge=0)
+    area_filter: str | None = Field(default=None, max_length=160)
+    style_filter: PlannerHotelStyleTag | None = None
 
 
 class AdvancedStayPlanningState(BaseModel):
@@ -265,7 +295,7 @@ class AdvancedStayPlanningState(BaseModel):
     compatibility_notes: list[str] = Field(default_factory=list, max_length=4)
     recommended_hotels: list[AdvancedStayHotelOptionCard] = Field(
         default_factory=list,
-        max_length=4,
+        max_length=24,
     )
     selected_hotel_id: str | None = Field(default=None, max_length=120)
     selected_hotel_name: str | None = Field(default=None, max_length=160)
@@ -274,6 +304,22 @@ class AdvancedStayPlanningState(BaseModel):
     hotel_selection_assumptions: list[str] = Field(default_factory=list, max_length=4)
     hotel_compatibility_status: PlannerStayCompatibilityStatus = "fit"
     hotel_compatibility_notes: list[str] = Field(default_factory=list, max_length=4)
+    hotel_filters: AdvancedStayHotelFilters = Field(
+        default_factory=AdvancedStayHotelFilters
+    )
+    hotel_sort_order: PlannerHotelSortOrder = "best_fit"
+    hotel_results_status: PlannerHotelResultsStatus = "blocked"
+    hotel_results_summary: str | None = Field(default=None, max_length=240)
+    hotel_page: int = Field(default=1, ge=1, le=99)
+    hotel_page_size: int = Field(default=6, ge=1, le=24)
+    hotel_total_results: int = Field(default=0, ge=0, le=500)
+    hotel_total_pages: int = Field(default=1, ge=1, le=99)
+    available_hotel_areas: list[str] = Field(default_factory=list, max_length=12)
+    available_hotel_styles: list[PlannerHotelStyleTag] = Field(
+        default_factory=list,
+        max_length=10,
+    )
+    selected_hotel_card: AdvancedStayHotelOptionCard | None = None
 
 
 class TripSuggestionBoardState(BaseModel):
@@ -303,7 +349,7 @@ class TripSuggestionBoardState(BaseModel):
         max_length=4,
     )
     stay_cards: list[AdvancedStayOptionCard] = Field(default_factory=list, max_length=4)
-    hotel_cards: list[AdvancedStayHotelOptionCard] = Field(default_factory=list, max_length=4)
+    hotel_cards: list[AdvancedStayHotelOptionCard] = Field(default_factory=list, max_length=8)
     selected_stay_option_id: str | None = Field(default=None, max_length=80)
     stay_selection_status: PlannerStaySelectionStatus | None = None
     stay_selection_rationale: str | None = Field(default=None, max_length=320)
@@ -317,6 +363,22 @@ class TripSuggestionBoardState(BaseModel):
     hotel_selection_assumptions: list[str] = Field(default_factory=list, max_length=4)
     hotel_compatibility_status: PlannerStayCompatibilityStatus | None = None
     hotel_compatibility_notes: list[str] = Field(default_factory=list, max_length=4)
+    hotel_filters: AdvancedStayHotelFilters = Field(
+        default_factory=AdvancedStayHotelFilters
+    )
+    hotel_sort_order: PlannerHotelSortOrder = "best_fit"
+    hotel_results_status: PlannerHotelResultsStatus | None = None
+    hotel_results_summary: str | None = Field(default=None, max_length=240)
+    hotel_page: int = Field(default=1, ge=1, le=99)
+    hotel_page_size: int = Field(default=6, ge=1, le=24)
+    hotel_total_results: int = Field(default=0, ge=0, le=500)
+    hotel_total_pages: int = Field(default=1, ge=1, le=99)
+    available_hotel_areas: list[str] = Field(default_factory=list, max_length=12)
+    available_hotel_styles: list[PlannerHotelStyleTag] = Field(
+        default_factory=list,
+        max_length=10,
+    )
+    selected_hotel_card: AdvancedStayHotelOptionCard | None = None
     have_details: list[PlannerChecklistItem] = Field(default_factory=list)
     need_details: list[PlannerChecklistItem] = Field(default_factory=list)
     visible_steps: list[TripDetailsStepKey] = Field(default_factory=list)

@@ -6,6 +6,7 @@ from app.graph.planner.details_collection import compute_scope_missing_fields
 from app.graph.planner.location_context import ResolvedPlannerLocationContext
 from app.graph.planner.provider_enrichment import has_any_module_output
 from app.graph.planner.suggestion_board import (
+    build_advanced_stay_hotel_workspace,
     build_advanced_stay_hotel_options,
     build_advanced_stay_options,
     build_default_decision_cards,
@@ -142,6 +143,7 @@ def build_conversation_state(
         current=current.stay_planning,
         configuration=next_configuration,
         module_outputs=module_outputs,
+        llm_update=llm_update,
         planning_mode=planning_mode,
         advanced_step=advanced_step,
         advanced_anchor=advanced_anchor,
@@ -741,6 +743,7 @@ def merge_stay_planning_state(
     current: AdvancedStayPlanningState,
     configuration: TripConfiguration,
     module_outputs: TripModuleOutputs,
+    llm_update: TripTurnUpdate,
     planning_mode: PlannerPlanningMode | None,
     advanced_step: PlannerAdvancedStep | None,
     advanced_anchor: PlannerAdvancedAnchor | None,
@@ -807,6 +810,10 @@ def merge_stay_planning_state(
                 stay_planning.hotel_selection_assumptions = []
                 stay_planning.hotel_compatibility_status = "fit"
                 stay_planning.hotel_compatibility_notes = []
+                stay_planning.hotel_filters.max_nightly_rate = None
+                stay_planning.hotel_filters.area_filter = None
+                stay_planning.hotel_filters.style_filter = None
+                stay_planning.hotel_sort_order = "best_fit"
 
     if selected_option is None and stay_planning.selection_status != "needs_review":
         stay_planning.selected_stay_option_id = None
@@ -823,7 +830,23 @@ def merge_stay_planning_state(
         stay_planning.hotel_selection_assumptions = []
         stay_planning.hotel_compatibility_status = "fit"
         stay_planning.hotel_compatibility_notes = []
+        stay_planning.hotel_filters.max_nightly_rate = None
+        stay_planning.hotel_filters.area_filter = None
+        stay_planning.hotel_filters.style_filter = None
+        stay_planning.hotel_sort_order = "best_fit"
+        stay_planning.hotel_results_status = "blocked"
+        stay_planning.hotel_results_summary = None
+        stay_planning.hotel_page = 1
+        stay_planning.hotel_page_size = 6
+        stay_planning.hotel_total_results = 0
+        stay_planning.hotel_total_pages = 1
+        stay_planning.available_hotel_areas = []
+        stay_planning.available_hotel_styles = []
+        stay_planning.selected_hotel_card = None
     elif selected_option is not None:
+        exact_hotel_workspace_ready = bool(
+            configuration.start_date and configuration.end_date
+        )
         stay_planning.selected_stay_option_id = selected_option.id
         stay_planning.selected_stay_direction = selected_option.title
         if stay_planning.selection_status == "none":
@@ -832,28 +855,80 @@ def merge_stay_planning_state(
             stay_planning.selection_rationale = selected_option.summary
         if not stay_planning.selection_assumptions:
             stay_planning.selection_assumptions = list(selected_option.best_for[:4])
-        stay_planning.recommended_hotels = build_advanced_stay_hotel_options(
+        stay_planning.hotel_filters.max_nightly_rate = None
+        stay_planning.hotel_filters.area_filter = None
+        stay_planning.hotel_filters.style_filter = None
+        stay_planning.hotel_sort_order = "best_fit"
+        stay_planning.hotel_page = 1
+
+        all_hotel_cards = build_advanced_stay_hotel_options(
             configuration=configuration,
             selected_stay_option=selected_option,
             hotels=module_outputs.hotels,
         )
-        if stay_planning.recommended_hotels and stay_planning.hotel_substep == "strategy_choice":
+        hotel_workspace = build_advanced_stay_hotel_workspace(
+            configuration=configuration,
+            selected_stay_option=selected_option,
+            hotel_cards=all_hotel_cards,
+            filters=stay_planning.hotel_filters,
+            sort_order=stay_planning.hotel_sort_order,
+            page=stay_planning.hotel_page,
+            selected_hotel_id=stay_planning.selected_hotel_id,
+        )
+        stay_planning.recommended_hotels = hotel_workspace["hotel_cards"]
+        stay_planning.hotel_results_status = hotel_workspace["hotel_results_status"]
+        stay_planning.hotel_results_summary = hotel_workspace["hotel_results_summary"]
+        stay_planning.hotel_page = hotel_workspace["hotel_page"]
+        stay_planning.hotel_page_size = hotel_workspace["hotel_page_size"]
+        stay_planning.hotel_total_results = hotel_workspace["hotel_total_results"]
+        stay_planning.hotel_total_pages = hotel_workspace["hotel_total_pages"]
+        stay_planning.available_hotel_areas = []
+        stay_planning.available_hotel_styles = []
+        stay_planning.selected_hotel_card = hotel_workspace["selected_hotel_card"]
+        if (
+            stay_planning.recommended_hotels
+            or stay_planning.hotel_results_status in {"blocked", "empty"}
+        ) and stay_planning.hotel_substep == "strategy_choice":
             stay_planning.hotel_substep = "hotel_shortlist"
 
-        selected_hotel = next(
-            (
-                hotel
-                for hotel in stay_planning.recommended_hotels
-                if hotel.id == stay_planning.selected_hotel_id
-            ),
-            None,
-        )
-        if action and action.type == "select_stay_hotel" and action.stay_hotel_id:
+        selected_hotel = stay_planning.selected_hotel_card
+        if (
+            exact_hotel_workspace_ready
+            and action
+            and action.type == "select_stay_hotel"
+            and action.stay_hotel_id
+        ):
             selected_hotel = next(
                 (
                     hotel
-                    for hotel in stay_planning.recommended_hotels
+                    for hotel in all_hotel_cards
                     if hotel.id == action.stay_hotel_id
+                ),
+                None,
+            )
+            if selected_hotel is not None:
+                stay_planning.selected_hotel_id = selected_hotel.id
+                stay_planning.selected_hotel_name = selected_hotel.hotel_name
+                stay_planning.hotel_selection_status = "selected"
+                stay_planning.hotel_selection_rationale = selected_hotel.why_it_fits
+                stay_planning.hotel_selection_assumptions = list(
+                    selected_option.best_for[:3]
+                )
+                stay_planning.hotel_compatibility_status = "fit"
+                stay_planning.hotel_compatibility_notes = []
+                stay_planning.hotel_substep = "hotel_selected"
+        elif (
+            exact_hotel_workspace_ready
+            and llm_update.requested_stay_hotel_name
+        ):
+            requested_hotel_name = _normalize_hotel_name(
+                llm_update.requested_stay_hotel_name
+            )
+            selected_hotel = next(
+                (
+                    hotel
+                    for hotel in all_hotel_cards
+                    if _normalize_hotel_name(hotel.hotel_name) == requested_hotel_name
                 ),
                 None,
             )
@@ -875,15 +950,22 @@ def merge_stay_planning_state(
             stay_planning.hotel_selection_status = "none"
             stay_planning.hotel_selection_rationale = None
             stay_planning.hotel_selection_assumptions = []
+            stay_planning.selected_hotel_card = None
             if stay_planning.hotel_compatibility_status not in {"strained", "conflicted"}:
                 stay_planning.hotel_compatibility_status = "fit"
                 stay_planning.hotel_compatibility_notes = []
             stay_planning.hotel_substep = (
-                "hotel_shortlist" if stay_planning.recommended_hotels else "strategy_choice"
+                "hotel_shortlist"
+                if (
+                    stay_planning.recommended_hotels
+                    or stay_planning.hotel_results_status in {"blocked", "empty"}
+                )
+                else "strategy_choice"
             )
         elif selected_hotel is not None:
             stay_planning.selected_hotel_id = selected_hotel.id
             stay_planning.selected_hotel_name = selected_hotel.hotel_name
+            stay_planning.selected_hotel_card = selected_hotel
             if stay_planning.hotel_selection_status == "none":
                 stay_planning.hotel_selection_status = "selected"
             if not stay_planning.hotel_selection_rationale:
@@ -924,10 +1006,10 @@ def merge_stay_planning_state(
         selected_hotel = next(
             (
                 hotel
-                for hotel in stay_planning.recommended_hotels
+                for hotel in all_hotel_cards
                 if hotel.id == stay_planning.selected_hotel_id
             ),
-            None,
+            stay_planning.selected_hotel_card,
         )
         if selected_hotel is not None:
             hotel_compatibility_status, hotel_compatibility_notes = (
@@ -966,6 +1048,10 @@ def merge_stay_planning_state(
             )
 
     return stay_planning
+
+
+def _normalize_hotel_name(value: str) -> str:
+    return " ".join(value.strip().lower().split())
 
 
 def merge_advanced_date_resolution_state(
@@ -1403,6 +1489,28 @@ def _merge_decision_history(
             )
             seen.add(selection_key)
             existing_hotel_selections.add(action.stay_hotel_id)
+    if (
+        llm_update.requested_stay_hotel_name
+        and not action
+    ):
+        hotel_selection_key = _normalize_hotel_name(llm_update.requested_stay_hotel_name)
+        selection_key = ("stay hotel selected", (hotel_selection_key,))
+        if hotel_selection_key not in existing_hotel_selections:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=f"decision_{uuid4().hex[:10]}",
+                    title="Stay hotel selected",
+                    description=(
+                        "The user chose a working hotel inside the selected stay direction in chat."
+                    ),
+                    options=["working_hotel_choice"],
+                    selected_option=hotel_selection_key,
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+            seen.add(selection_key)
+            existing_hotel_selections.add(hotel_selection_key)
     if (
         llm_update.requested_advanced_anchor
         and not action

@@ -31,6 +31,23 @@ export type PlannerStayCompatibilityStatus =
   | "fit"
   | "strained"
   | "conflicted";
+export type PlannerHotelStyleTag =
+  | "calm"
+  | "central"
+  | "design"
+  | "luxury"
+  | "food_access"
+  | "practical"
+  | "traditional"
+  | "nightlife"
+  | "walkable"
+  | "value";
+export type PlannerHotelSortOrder =
+  | "best_fit"
+  | "lowest_price"
+  | "highest_price"
+  | "best_area_fit";
+export type PlannerHotelResultsStatus = "blocked" | "ready" | "empty";
 export type PlannerDateResolutionStatus = "none" | "selected" | "confirmed";
 export type PlannerStayStrategyType = "single_base" | "split_stay";
 export type PlannerStayHotelSubstep =
@@ -104,6 +121,7 @@ export type DestinationSuggestionSelectionStatus =
   | "confirmed";
 export type PlannerChecklistStatus = "known" | "needed";
 export type PlanningModeCardStatus = "available" | "in_development";
+export type AdvancedAnchorCardStatus = "available" | "completed";
 export type TripDetailsBoardActivityStyle =
   | "relaxed"
   | "adventure"
@@ -156,6 +174,7 @@ export type AdvancedAnchorChoiceCard = {
   title: string;
   description: string;
   bullets: string[];
+  status: AdvancedAnchorCardStatus;
   recommended: boolean;
   badge?: string | null;
   cta_label?: string | null;
@@ -217,6 +236,9 @@ export type AdvancedStayHotelOptionCard = {
   summary: string;
   why_it_fits: string;
   tradeoffs: string[];
+  style_tags: PlannerHotelStyleTag[];
+  fit_score: number;
+  outside_active_filters: boolean;
   price_signal?: string | null;
   nightly_rate_amount?: number | null;
   nightly_rate_currency?: string | null;
@@ -227,6 +249,12 @@ export type AdvancedStayHotelOptionCard = {
   check_out?: string | null;
   recommended: boolean;
   cta_label?: string | null;
+};
+
+export type AdvancedStayHotelFilters = {
+  max_nightly_rate?: number | null;
+  area_filter?: string | null;
+  style_filter?: PlannerHotelStyleTag | null;
 };
 
 export type AdvancedStayPlanningState = {
@@ -249,6 +277,17 @@ export type AdvancedStayPlanningState = {
   hotel_selection_assumptions: string[];
   hotel_compatibility_status: PlannerStayCompatibilityStatus;
   hotel_compatibility_notes: string[];
+  hotel_filters?: AdvancedStayHotelFilters;
+  hotel_sort_order?: PlannerHotelSortOrder;
+  hotel_results_status?: PlannerHotelResultsStatus;
+  hotel_results_summary?: string | null;
+  hotel_page?: number;
+  hotel_page_size?: number;
+  hotel_total_results?: number;
+  hotel_total_pages?: number;
+  available_hotel_areas?: string[];
+  available_hotel_styles?: PlannerHotelStyleTag[];
+  selected_hotel_card?: AdvancedStayHotelOptionCard | null;
 };
 
 export type PlannerChecklistItem = {
@@ -309,6 +348,17 @@ export type TripSuggestionBoardState = {
   hotel_selection_assumptions?: string[];
   hotel_compatibility_status?: PlannerStayCompatibilityStatus | null;
   hotel_compatibility_notes?: string[];
+  hotel_filters?: AdvancedStayHotelFilters;
+  hotel_sort_order?: PlannerHotelSortOrder;
+  hotel_results_status?: PlannerHotelResultsStatus | null;
+  hotel_results_summary?: string | null;
+  hotel_page?: number;
+  hotel_page_size?: number;
+  hotel_total_results?: number;
+  hotel_total_pages?: number;
+  available_hotel_areas?: string[];
+  available_hotel_styles?: PlannerHotelStyleTag[];
+  selected_hotel_card?: AdvancedStayHotelOptionCard | null;
   have_details: PlannerChecklistItem[];
   need_details: PlannerChecklistItem[];
   visible_steps: TripDetailsStepKey[];

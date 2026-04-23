@@ -102,6 +102,8 @@ Rules:
 - Do not leave all modules active by default when the user clearly narrowed the scope.
 - If the user is already in Advanced Planning and says something like "stay first", "start with hotels", "let's do flights first", or "activities first", set requested_advanced_anchor to the matching anchor.
 - If the user says something like "stay first, flights later", treat that as sequencing guidance. Prefer requested_advanced_anchor over turning flights off unless the user clearly said flights are out of scope.
+- If the user is already looking at hotel recommendations inside a selected stay direction and clearly names one of those hotels as the one they want to proceed with, set requested_stay_hotel_name to that hotel name.
+- Only set requested_stay_hotel_name when the choice is clear from the latest turn. Do not guess between several hotel names.
 - Use activity_styles for recognized preset trip directions like food, culture, relaxed, luxury, romantic, family, adventure, outdoors, or nightlife.
 - If the user describes a style or vibe that matters but does not fit cleanly into those preset labels, preserve that nuance in custom_style instead of dropping it.
 - Keep open_question_updates short, useful, and structured.
@@ -164,6 +166,8 @@ Ambiguity examples:
   Good result: keep both destinations alive in mentioned_options instead of forcing one place into to_location.
 - User: "Stay first, flights later."
   Good result: keep requested_advanced_anchor on stay instead of acting like flights must either happen now or disappear entirely.
+- User: "Let's go with Cross Hotel Kyoto."
+  Good result: if that hotel is one of the visible stay recommendations, set requested_stay_hotel_name to Cross Hotel Kyoto.
 
 Allowed field keys:
 ["from_location", "from_location_flexible", "to_location", "start_date", "end_date", "travel_window", "trip_length", "weather_preference", "budget_posture", "budget_gbp", "adults", "children", "travelers_flexible", "activity_styles", "custom_style", "selected_modules"]

@@ -1,3 +1,5 @@
+from pydantic import BaseModel, Field
+
 from app.graph.planner.details_collection import (
     build_details_checklist_sections,
     get_required_steps,
@@ -11,12 +13,17 @@ from app.graph.planner.turn_models import (
     DestinationSuggestionCandidate,
     TripTurnUpdate,
 )
+from app.integrations.llm.client import create_chat_model
 from app.schemas.conversation import ConversationBoardAction
 from app.schemas.trip_conversation import (
     AdvancedStayOptionCard,
     AdvancedStayHotelOptionCard,
+    AdvancedStayHotelFilters,
     AdvancedAnchorChoiceCard,
     DestinationSuggestionCard,
+    PlannerHotelResultsStatus,
+    PlannerHotelSortOrder,
+    PlannerHotelStyleTag,
     PlannerAdvancedAnchor,
     PlannerChecklistItem,
     PlanningModeChoiceCard,
@@ -30,6 +37,18 @@ from app.schemas.trip_planning import HotelStayDetail, TripConfiguration
 
 
 OWN_CHOICE_PROMPT = "Tell me the destination you already have in mind."
+HOTEL_WORKSPACE_PAGE_SIZE = 6
+
+
+class _HotelCopyCandidate(BaseModel):
+    id: str = Field(..., min_length=1, max_length=120)
+    summary: str = Field(..., min_length=1, max_length=240)
+    why_it_fits: str = Field(..., min_length=1, max_length=220)
+    tradeoffs: list[str] = Field(default_factory=list, max_length=3)
+
+
+class _HotelCopyBundle(BaseModel):
+    cards: list[_HotelCopyCandidate] = Field(default_factory=list, max_length=12)
 
 
 def build_suggestion_board_state(
@@ -76,7 +95,10 @@ def build_suggestion_board_state(
         and advanced_step == "choose_anchor"
         and brief_confirmed
     ):
-        return _build_advanced_anchor_choice_state(configuration=configuration)
+        return _build_advanced_anchor_choice_state(
+            configuration=configuration,
+            current=current,
+        )
 
     if (
         current.planning_mode == "advanced"
@@ -368,9 +390,14 @@ def _build_advanced_date_resolution_state(
 def _build_advanced_anchor_choice_state(
     *,
     configuration: TripConfiguration,
+    current: TripConversationState,
 ) -> TripSuggestionBoardState:
     destination = configuration.to_location or "this trip"
-    recommended_anchor = _recommend_advanced_anchor(configuration=configuration)
+    completed_anchors = _resolve_completed_advanced_anchors(current=current)
+    recommended_anchor = _recommend_advanced_anchor(
+        configuration=configuration,
+        completed_anchors=completed_anchors,
+    )
     return TripSuggestionBoardState(
         mode="advanced_anchor_choice",
         title="Choose what should lead the trip first",
@@ -378,7 +405,10 @@ def _build_advanced_anchor_choice_state(
             f"The brief for {destination} is strong enough now. "
             "Pick the first Advanced Planning anchor. Wandrix recommends one starting point, but you can choose any of the four."
         ),
-        advanced_anchor_cards=_build_advanced_anchor_cards(recommended_anchor),
+        advanced_anchor_cards=_build_advanced_anchor_cards(
+            recommended_anchor,
+            completed_anchors=completed_anchors,
+        ),
         own_choice_prompt=None,
     )
 
@@ -563,52 +593,93 @@ def build_advanced_stay_hotel_options(
     if not hotels:
         return []
 
-    ranked_hotels = sorted(
-        hotels,
-        key=lambda hotel: (
-            -_hotel_fit_score(
-                hotel=hotel,
-                selected_stay_option=selected_stay_option,
-            ),
-            hotel.nightly_rate_amount is None,
-            hotel.nightly_rate_amount or float("inf"),
-            hotel.hotel_name.lower(),
+    hotel_contexts: list[dict] = []
+    for hotel in hotels:
+        area_label = _normalize_hotel_area_label(hotel)
+        style_tags = _derive_hotel_style_tags(
+            hotel=hotel,
+            area_label=area_label,
+            selected_stay_option=selected_stay_option,
+        )
+        hotel_contexts.append(
+            {
+                "hotel": hotel,
+                "area_label": area_label,
+                "style_tags": style_tags,
+                "fit_score": _hotel_fit_score(
+                    hotel=hotel,
+                    selected_stay_option=selected_stay_option,
+                ),
+            }
+        )
+
+    ranked_contexts = sorted(
+        hotel_contexts,
+        key=lambda item: (
+            -item["fit_score"],
+            item["hotel"].nightly_rate_amount
+            if item["hotel"].nightly_rate_amount is not None
+            else 10_000,
+            item["hotel"].hotel_name.lower(),
         ),
     )
 
-    shortlist = ranked_hotels[:4]
-    top_score = _hotel_fit_score(
-        hotel=shortlist[0],
+    llm_copy_by_id = _generate_hotel_card_copy(
+        configuration=configuration,
         selected_stay_option=selected_stay_option,
+        hotel_contexts=ranked_contexts[:4],
     )
+    missing_visible_contexts = [
+        context
+        for context in ranked_contexts[:4]
+        if context["hotel"].id not in llm_copy_by_id
+    ]
+    for context in missing_visible_contexts:
+        retry_copy = _generate_single_hotel_card_copy(
+            configuration=configuration,
+            selected_stay_option=selected_stay_option,
+            hotel_context=context,
+        )
+        if retry_copy:
+            llm_copy_by_id[retry_copy.id] = retry_copy
 
     cards: list[AdvancedStayHotelOptionCard] = []
-    for index, hotel in enumerate(shortlist):
-        score = _hotel_fit_score(
-            hotel=hotel,
-            selected_stay_option=selected_stay_option,
-        )
+    for context in hotel_contexts:
+        hotel = context["hotel"]
+        area_label = context["area_label"]
+        style_tags = context["style_tags"]
+        score = context["fit_score"]
+        llm_copy = llm_copy_by_id.get(hotel.id)
         cards.append(
             AdvancedStayHotelOptionCard(
                 id=hotel.id,
                 hotel_name=hotel.hotel_name,
-                area=hotel.area,
+                area=area_label or _fallback_stay_area_label(selected_stay_option),
                 image_url=hotel.image_url,
                 address=hotel.address,
                 source_url=hotel.source_url,
                 source_label=hotel.source_label,
-                summary=_build_hotel_summary(
+                summary=llm_copy.summary
+                if llm_copy
+                else _build_hotel_summary(
                     hotel=hotel,
                     selected_stay_option=selected_stay_option,
                 ),
-                why_it_fits=_build_hotel_fit_reason(
+                why_it_fits=llm_copy.why_it_fits
+                if llm_copy
+                else _build_hotel_fit_reason(
                     hotel=hotel,
                     selected_stay_option=selected_stay_option,
                 ),
-                tradeoffs=_build_hotel_tradeoffs(
+                tradeoffs=llm_copy.tradeoffs
+                if llm_copy and llm_copy.tradeoffs
+                else _build_hotel_tradeoffs(
                     hotel=hotel,
                     selected_stay_option=selected_stay_option,
+                    style_tags=style_tags,
                 ),
+                style_tags=style_tags,
+                fit_score=min(score * 10, 100),
                 price_signal=_infer_hotel_price_signal(
                     hotel,
                     configuration=configuration,
@@ -620,18 +691,106 @@ def build_advanced_stay_hotel_options(
                 rate_note=_build_hotel_rate_note(hotel),
                 check_in=hotel.check_in,
                 check_out=hotel.check_out,
-                recommended=index == 0 and score >= top_score,
+                recommended=False,
                 cta_label="Use this hotel",
             )
         )
 
-    return cards
+    return _sort_hotel_cards(cards, "best_fit")
+
+
+def build_advanced_stay_hotel_workspace(
+    *,
+    configuration: TripConfiguration,
+    selected_stay_option: AdvancedStayOptionCard,
+    hotel_cards: list[AdvancedStayHotelOptionCard],
+    filters: AdvancedStayHotelFilters,
+    sort_order: PlannerHotelSortOrder,
+    page: int,
+    selected_hotel_id: str | None,
+) -> dict:
+    exact_dates_ready = bool(configuration.start_date and configuration.end_date)
+    available_areas = _collect_available_hotel_areas(hotel_cards)
+    available_styles = _collect_available_hotel_styles(hotel_cards)
+    page_size = 4
+    selected_card = next(
+        (card for card in hotel_cards if card.id == selected_hotel_id),
+        None,
+    )
+    sorted_cards = _sort_hotel_cards(hotel_cards, "best_fit")
+    curated_cards = sorted_cards[:4]
+    recommended_card_id = curated_cards[0].id if curated_cards else None
+
+    if not exact_dates_ready:
+        visible_cards = [
+            card.model_copy(
+                update={
+                    "recommended": card.id == recommended_card_id,
+                    "outside_active_filters": False,
+                }
+            )
+            for card in curated_cards
+        ]
+        return {
+            "hotel_cards": visible_cards,
+            "hotel_results_status": "blocked",
+            "hotel_results_summary": (
+                "Hotel fit can still be discussed, but exact hotel comparison needs fixed dates first."
+            ),
+            "hotel_page": 1,
+            "hotel_page_size": page_size,
+            "hotel_total_results": len(visible_cards),
+            "hotel_total_pages": 1,
+            "available_hotel_areas": available_areas,
+            "available_hotel_styles": available_styles,
+            "selected_hotel_card": selected_card,
+        }
+
+    visible_cards = [
+        card.model_copy(
+            update={
+                "recommended": card.id == recommended_card_id,
+                "outside_active_filters": False,
+            }
+        )
+        for card in curated_cards
+    ]
+    visible_count = len(visible_cards)
+    if visible_count == 0 and not selected_card:
+        summary = (
+            "I couldn't shape a strong hotel set inside this stay direction yet."
+        )
+        results_status: PlannerHotelResultsStatus = "empty"
+    else:
+        count_phrase = (
+            f"Here are {visible_count} hotel recommendations"
+            if visible_count
+            else "The selected hotel is still saved"
+        )
+        summary = f"{count_phrase} inside {selected_stay_option.title.lower()}."
+        results_status = "ready"
+
+    return {
+        "hotel_cards": visible_cards,
+        "hotel_results_status": results_status,
+        "hotel_results_summary": summary,
+        "hotel_page": 1,
+        "hotel_page_size": page_size,
+        "hotel_total_results": len(visible_cards),
+        "hotel_total_pages": 1,
+        "available_hotel_areas": available_areas,
+        "available_hotel_styles": available_styles,
+        "selected_hotel_card": selected_card,
+    }
 
 
 def _build_advanced_anchor_cards(
     recommended_anchor: PlannerAdvancedAnchor,
+    *,
+    completed_anchors: set[PlannerAdvancedAnchor] | None = None,
 ) -> list[AdvancedAnchorChoiceCard]:
-    return [
+    completed_anchors = completed_anchors or set()
+    cards = [
         AdvancedAnchorChoiceCard(
             id="flight",
             title="Flight",
@@ -641,9 +800,14 @@ def _build_advanced_anchor_cards(
                 "Useful when departure certainty matters most",
                 "Helps shape arrival and departure day pacing early",
             ],
-            recommended=recommended_anchor == "flight",
-            badge="Recommended" if recommended_anchor == "flight" else None,
-            cta_label="Start with flights",
+            status="completed" if "flight" in completed_anchors else "available",
+            recommended="flight" not in completed_anchors and recommended_anchor == "flight",
+            badge="Completed"
+            if "flight" in completed_anchors
+            else "Recommended"
+            if recommended_anchor == "flight"
+            else None,
+            cta_label="Completed" if "flight" in completed_anchors else "Start with flights",
         ),
         AdvancedAnchorChoiceCard(
             id="stay",
@@ -654,9 +818,14 @@ def _build_advanced_anchor_cards(
                 "Useful for city breaks and walkability tradeoffs",
                 "Helps later activity ranking feel more coherent",
             ],
-            recommended=recommended_anchor == "stay",
-            badge="Recommended" if recommended_anchor == "stay" else None,
-            cta_label="Start with stay",
+            status="completed" if "stay" in completed_anchors else "available",
+            recommended="stay" not in completed_anchors and recommended_anchor == "stay",
+            badge="Completed"
+            if "stay" in completed_anchors
+            else "Recommended"
+            if recommended_anchor == "stay"
+            else None,
+            cta_label="Completed" if "stay" in completed_anchors else "Start with stay",
         ),
         AdvancedAnchorChoiceCard(
             id="trip_style",
@@ -667,9 +836,19 @@ def _build_advanced_anchor_cards(
                 "Useful for slower vs packed pacing decisions",
                 "Influences both stay fit and activity ranking",
             ],
-            recommended=recommended_anchor == "trip_style",
-            badge="Recommended" if recommended_anchor == "trip_style" else None,
-            cta_label="Start with trip style",
+            status="completed"
+            if "trip_style" in completed_anchors
+            else "available",
+            recommended="trip_style" not in completed_anchors
+            and recommended_anchor == "trip_style",
+            badge="Completed"
+            if "trip_style" in completed_anchors
+            else "Recommended"
+            if recommended_anchor == "trip_style"
+            else None,
+            cta_label="Completed"
+            if "trip_style" in completed_anchors
+            else "Start with trip style",
         ),
         AdvancedAnchorChoiceCard(
             id="activities",
@@ -680,17 +859,32 @@ def _build_advanced_anchor_cards(
                 "Useful for events, museum-heavy trips, or food-led routes",
                 "Lets the itinerary cluster around real anchors first",
             ],
-            recommended=recommended_anchor == "activities",
-            badge="Recommended" if recommended_anchor == "activities" else None,
-            cta_label="Start with activities",
+            status="completed"
+            if "activities" in completed_anchors
+            else "available",
+            recommended="activities" not in completed_anchors
+            and recommended_anchor == "activities",
+            badge="Completed"
+            if "activities" in completed_anchors
+            else "Recommended"
+            if recommended_anchor == "activities"
+            else None,
+            cta_label="Completed"
+            if "activities" in completed_anchors
+            else "Start with activities",
         ),
     ]
+    available_cards = [card for card in cards if card.status == "available"]
+    completed_cards = [card for card in cards if card.status == "completed"]
+    return [*available_cards, *completed_cards]
 
 
 def _recommend_advanced_anchor(
     *,
     configuration: TripConfiguration,
+    completed_anchors: set[PlannerAdvancedAnchor] | None = None,
 ) -> PlannerAdvancedAnchor:
+    completed_anchors = completed_anchors or set()
     active_modules = [
         name
         for name, enabled in configuration.selected_modules.model_dump(mode="json").items()
@@ -706,19 +900,36 @@ def _recommend_advanced_anchor(
     flights_active = "flights" in active_modules
     activities_active = "activities" in active_modules
 
+    ranked_candidates: list[PlannerAdvancedAnchor] = []
     if activities_active and configuration.activity_styles:
-        return "activities"
+        ranked_candidates.append("activities")
     if activities_active and configuration.custom_style:
-        return "trip_style"
+        ranked_candidates.append("trip_style")
     if flights_active and not route_is_explicitly_flexible and (route_is_soft or has_short_trip_signal):
-        return "flight"
+        ranked_candidates.append("flight")
     if hotels_active and not flights_active:
-        return "stay"
+        ranked_candidates.append("stay")
     if hotels_active and not activities_active:
-        return "stay"
+        ranked_candidates.append("stay")
     if activities_active:
-        return "trip_style"
-    return "stay"
+        ranked_candidates.append("trip_style")
+    ranked_candidates.extend(["stay", "activities", "trip_style", "flight"])
+
+    for candidate in ranked_candidates:
+        if candidate not in completed_anchors:
+            return candidate
+    return "activities"
+
+
+def _resolve_completed_advanced_anchors(
+    *,
+    current: TripConversationState,
+) -> set[PlannerAdvancedAnchor]:
+    completed: set[PlannerAdvancedAnchor] = set()
+    stay_planning = current.stay_planning
+    if stay_planning.selected_hotel_id:
+        completed.add("stay")
+    return completed
 
 
 def _build_advanced_stay_board_state(
@@ -740,7 +951,7 @@ def _build_advanced_stay_board_state(
 
     common_fields = {
         "stay_cards": stay_cards,
-        "hotel_cards": stay_planning.recommended_hotels[:4],
+        "hotel_cards": stay_planning.recommended_hotels[:8],
         "selected_stay_option_id": stay_planning.selected_stay_option_id,
         "stay_selection_status": stay_planning.selection_status,
         "stay_selection_rationale": stay_planning.selection_rationale,
@@ -754,6 +965,17 @@ def _build_advanced_stay_board_state(
         "hotel_selection_assumptions": stay_planning.hotel_selection_assumptions,
         "hotel_compatibility_status": stay_planning.hotel_compatibility_status,
         "hotel_compatibility_notes": stay_planning.hotel_compatibility_notes,
+        "hotel_filters": stay_planning.hotel_filters,
+        "hotel_sort_order": stay_planning.hotel_sort_order,
+        "hotel_results_status": stay_planning.hotel_results_status,
+        "hotel_results_summary": stay_planning.hotel_results_summary,
+        "hotel_page": stay_planning.hotel_page,
+        "hotel_page_size": stay_planning.hotel_page_size,
+        "hotel_total_results": stay_planning.hotel_total_results,
+        "hotel_total_pages": stay_planning.hotel_total_pages,
+        "available_hotel_areas": stay_planning.available_hotel_areas,
+        "available_hotel_styles": stay_planning.available_hotel_styles,
+        "selected_hotel_card": stay_planning.selected_hotel_card,
     }
 
     if stay_planning.selection_status == "needs_review" or stay_planning.compatibility_status in {
@@ -796,24 +1018,39 @@ def _build_advanced_stay_board_state(
             )
 
         if stay_planning.selected_hotel_id:
+            completed_anchors = {"stay"}
+            recommended_anchor = _recommend_advanced_anchor(
+                configuration=configuration,
+                completed_anchors=completed_anchors,
+            )
             return TripSuggestionBoardState(
-                mode="advanced_stay_hotel_selected",
-                title=f"{selected_card.title} is set, and the hotel is now selected",
+                mode="advanced_anchor_choice",
+                title="What should we plan next?",
                 subtitle=(
-                    f"Wandrix is building around {selected_card.title.lower()} with a working hotel choice inside that stay direction. "
-                    "It still stays revisable if later activities, flights, or trip structure make it weaker."
+                    f"{stay_planning.selected_hotel_name or 'The hotel'} is now the working hotel inside {selected_card.title.lower()}. "
+                    "Stay is in place, so pick the next planning anchor and I'll keep building from there."
+                ),
+                advanced_anchor_cards=_build_advanced_anchor_cards(
+                    recommended_anchor,
+                    completed_anchors=completed_anchors,
                 ),
                 own_choice_prompt=None,
-                **common_fields,
             )
 
-        if stay_planning.recommended_hotels:
+        if stay_planning.recommended_hotels or stay_planning.hotel_results_status in {"blocked", "empty"}:
+            workspace_subtitle = (
+                "Hotel fit can still be discussed here, but exact hotel comparison needs fixed dates first."
+                if stay_planning.hotel_results_status == "blocked"
+                else (
+                    stay_planning.hotel_results_summary
+                    or "Use the workspace to narrow the live hotel shortlist inside this stay direction."
+                )
+            )
             return TripSuggestionBoardState(
                 mode="advanced_stay_hotel_choice",
-                title=f"Choose the hotel inside {selected_card.title.lower()}",
+                title=f"Hotel options inside {selected_card.title.lower()}",
                 subtitle=(
-                    f"The stay direction is set for {destination}. "
-                    "Now choose the hotel that best fits that base. These are working hotel options, not booked stays."
+                    f"{workspace_subtitle} These are working hotel options, not booked stays."
                 ),
                 own_choice_prompt=None,
                 **common_fields,
@@ -922,6 +1159,391 @@ def _hotel_fit_score(
     return score
 
 
+def _derive_hotel_style_tags(
+    *,
+    hotel: HotelStayDetail,
+    area_label: str | None,
+    selected_stay_option: AdvancedStayOptionCard,
+) -> list[PlannerHotelStyleTag]:
+    haystack = " ".join(
+        [
+            hotel.hotel_name,
+            area_label or "",
+            hotel.area or "",
+            hotel.address or "",
+            *hotel.notes,
+        ]
+    ).lower()
+    tags: list[PlannerHotelStyleTag] = []
+
+    def add(tag: PlannerHotelStyleTag) -> None:
+        if tag not in tags:
+            tags.append(tag)
+
+    if any(
+        keyword in haystack
+        for keyword in [
+            "quiet",
+            "calm",
+            "residential",
+            "peaceful",
+            "higashiyama",
+            "retreat",
+            "garden",
+            "temple",
+            "tou",
+        ]
+    ):
+        add("calm")
+    if any(
+        keyword in haystack
+        for keyword in [
+            "central",
+            "center",
+            "downtown",
+            "old town",
+            "nakagyo",
+            "kawaramachi",
+            "sanjo",
+            "cross hotel",
+        ]
+    ):
+        add("central")
+    if any(
+        keyword in haystack
+        for keyword in [
+            "design",
+            "boutique",
+            "stylish",
+            "minimal",
+            "ace hotel",
+            "atelier",
+            "gallery",
+        ]
+    ):
+        add("design")
+    if any(
+        keyword in haystack
+        for keyword in [
+            "luxury",
+            "five-star",
+            "five star",
+            "hyatt",
+            "ritz",
+            "regency",
+            "four seasons",
+        ]
+    ):
+        add("luxury")
+    if any(
+        keyword in haystack
+        for keyword in [
+            "food",
+            "market",
+            "restaurant",
+            "gion",
+            "pontocho",
+            "nishiki",
+            "kawaramachi",
+            "sanjo",
+        ]
+    ):
+        add("food_access")
+    if any(
+        keyword in haystack
+        for keyword in [
+            "station",
+            "practical",
+            "connected",
+            "access",
+            "hub",
+            "shimogyo",
+            "transit",
+            "business",
+            "airport",
+        ]
+    ):
+        add("practical")
+    if any(
+        keyword in haystack
+        for keyword in [
+            "machiya",
+            "traditional",
+            "ryokan",
+            "heritage",
+            "historic",
+            "higashiyama",
+            "gion",
+        ]
+    ):
+        add("traditional")
+    if any(
+        keyword in haystack
+        for keyword in [
+            "nightlife",
+            "late-night",
+            "late night",
+            "bar",
+            "cocktail",
+            "pontocho",
+            "kawaramachi",
+            "gion",
+        ]
+    ):
+        add("nightlife")
+    if any(
+        keyword in haystack
+        for keyword in [
+            "walkable",
+            "walk",
+            "steps from",
+            "short walk",
+            "central",
+            "sanjo",
+            "downtown",
+        ]
+    ):
+        add("walkable")
+    if any(
+        keyword in haystack
+        for keyword in [
+            "value",
+            "affordable",
+            "budget",
+            "deal",
+            "smart value",
+        ]
+    ):
+        add("value")
+    if hotel.nightly_rate_amount is not None and hotel.nightly_rate_amount < 160:
+        add("value")
+
+    strategy_to_default_tag: dict[str, PlannerHotelStyleTag] = {
+        "stay_food_forward": "food_access",
+        "stay_quiet_local": "calm",
+        "stay_central_base": "central",
+        "stay_connected_hub": "practical",
+    }
+    default_tag = strategy_to_default_tag.get(selected_stay_option.id)
+    if default_tag:
+        add(default_tag)
+
+    return tags[:5]
+
+
+def _normalize_hotel_area_label(hotel: HotelStayDetail) -> str | None:
+    for candidate in [hotel.area, hotel.address]:
+        normalized = _extract_ward_label(candidate)
+        if normalized:
+            return normalized
+
+    for candidate in [hotel.area, hotel.address]:
+        district = _extract_known_district_label(candidate)
+        if district:
+            return district
+
+    if hotel.area and "prefecture" not in hotel.area.lower():
+        return hotel.area
+
+    return hotel.area or _extract_area_from_notes(hotel.notes)
+
+
+def _extract_ward_label(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    normalized = " ".join(value.replace("/", " ").split())
+    for chunk in [part.strip() for part in normalized.split(",")]:
+        lower = chunk.lower()
+        if lower.endswith("-ku") or " ward" in lower:
+            return chunk
+    return None
+
+
+def _extract_area_from_notes(notes: list[str]) -> str | None:
+    for note in notes:
+        if note.lower().startswith("area fit:"):
+            return note.split(":", 1)[1].strip().title()
+    return None
+
+
+def _extract_known_district_label(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    district_map = {
+        "gion": "Gion",
+        "pontocho": "Pontocho",
+        "nakagyo": "Nakagyo-ku",
+        "shimogyo": "Shimogyo-ku",
+        "higashiyama": "Higashiyama-ku",
+        "karasuma": "Karasuma",
+        "kawaramachi": "Kawaramachi",
+        "kyoto station": "Kyoto Station",
+        "kiyomizu": "Kiyomizu / Higashiyama",
+        "arashiyama": "Arashiyama",
+    }
+
+    lower_value = value.lower()
+    for needle, label in district_map.items():
+        if needle in lower_value:
+            return label
+    return None
+
+
+def _fallback_stay_area_label(selected_stay_option: AdvancedStayOptionCard) -> str | None:
+    return (
+        selected_stay_option.area_label
+        or (selected_stay_option.areas[0] if selected_stay_option.areas else None)
+    )
+
+
+def _collect_available_hotel_areas(
+    hotel_cards: list[AdvancedStayHotelOptionCard],
+) -> list[str]:
+    counts: dict[str, int] = {}
+    labels: dict[str, str] = {}
+    for card in hotel_cards:
+        area = (card.area or "").strip()
+        normalized = area.lower()
+        if not area:
+            continue
+        counts[normalized] = counts.get(normalized, 0) + 1
+        labels.setdefault(normalized, area)
+    return [
+        labels[key]
+        for key in sorted(
+            counts.keys(),
+            key=lambda key: (-counts[key], labels[key].lower()),
+        )
+    ][:16]
+
+
+def _collect_available_hotel_styles(
+    hotel_cards: list[AdvancedStayHotelOptionCard],
+) -> list[PlannerHotelStyleTag]:
+    counts: dict[PlannerHotelStyleTag, int] = {}
+    for card in hotel_cards:
+        for tag in card.style_tags:
+            counts[tag] = counts.get(tag, 0) + 1
+    preferred_order: list[PlannerHotelStyleTag] = [
+        "central",
+        "walkable",
+        "food_access",
+        "calm",
+        "practical",
+        "traditional",
+        "design",
+        "nightlife",
+        "value",
+        "luxury",
+    ]
+    return [
+        tag
+        for tag in sorted(
+            counts.keys(),
+            key=lambda tag: (
+                -counts[tag],
+                preferred_order.index(tag) if tag in preferred_order else len(preferred_order),
+            ),
+        )
+    ][:10]
+
+
+def _hotel_card_matches_filters(
+    card: AdvancedStayHotelOptionCard,
+    filters: AdvancedStayHotelFilters,
+) -> bool:
+    if (
+        filters.max_nightly_rate is not None
+        and card.nightly_rate_amount is not None
+        and card.nightly_rate_amount > filters.max_nightly_rate
+    ):
+        return False
+
+    if filters.area_filter and (card.area or "").strip().lower() != filters.area_filter.strip().lower():
+        return False
+
+    if filters.style_filter and filters.style_filter not in card.style_tags:
+        return False
+
+    return True
+
+
+def _sort_hotel_cards(
+    hotel_cards: list[AdvancedStayHotelOptionCard],
+    sort_order: PlannerHotelSortOrder,
+) -> list[AdvancedStayHotelOptionCard]:
+    def price_key(card: AdvancedStayHotelOptionCard) -> float:
+        return card.nightly_rate_amount if card.nightly_rate_amount is not None else float("inf")
+
+    if sort_order == "lowest_price":
+        return sorted(
+            hotel_cards,
+            key=lambda card: (
+                card.nightly_rate_amount is None,
+                price_key(card),
+                -card.fit_score,
+                card.hotel_name.lower(),
+            ),
+        )
+
+    if sort_order == "highest_price":
+        return sorted(
+            hotel_cards,
+            key=lambda card: (
+                card.nightly_rate_amount is None,
+                -(card.nightly_rate_amount or -1),
+                -card.fit_score,
+                card.hotel_name.lower(),
+            ),
+        )
+
+    if sort_order == "best_area_fit":
+        return sorted(
+            hotel_cards,
+            key=lambda card: (
+                -card.fit_score,
+                card.area is None,
+                price_key(card),
+                card.hotel_name.lower(),
+            ),
+        )
+
+    return sorted(
+        hotel_cards,
+        key=lambda card: (
+            -card.fit_score,
+            card.nightly_rate_amount is None,
+            price_key(card),
+            card.hotel_name.lower(),
+        ),
+    )
+
+
+def _build_hotel_filter_summary(
+    *,
+    filters: AdvancedStayHotelFilters,
+    sort_order: PlannerHotelSortOrder,
+) -> str:
+    parts: list[str] = []
+    if filters.max_nightly_rate is not None:
+        parts.append(f"nightly rates at or below {_format_hotel_amount(filters.max_nightly_rate, 'GBP')}")
+    if filters.area_filter:
+        parts.append(filters.area_filter)
+    if filters.style_filter:
+        parts.append(filters.style_filter.replace("_", " "))
+
+    sort_label = {
+        "best_fit": "best fit",
+        "lowest_price": "lowest price",
+        "highest_price": "highest price",
+        "best_area_fit": "best area fit",
+    }[sort_order]
+    parts.append(f"sorted by {sort_label}")
+    return ", ".join(parts)
+
+
 def _keyword_score(haystack: str, keywords: list[str]) -> int:
     return sum(2 if keyword in haystack else 0 for keyword in keywords)
 
@@ -956,19 +1578,178 @@ def _build_hotel_fit_reason(
     return f"It fits because {area} looks more practical for moving around the trip without overcommitting to one atmospheric pocket too early."
 
 
+def _generate_hotel_card_copy(
+    *,
+    configuration: TripConfiguration,
+    selected_stay_option: AdvancedStayOptionCard,
+    hotel_contexts: list[dict],
+) -> dict[str, _HotelCopyCandidate]:
+    if not hotel_contexts:
+        return {}
+
+    hotel_payload = []
+    for context in hotel_contexts[:8]:
+        hotel: HotelStayDetail = context["hotel"]
+        hotel_payload.append(
+            {
+                "id": hotel.id,
+                "hotel_name": hotel.hotel_name,
+                "area": context["area_label"] or _fallback_stay_area_label(selected_stay_option),
+                "style_tags": context["style_tags"],
+                "nightly_rate_amount": hotel.nightly_rate_amount,
+                "nightly_rate_currency": hotel.nightly_rate_currency,
+                "notes": hotel.notes[:4],
+                "fit_score": context["fit_score"],
+            }
+        )
+
+    prompt = f"""
+You are writing Wandrix hotel recommendation copy for the live trip board.
+
+Write copy for each hotel so it feels specific, human, and useful.
+
+Rules:
+- Be concise and concrete.
+- Do not repeat the same sentence structure across every hotel.
+- Make the wording feel tailored to the hotel and the selected stay direction.
+- Avoid generic planner language like "aligned with the stay strategy" or "working choice."
+- `summary` should be one short sentence about what kind of stay this hotel gives.
+- `why_it_fits` should be one short sentence explaining why it fits this trip direction specifically.
+- `tradeoffs` should be 1 to 3 short hotel-specific tradeoffs, not copied stay-strategy warnings.
+- Do not mention booking mechanics.
+- Do not mention Wandrix.
+- Keep all output factual enough for a planning board; do not invent amenities you were not given.
+- Mention price only when it clearly changes the tradeoff.
+
+Destination: {configuration.to_location or "this trip"}
+Stay direction:
+{selected_stay_option.model_dump(mode="json")}
+
+Hotels:
+{hotel_payload}
+""".strip()
+
+    try:
+        model = create_chat_model(temperature=0.3)
+        structured_model = model.with_structured_output(
+            _HotelCopyBundle,
+            method="json_schema",
+        )
+        result = structured_model.invoke(
+            [
+                ("system", "Write specific structured hotel-card copy for Wandrix."),
+                ("human", prompt),
+            ]
+        )
+        return {item.id: item for item in result.cards}
+    except Exception:
+        return {}
+
+
+def _generate_single_hotel_card_copy(
+    *,
+    configuration: TripConfiguration,
+    selected_stay_option: AdvancedStayOptionCard,
+    hotel_context: dict,
+) -> _HotelCopyCandidate | None:
+    hotel: HotelStayDetail = hotel_context["hotel"]
+    prompt = f"""
+Write hotel card copy for one Wandrix hotel recommendation.
+
+Rules:
+- Be specific and concise.
+- Avoid generic planner phrasing.
+- `summary` should describe the kind of stay this hotel gives.
+- `why_it_fits` should explain why it fits this stay direction.
+- `tradeoffs` should be 1 to 3 hotel-specific tradeoffs.
+- Do not mention booking mechanics.
+- Do not mention Wandrix.
+
+Destination: {configuration.to_location or "this trip"}
+Stay direction:
+{selected_stay_option.model_dump(mode="json")}
+
+Hotel:
+{{
+  "id": "{hotel.id}",
+  "hotel_name": "{hotel.hotel_name}",
+  "area": "{hotel_context['area_label'] or _fallback_stay_area_label(selected_stay_option)}",
+  "style_tags": {hotel_context["style_tags"]},
+  "nightly_rate_amount": {hotel.nightly_rate_amount},
+  "nightly_rate_currency": "{hotel.nightly_rate_currency}",
+  "notes": {hotel.notes[:4]},
+  "fit_score": {hotel_context["fit_score"]}
+}}
+""".strip()
+
+    try:
+        model = create_chat_model(temperature=0.3)
+        structured_model = model.with_structured_output(
+            _HotelCopyCandidate,
+            method="json_schema",
+        )
+        return structured_model.invoke(
+            [
+                ("system", "Write one specific structured hotel-card copy block for Wandrix."),
+                ("human", prompt),
+            ]
+        )
+    except Exception:
+        return None
+
+
 def _build_hotel_tradeoffs(
     *,
     hotel: HotelStayDetail,
     selected_stay_option: AdvancedStayOptionCard,
+    style_tags: list[PlannerHotelStyleTag] | None = None,
 ) -> list[str]:
-    tradeoffs = list(selected_stay_option.tradeoffs[:2])
-    if hotel.area:
-        tradeoffs.append(f"Area context: {hotel.area}")
+    tradeoffs: list[str] = []
+    style_tags_set = set(style_tags or [])
+
+    if selected_stay_option.id == "stay_quiet_local":
+        if "central" in style_tags_set or "nightlife" in style_tags_set:
+            tradeoffs.append("This base may feel busier than the quieter stay direction suggests.")
+        elif "practical" in style_tags_set:
+            tradeoffs.append("The feel may land more functional than atmospheric.")
+        elif "luxury" in style_tags_set:
+            tradeoffs.append("Comfort is stronger here, but it softens the simpler local feel.")
+    elif selected_stay_option.id == "stay_food_forward":
+        if "calm" in style_tags_set:
+            tradeoffs.append("The area may wind down earlier than a food-led trip sometimes wants.")
+        elif "practical" in style_tags_set:
+            tradeoffs.append("It may work better for logistics than for lingering neighbourhood evenings.")
+    elif selected_stay_option.id == "stay_central_base":
+        if "calm" in style_tags_set:
+            tradeoffs.append("The calmer setting can trade away some of the easy first-time momentum.")
+        elif "traditional" in style_tags_set:
+            tradeoffs.append("Character is stronger here, but daily movement may feel a touch less effortless.")
+    elif selected_stay_option.id == "stay_connected_hub":
+        if "design" in style_tags_set or "luxury" in style_tags_set:
+            tradeoffs.append("The stay experience is stronger here, but it matters less if routing is the main goal.")
+        elif "traditional" in style_tags_set:
+            tradeoffs.append("Atmosphere is stronger here, though the base may feel less purely practical.")
+
     if hotel.nightly_rate_amount is None:
         tradeoffs.append("Lock exact dates later to compare live nightly prices.")
+    elif hotel.nightly_rate_amount >= 260:
+        tradeoffs.append("Price climbs fast once the shortlist tightens.")
+    elif hotel.nightly_rate_amount <= 140:
+        tradeoffs.append("The lower rate may come with a simpler overall feel.")
+
+    if "food_access" in style_tags_set and selected_stay_option.id != "stay_food_forward":
+        tradeoffs.append("Dinner-heavy streets nearby can make the area feel busier after dark.")
+    if "luxury" in style_tags_set and hotel.nightly_rate_amount and hotel.nightly_rate_amount >= 180:
+        tradeoffs.append("You are paying more here for comfort and finish, not just location.")
+
     if not tradeoffs:
-        tradeoffs.append("This is still a working hotel choice and can be reviewed later.")
-    return tradeoffs[:3]
+        tradeoffs.append("Worth checking against the rest of the shortlist once more of the trip locks in.")
+
+    deduped: list[str] = []
+    for item in tradeoffs:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped[:3]
 
 
 def _infer_hotel_price_signal(

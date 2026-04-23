@@ -119,6 +119,7 @@ def build_assistant_response(
                 configuration=configuration,
                 conversation=conversation,
                 greeting_name=greeting_name,
+                action=action,
             )
         )
 
@@ -544,6 +545,7 @@ def _build_advanced_anchor_flow_response(
     configuration: TripConfiguration,
     conversation: TripConversationState,
     greeting_name: str | None,
+    action: ConversationBoardAction | None,
 ) -> str:
     greeting_prefix = f"Perfect, {greeting_name}. " if greeting_name else "Perfect. "
     destination = configuration.to_location or "this trip"
@@ -552,6 +554,7 @@ def _build_advanced_anchor_flow_response(
             configuration=configuration,
             conversation=conversation,
             greeting_prefix=greeting_prefix,
+            action=action,
         )
     advanced_anchor = conversation.advanced_anchor
     anchor_label = (
@@ -574,6 +577,7 @@ def _build_advanced_stay_response(
     configuration: TripConfiguration,
     conversation: TripConversationState,
     greeting_prefix: str,
+    action: ConversationBoardAction | None,
 ) -> str:
     destination = configuration.to_location or "this trip"
     stay_planning = conversation.stay_planning
@@ -631,14 +635,33 @@ def _build_advanced_stay_response(
             if stay_planning.hotel_selection_assumptions
             else ""
         )
+        next_anchor = _recommend_advanced_anchor_after_stay(configuration=configuration)
+        next_anchor_label = next_anchor.replace("_", " ")
         return (
-            f"{greeting_prefix}{selected_hotel.hotel_name} is now the working hotel choice inside {selected_option.title.lower()}. "
+            f"{greeting_prefix}{selected_hotel.hotel_name} is a strong choice inside {selected_option.title.lower()}, so I'll use it as the working hotel for now. "
             "That still is not a booking, so I can revise it later if activities, timing, or routing make a different hotel stronger."
+            f" Next, the cleanest move is {next_anchor_label}."
+            " The board now shows the remaining planning anchors again, with stay marked completed and moved out of the way."
+            " If anything about this hotel feels off, tell me what you want changed and I'll reshape it."
             f"{assumption_line}"
         )
 
+    if selected_option and stay_planning.hotel_results_status == "blocked":
+        return (
+            f"{greeting_prefix}{selected_option.title} is still the working stay direction for {destination}. "
+            "I can keep discussing hotel fit inside that base, but exact hotel comparison needs fixed dates before I shape the final hotel recommendations."
+        )
+
+    if selected_option and stay_planning.hotel_results_status == "empty":
+        return (
+            f"{greeting_prefix}I couldn't shape a strong hotel set inside {selected_option.title.lower()} yet. "
+            "Give me a little more signal on budget, vibe, or area and I'll rebuild the recommendations."
+        )
+
     if selected_option and stay_planning.recommended_hotels:
-        hotel_count = len(stay_planning.recommended_hotels)
+        hotel_count = stay_planning.hotel_total_results or len(
+            stay_planning.recommended_hotels
+        )
         recommendation_line = next(
             (
                 hotel.hotel_name
@@ -649,8 +672,9 @@ def _build_advanced_stay_response(
         )
         return (
             f"{greeting_prefix}{selected_option.title} is now the working stay direction for {destination}. "
-            f"I've moved straight into {hotel_count} hotel options inside that base, led by {recommendation_line}. "
-            "Pick the hotel that fits best, and I'll treat it as the working stay choice without pretending it is booked."
+            f"I've moved straight into {hotel_count} hotel recommendations inside that base, led by {recommendation_line}. "
+            "The board keeps them compact by default, but you can open any card for more detail. "
+            "Tell me in chat if you want the list to skew calmer, livelier, cheaper, or more central, and I'll reshape it."
         )
 
     if selected_option:
@@ -1086,3 +1110,18 @@ def _requested_advanced_plan(
         and conversation.advanced_step in {None, "intake"}
         and (explicit_mode_selection or chat_mode_selection)
     )
+
+
+def _recommend_advanced_anchor_after_stay(
+    *,
+    configuration: TripConfiguration,
+) -> str:
+    if configuration.selected_modules.activities:
+        if configuration.activity_styles:
+            return "activities"
+        if configuration.custom_style:
+            return "trip_style"
+        return "activities"
+    if configuration.selected_modules.flights and not configuration.from_location_flexible:
+        return "flight"
+    return "trip_style"

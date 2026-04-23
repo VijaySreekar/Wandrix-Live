@@ -173,6 +173,11 @@ def _hotel_outputs_are_rich_enough(
     if not hotels:
         return False
 
+    # Older caches were often only the first 4 provider results. Refresh those
+    # into the deeper hotel workspace rather than freezing a thin shortlist.
+    if len(hotels) < 6:
+        return False
+
     # Older cached hotel outputs only carried names and notes, which now
     # produce weak board cards with random fallback imagery and no pricing.
     # Refresh those caches even when the trip inputs have not changed.

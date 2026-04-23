@@ -122,5 +122,6 @@ class TripTurnUpdate(BaseModel):
     planner_intent: PlannerIntent = "none"
     requested_planning_mode: PlannerPlanningMode | None = None
     requested_advanced_anchor: PlannerAdvancedAnchor | None = None
+    requested_stay_hotel_name: str | None = Field(default=None, max_length=160)
     confirmed_trip_brief: bool = False
     assistant_response: str = ""

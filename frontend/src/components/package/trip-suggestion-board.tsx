@@ -5,6 +5,8 @@ import Image from "next/image";
 import {
   ArrowRight,
   CalendarRange,
+  ChevronDown,
+  ChevronUp,
   MapPin,
 } from "lucide-react";
 
@@ -19,6 +21,7 @@ import type {
   AdvancedStayOptionCard,
   DestinationSuggestionCard,
   PlanningModeChoiceCard,
+  PlannerHotelStyleTag,
   PlannerDecisionCard,
   TripSuggestionBoardState,
 } from "@/types/trip-conversation";
@@ -219,6 +222,12 @@ export function TripSuggestionBoard({
     board.mode === "advanced_stay_hotel_selected" ||
     board.mode === "advanced_stay_hotel_review"
   ) {
+    const hotelFilters = board.hotel_filters ?? {
+      max_nightly_rate: null,
+      area_filter: null,
+      style_filter: null,
+    };
+    const hotelSortOrder = board.hotel_sort_order ?? "best_fit";
     return (
       <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
         <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
@@ -231,24 +240,12 @@ export function TripSuggestionBoard({
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 py-8">
-          <AdvancedStayStatusPanel board={board} />
-          {(board.mode === "advanced_stay_hotel_selected" ||
-            board.mode === "advanced_stay_hotel_review") &&
-          board.selected_hotel_id ? (
-            <AdvancedStayHotelStatusPanel board={board} />
-          ) : null}
-
-          <div className="grid gap-4">
-            {(board.hotel_cards ?? []).map((card) => (
-              <AdvancedStayHotelCardView
-                key={card.id}
-                card={card}
-                board={board}
-                disabled={disabled}
-                onAction={onAction}
-              />
-            ))}
-          </div>
+          <AdvancedStayHotelWorkspace
+            key={`${hotelFilters.max_nightly_rate ?? "none"}-${hotelFilters.area_filter ?? "all"}-${hotelFilters.style_filter ?? "all"}-${hotelSortOrder}-${board.hotel_page ?? 1}`}
+            board={board}
+            disabled={disabled}
+            onAction={onAction}
+          />
         </div>
       </section>
     );
@@ -451,19 +448,48 @@ function AdvancedAnchorOptionCard({
   disabled: boolean;
   onAction: (action: PlannerBoardActionIntent) => void;
 }) {
+  const isCompleted = card.status === "completed";
   return (
-    <article className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-6 py-6 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]">
+    <article
+      className={cn(
+        "rounded-xl border px-6 py-6 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]",
+        isCompleted
+          ? "border-[var(--planner-board-border)] bg-[var(--planner-board-soft)]"
+          : "border-[var(--planner-board-border)] bg-[var(--planner-board-card)]",
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-display text-xl font-bold tracking-[-0.02em] text-[var(--planner-board-text)]">
+          <h3
+            className={cn(
+              "font-display text-xl font-bold tracking-[-0.02em]",
+              isCompleted
+                ? "text-[var(--planner-board-muted-strong)]"
+                : "text-[var(--planner-board-text)]",
+            )}
+          >
             {card.title}
           </h3>
-          <p className="mt-2 max-w-xl text-sm leading-7 text-[var(--planner-board-muted)]">
+          <p
+            className={cn(
+              "mt-2 max-w-xl text-sm leading-7",
+              isCompleted
+                ? "text-[var(--planner-board-muted-strong)]"
+                : "text-[var(--planner-board-muted)]",
+            )}
+          >
             {card.description}
           </p>
         </div>
         {card.badge ? (
-          <span className="rounded-md border border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+          <span
+            className={cn(
+              "rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]",
+              isCompleted
+                ? "border-[var(--planner-board-border)] bg-[var(--planner-board-card)] text-[var(--planner-board-muted-strong)]"
+                : "border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] text-[color:var(--accent)]",
+            )}
+          >
             {card.badge}
           </span>
         ) : null}
@@ -478,7 +504,9 @@ function AdvancedAnchorOptionCard({
             <span
               className={cn(
                 "mt-2 block h-1.5 w-1.5 rounded-full",
-                card.recommended
+                isCompleted
+                  ? "bg-[var(--planner-board-muted-strong)]"
+                  : card.recommended
                   ? "bg-[color:var(--accent)]"
                   : "bg-[var(--planner-board-muted-strong)]",
               )}
@@ -491,7 +519,7 @@ function AdvancedAnchorOptionCard({
       <div className="mt-6">
         <button
           type="button"
-          disabled={disabled}
+          disabled={disabled || isCompleted}
           onClick={() =>
             onAction({
               action_id: crypto.randomUUID(),
@@ -501,7 +529,7 @@ function AdvancedAnchorOptionCard({
           }
           className={cn(
             "inline-flex items-center rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors",
-            disabled
+            disabled || isCompleted
               ? "cursor-not-allowed border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
               : "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:bg-[color:color-mix(in_srgb,var(--accent)_92%,black)]",
           )}
@@ -513,10 +541,85 @@ function AdvancedAnchorOptionCard({
   );
 }
 
-function AdvancedStayStatusPanel({
+function AdvancedStayHotelWorkspace({
   board,
+  disabled,
+  onAction,
 }: {
   board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const hotelCards = (board.hotel_cards ?? []).slice(0, 4);
+  const workspaceBlocked = board.hotel_results_status === "blocked";
+  const hasResults = hotelCards.length > 0;
+
+  return (
+    <section className="space-y-3">
+      <p className="max-w-3xl text-sm leading-6 text-[var(--planner-board-muted)]">
+        {workspaceBlocked
+          ? board.hotel_results_summary ||
+            "Hotel fit can still be discussed here, but exact hotel comparison needs fixed dates first."
+          : "Four hotel recommendations, shaped around the stay direction you chose. Open any card for more detail, and tell me in chat what feels too expensive, too central, or just not right if you want me to recut the shortlist."}
+      </p>
+
+      {workspaceBlocked ? (
+        <WorkspaceNotice
+          title="Exact hotel comparison is still gated"
+          description={
+            board.hotel_results_summary ||
+            "Hotel fit can still be discussed here, but exact hotel comparison needs fixed dates first."
+          }
+        />
+      ) : null}
+
+      {hasResults ? (
+        <div className="space-y-3">
+          {hotelCards.map((card) => (
+            <AdvancedStayHotelCardView
+              key={card.id}
+              card={card}
+              board={board}
+              disabled={disabled || workspaceBlocked}
+              onAction={onAction}
+            />
+          ))}
+        </div>
+      ) : workspaceBlocked ? null : (
+        <WorkspaceNotice
+          title="No hotel recommendations are ready yet"
+          description="I need a little more stay signal before I can shape a stronger shortlist inside this base."
+        />
+      )}
+    </section>
+  );
+}
+
+function WorkspaceNotice({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <article className="rounded-lg border border-dashed border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-4 py-4">
+      <h3 className="text-sm font-semibold text-[var(--planner-board-text)]">
+        {title}
+      </h3>
+      <p className="mt-1.5 text-sm leading-6 text-[var(--planner-board-muted)]">
+        {description}
+      </p>
+    </article>
+  );
+}
+
+function AdvancedStayStatusPanel({
+  board,
+  compact = false,
+}: {
+  board: TripSuggestionBoardState;
+  compact?: boolean;
 }) {
   const selectedCard = (board.stay_cards ?? []).find(
     (card) => card.id === board.selected_stay_option_id,
@@ -530,17 +633,27 @@ function AdvancedStayStatusPanel({
     board.mode === "advanced_stay_review"
       ? "Stay needs review"
       : board.stay_selection_status === "selected"
-        ? "Current stay base"
-        : "Stay base";
+        ? "Stay direction"
+        : "Stay";
 
   return (
-    <article className="mb-4 rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_6px_14px_rgba(0,0,0,0.04)]">
+    <article
+      className={cn(
+        "rounded-lg border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] shadow-[0_1px_1px_rgba(0,0,0,0.03),0_4px_12px_rgba(0,0,0,0.04)]",
+        compact ? "px-4 py-3" : "mb-4 px-5 py-4",
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
             {statusLabel}
           </p>
-          <h3 className="mt-1 font-display text-lg font-bold tracking-[-0.02em] text-[var(--planner-board-text)]">
+          <h3
+            className={cn(
+              "mt-1 font-display font-bold tracking-[-0.02em] text-[var(--planner-board-text)]",
+              compact ? "text-base" : "text-lg",
+            )}
+          >
             {selectedCard.title}
           </h3>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--planner-board-muted)]">
@@ -561,14 +674,21 @@ function AdvancedStayStatusPanel({
 
       {(board.stay_selection_assumptions?.length ||
         board.stay_compatibility_notes?.length) ? (
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <div
+          className={cn(
+            "grid gap-3",
+            compact ? "mt-2" : "mt-3 lg:grid-cols-2",
+          )}
+        >
           {board.stay_selection_assumptions?.length ? (
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
                 Built Around
               </p>
               <ul className="mt-2 flex flex-wrap gap-2">
-                {board.stay_selection_assumptions.slice(0, 3).map((item) => (
+                {board.stay_selection_assumptions
+                  .slice(0, compact ? 2 : 3)
+                  .map((item) => (
                   <li
                     key={item}
                     className="rounded-md border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-2.5 py-1 text-xs text-[var(--planner-board-muted)]"
@@ -728,103 +848,6 @@ function AdvancedStayOptionCardView({
   );
 }
 
-function AdvancedStayHotelStatusPanel({
-  board,
-}: {
-  board: TripSuggestionBoardState;
-}) {
-  const selectedHotel = (board.hotel_cards ?? []).find(
-    (card) => card.id === board.selected_hotel_id,
-  );
-
-  if (!selectedHotel) {
-    return null;
-  }
-
-  const statusLabel =
-    board.mode === "advanced_stay_hotel_review"
-      ? "Hotel needs review"
-      : "Current hotel";
-  const nightlyRate = formatNightlyRate(selectedHotel);
-  const stayWindow = formatBoardDateRange(
-    selectedHotel.check_in,
-    selectedHotel.check_out,
-  );
-
-  return (
-    <article className="mb-4 overflow-hidden rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]">
-      <div className="grid gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <HotelVisual
-          imageUrl={selectedHotel.image_url}
-          hotelName={selectedHotel.hotel_name}
-          area={selectedHotel.area}
-          variant="featured"
-          badges={[
-            board.mode === "advanced_stay_hotel_review"
-              ? "Review this hotel"
-              : "Current hotel",
-            ...(selectedHotel.recommended ? ["Recommended"] : []),
-          ]}
-        />
-
-        <div className="px-5 py-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
-                {statusLabel}
-              </p>
-                <h3 className="mt-1 text-lg font-semibold tracking-tight text-[var(--planner-board-text)]">
-                  {selectedHotel.hotel_name}
-                </h3>
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--planner-board-muted)]">
-                <span className="inline-flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-[var(--accent)]" />
-                  {selectedHotel.area || "Area still flexible"}
-                </span>
-                <span className="inline-flex items-center gap-2">
-                  <CalendarRange className="h-4 w-4 text-[var(--accent)]" />
-                  {stayWindow}
-                </span>
-              </div>
-            </div>
-
-              <PricePanel
-                title={nightlyRate.title}
-                primary={nightlyRate.primary}
-                secondary={nightlyRate.secondary}
-              />
-            </div>
-
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-[var(--planner-board-muted)]">
-              {board.hotel_selection_rationale || selectedHotel.why_it_fits}
-            </p>
-
-            {(board.hotel_selection_assumptions?.length ||
-              board.hotel_compatibility_notes?.length) ? (
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              {board.hotel_selection_assumptions?.length ? (
-                <DetailList
-                  title="Why it is working"
-                  tone="accent"
-                  items={board.hotel_selection_assumptions}
-                />
-              ) : null}
-
-              {board.hotel_compatibility_notes?.length ? (
-                <DetailList
-                  title="Watchouts"
-                  tone="muted"
-                  items={board.hotel_compatibility_notes}
-                />
-              ) : null}
-              </div>
-            ) : null}
-        </div>
-      </div>
-    </article>
-  );
-}
-
 function AdvancedStayHotelCardView({
   card,
   board,
@@ -840,109 +863,145 @@ function AdvancedStayHotelCardView({
   const isReviewMode = board.mode === "advanced_stay_hotel_review" && isSelected;
   const nightlyRate = formatNightlyRate(card);
   const stayWindow = formatBoardDateRange(card.check_in, card.check_out);
+  const workspaceBlocked = board.hotel_results_status === "blocked";
+  const areaLabel = normalizeAreaLabel(card.area);
+  const [expanded, setExpanded] = useState(isSelected || card.recommended);
+  const isExpanded = expanded || isSelected;
 
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-xl border bg-[var(--planner-board-card)] shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]",
+        "overflow-hidden rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)]",
         isSelected
-          ? "border-[color:color-mix(in_srgb,var(--accent)_30%,transparent)]"
-          : "border-[var(--planner-board-border)]",
+          ? "bg-[color:color-mix(in_srgb,var(--planner-board-soft)_38%,white)]"
+          : "",
       )}
     >
-      <div className="grid gap-0 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div className="grid gap-4 px-5 py-4 lg:grid-cols-[220px_minmax(0,1fr)_132px] lg:items-start">
         <HotelVisual
           imageUrl={card.image_url}
           hotelName={card.hotel_name}
-          area={card.area}
+          area={areaLabel}
           badges={[
-            ...(card.recommended ? ["Recommended"] : []),
+            ...(card.recommended ? ["Best fit"] : []),
             ...(isSelected ? [isReviewMode ? "Needs review" : "Selected"] : []),
           ]}
         />
 
-        <div className="px-5 py-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-semibold tracking-tight text-[var(--planner-board-text)]">
-                  {card.hotel_name}
-                </h3>
-                {card.recommended ? (
-                  <span className="rounded-md border border-[color:color-mix(in_srgb,var(--accent)_22%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_8%,transparent)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--accent)]">
-                    Best fit
-                  </span>
-                ) : null}
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--planner-board-muted)]">
-                <span className="inline-flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-[var(--accent)]" />
-                  {card.area || "Area still flexible"}
-                </span>
-                <span className="inline-flex items-center gap-2">
-                  <CalendarRange className="h-4 w-4 text-[var(--accent)]" />
-                  {stayWindow}
-                </span>
-              </div>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--planner-board-muted)]">
-                  {card.summary}
-                </p>
-              </div>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h3 className="text-base font-semibold tracking-tight text-[var(--planner-board-text)]">
+              {card.hotel_name}
+            </h3>
+            {card.recommended ? (
+              <span className="rounded-md bg-[var(--planner-board-soft)] px-2 py-1 text-[11px] font-medium text-[var(--planner-board-muted-strong)]">
+                Best fit
+              </span>
+            ) : null}
+            {isSelected ? (
+              <span className="rounded-md bg-[color:color-mix(in_srgb,var(--accent)_10%,white)] px-2 py-1 text-[11px] font-medium text-[color:var(--accent)]">
+                {isReviewMode ? "Needs review" : "Selected"}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--planner-board-muted)]">
+            <span className="inline-flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-[var(--accent)]" />
+              {areaLabel}
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <CalendarRange className="h-4 w-4 text-[var(--accent)]" />
+              {stayWindow}
+            </span>
+          </div>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--planner-board-text)]">
+            {card.why_it_fits}
+          </p>
 
-              <PricePanel
-                title={nightlyRate.title}
-                primary={nightlyRate.primary}
-                secondary={nightlyRate.secondary}
-              />
-            </div>
-
-          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
-                Why it fits
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
-                {card.why_it_fits}
-              </p>
-            </div>
-            {card.tradeoffs.length ? (
-              <div className="flex flex-wrap gap-2 lg:max-w-[280px] lg:justify-end">
-                {card.tradeoffs.slice(0, 2).map((item) => (
-                  <span
-                    key={item}
-                    className="rounded-md border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-2.5 py-1 text-xs text-[var(--planner-board-muted)]"
-                  >
-                    {item}
-                  </span>
-                ))}
-              </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {card.style_tags.slice(0, 2).map((tag) => (
+              <span
+                key={tag}
+                className="rounded-md border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-2.5 py-1 text-xs text-[var(--planner-board-muted)]"
+              >
+                {formatHotelStyleLabel(tag)}
+              </span>
+            ))}
+            {card.tradeoffs.slice(0, 1).map((item) => (
+              <span
+                key={item}
+                className="rounded-md border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-2.5 py-1 text-xs text-[var(--planner-board-muted)]"
+              >
+                {item}
+              </span>
+            ))}
+            {card.outside_active_filters ? (
+              <span className="rounded-md border border-[color:color-mix(in_srgb,#b45309_18%,transparent)] bg-[color:color-mix(in_srgb,#f59e0b_8%,transparent)] px-2.5 py-1 text-xs text-[#92400e]">
+                Outside current filters
+              </span>
             ) : null}
           </div>
 
-          <div className="mt-5">
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() =>
-                onAction({
-                  action_id: crypto.randomUUID(),
-                  type: "select_stay_hotel",
-                  stay_hotel_id: card.id,
-                  stay_hotel_name: card.hotel_name,
-                })
-              }
-              className={cn(
-                "inline-flex items-center rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors",
-                disabled
-                  ? "cursor-not-allowed border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
-                  : isSelected
-                    ? "border-[color:var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,white)] text-[color:var(--accent)] hover:bg-[color:color-mix(in_srgb,var(--accent)_14%,white)]"
-                    : "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:bg-[color:color-mix(in_srgb,var(--accent)_92%,black)]",
-              )}
-            >
-              {isSelected ? "Selected hotel" : card.cta_label || "Choose this hotel"}
-            </button>
-          </div>
+          {isExpanded ? (
+            <div className="mt-4 grid gap-3 border-t border-[var(--planner-board-border)] pt-4 text-sm text-[var(--planner-board-muted)] lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                  Why it works
+                </p>
+                <p className="mt-2 leading-6">{card.summary}</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                  Tradeoffs
+                </p>
+                <ul className="mt-2 space-y-2">
+                  {card.tradeoffs.slice(0, 2).map((item) => (
+                    <li key={item} className="leading-6">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col items-start gap-4 lg:items-end">
+          <PricePanel
+            title={nightlyRate.title}
+            primary={nightlyRate.primary}
+            secondary={nightlyRate.secondary}
+          />
+          <button
+            type="button"
+            disabled={disabled || workspaceBlocked}
+            onClick={() =>
+              onAction({
+                action_id: crypto.randomUUID(),
+                type: "select_stay_hotel",
+                stay_hotel_id: card.id,
+                stay_hotel_name: card.hotel_name,
+              })
+            }
+            className={cn(
+              "inline-flex items-center rounded-md border px-3.5 py-2 text-sm font-semibold transition-colors",
+              disabled || workspaceBlocked
+                ? "cursor-not-allowed border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
+                : isSelected
+                  ? "border-[color:var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,white)] text-[color:var(--accent)] hover:bg-[color:color-mix(in_srgb,var(--accent)_14%,white)]"
+                  : "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:bg-[color:color-mix(in_srgb,var(--accent)_92%,black)]",
+            )}
+          >
+            {isSelected ? "Selected" : card.cta_label || "Choose this hotel"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--planner-board-muted-strong)] transition-colors hover:text-[var(--planner-board-text)]"
+          >
+            {isExpanded ? "Less detail" : "More detail"}
+            {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
         </div>
       </div>
     </article>
@@ -963,24 +1022,24 @@ function HotelVisual({
   variant?: "default" | "featured";
 }) {
   const heightClass =
-    variant === "featured" ? "min-h-[240px]" : "min-h-[220px]";
+    variant === "featured" ? "min-h-[220px]" : "min-h-[168px]";
 
   if (imageUrl) {
     return (
-      <div className={cn("relative overflow-hidden bg-[var(--planner-board-soft)]", heightClass)}>
+      <div className={cn("relative overflow-hidden rounded-lg bg-[var(--planner-board-soft)]", heightClass)}>
         <Image
           src={imageUrl}
           alt={hotelName}
           fill
           className="object-cover"
-          sizes={variant === "featured" ? "(max-width: 1024px) 100vw, 320px" : "(max-width: 1024px) 100vw, 260px"}
+          sizes={variant === "featured" ? "(max-width: 1024px) 100vw, 360px" : "(max-width: 1024px) 100vw, 320px"}
         />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(17,24,39,0.04),rgba(17,24,39,0.34))]" />
-        <div className="absolute left-4 top-4 flex flex-wrap gap-2">
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(17,24,39,0.02),rgba(17,24,39,0.2))]" />
+        <div className="absolute left-3 top-3 flex flex-wrap gap-2">
           {badges.map((badge) => (
             <span
               key={badge}
-              className="rounded-md border border-[rgba(255,255,255,0.28)] bg-[rgba(255,255,255,0.78)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--planner-board-text)] backdrop-blur-sm"
+              className="rounded-md bg-[rgba(255,255,255,0.84)] px-2 py-0.5 text-[10px] font-medium text-[var(--planner-board-text)] backdrop-blur-sm"
             >
               {badge}
             </span>
@@ -993,29 +1052,28 @@ function HotelVisual({
   return (
     <div
       className={cn(
-        "relative overflow-hidden border-r border-[var(--planner-board-border)] bg-[linear-gradient(145deg,#fbf7ee_0%,#f3ece1_100%)]",
+        "relative overflow-hidden rounded-lg border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)]",
         heightClass,
       )}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(189,151,89,0.18),transparent_45%)]" />
-      <div className="absolute left-4 top-4 flex flex-wrap gap-2">
+      <div className="absolute left-3 top-3 flex flex-wrap gap-2">
         {badges.map((badge) => (
           <span
             key={badge}
-            className="rounded-md border border-[rgba(133,109,73,0.22)] bg-[rgba(255,255,255,0.72)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5f4d32]"
+            className="rounded-md bg-white px-2 py-0.5 text-[10px] font-medium text-[var(--planner-board-text)]"
           >
             {badge}
           </span>
         ))}
       </div>
-      <div className="flex h-full flex-col justify-end px-5 py-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8a7657]">
-            No hotel photo yet
-          </p>
-        <p className="mt-2 text-xl font-semibold tracking-tight text-[#251f17]">
-            {hotelName}
-          </p>
-        <p className="mt-2 text-sm leading-6 text-[#5f5341]">
+      <div className="flex h-full flex-col justify-end px-4 py-4">
+        <p className="text-[11px] font-medium text-[var(--planner-board-muted-strong)]">
+          Image unavailable
+        </p>
+        <p className="mt-2 text-xl font-semibold tracking-tight text-[var(--planner-board-text)]">
+          {hotelName}
+        </p>
+        <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
           {area || "Area still being refined"}
         </p>
       </div>
@@ -1033,56 +1091,16 @@ function PricePanel({
   secondary: string;
 }) {
   return (
-    <div className="min-w-[172px] rounded-lg border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-3.5 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
+    <div className="min-w-[132px] text-left lg:text-right">
+      <p className="text-[11px] font-medium text-[var(--planner-board-muted-strong)]">
         {title}
       </p>
-      <p className="mt-1.5 text-base font-semibold tracking-tight text-[var(--planner-board-text)]">
+      <p className="mt-1 text-base font-semibold tracking-tight text-[var(--planner-board-text)]">
         {primary}
       </p>
       <p className="mt-1 text-xs leading-5 text-[var(--planner-board-muted)]">
         {secondary}
       </p>
-    </div>
-  );
-}
-
-function DetailList({
-  title,
-  items,
-  tone,
-}: {
-  title: string;
-  items: string[];
-  tone: "accent" | "muted";
-}) {
-  if (items.length === 0) {
-    return null;
-  }
-
-  return (
-    <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--planner-board-muted-strong)]">
-        {title}
-      </p>
-      <ul className="mt-3 space-y-2">
-        {items.map((item) => (
-          <li
-            key={item}
-            className="flex items-start gap-3 text-sm leading-7 text-[var(--planner-board-muted)]"
-          >
-            <span
-              className={cn(
-                "mt-2 block h-1.5 w-1.5 rounded-full",
-                tone === "accent"
-                  ? "bg-[color:var(--accent)]"
-                  : "bg-[var(--planner-board-muted-strong)]",
-              )}
-            />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -1371,6 +1389,43 @@ function formatBoardDateShort(value: string | null | undefined) {
     day: "numeric",
     month: "short",
   });
+}
+
+function formatHotelStyleLabel(style: PlannerHotelStyleTag) {
+  return (
+    {
+      calm: "Calm",
+      central: "Central",
+      design: "Design-led",
+      luxury: "Luxury",
+      food_access: "Food access",
+      practical: "Practical",
+      traditional: "Traditional",
+      nightlife: "Nightlife",
+      walkable: "Walkable",
+      value: "Value",
+    }[style] ?? style.replace("_", " ").replace(/\b\w/g, (character) => character.toUpperCase())
+  );
+}
+
+function normalizeAreaLabel(value: string | null | undefined) {
+  if (!value) {
+    return "This part of Kyoto";
+  }
+
+  const cleaned = value
+    .replace(/-ku\b/gi, "-ku")
+    .replace(/,\s*Japan\b/gi, "")
+    .replace(/\bJapan\b/gi, "")
+    .replace(/\bKyoto Prefecture\b/gi, "Kyoto")
+    .replace(/\s+,/g, ",")
+    .replace(/,\s*,/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .replace(/,\s*$/g, "")
+    .replace(/^,\s*/g, "")
+    .trim();
+
+  return cleaned || "This part of Kyoto";
 }
 
 function badgeLabel(card: DestinationSuggestionCard) {

@@ -1,6 +1,7 @@
 from typing import cast
 
 from fastapi import HTTPException, status
+from psycopg import OperationalError
 from sqlalchemy.orm import Session
 
 from app.repositories.trip_draft_repository import (
@@ -78,38 +79,41 @@ def send_trip_message(
         }
     )
 
-    graph_result = graph.invoke(
-        {
-            "browser_session_id": trip.browser_session_id,
-            "trip_id": trip.id,
+    graph_payload = {
+        "browser_session_id": trip.browser_session_id,
+        "trip_id": trip.id,
+        "thread_id": trip.thread_id,
+        "user_input": payload.message,
+        "profile_context": payload.profile_context.model_dump(mode="json")
+        if payload.profile_context
+        else {},
+        "current_location_context": payload.current_location_context.model_dump(
+            mode="json"
+        )
+        if payload.current_location_context
+        else {},
+        "board_action": payload.board_action.model_dump(mode="json")
+        if payload.board_action
+        else {},
+        "trip_draft": {
+            "title": draft.title,
+            "configuration": draft.configuration,
+            "timeline": draft.timeline,
+            "module_outputs": draft.module_outputs,
+            "status": draft.status,
+            "conversation": draft.conversation,
+        },
+        "metadata": {"user_id": user_id},
+    }
+    graph_config = {
+        "configurable": {
             "thread_id": trip.thread_id,
-            "user_input": payload.message,
-            "profile_context": payload.profile_context.model_dump(mode="json")
-            if payload.profile_context
-            else {},
-            "current_location_context": payload.current_location_context.model_dump(
-                mode="json"
-            )
-            if payload.current_location_context
-            else {},
-            "board_action": payload.board_action.model_dump(mode="json")
-            if payload.board_action
-            else {},
-            "trip_draft": {
-                "title": draft.title,
-                "configuration": draft.configuration,
-                "timeline": draft.timeline,
-                "module_outputs": draft.module_outputs,
-                "status": draft.status,
-                "conversation": draft.conversation,
-            },
-            "metadata": {"user_id": user_id},
-        },
-        config={
-            "configurable": {
-                "thread_id": trip.thread_id,
-            }
-        },
+        }
+    }
+    graph_result = _invoke_graph_with_retry(
+        graph,
+        payload=graph_payload,
+        config=graph_config,
     )
     updated_draft = graph_result.get("trip_draft")
     if not updated_draft:
@@ -207,12 +211,13 @@ def get_trip_conversation_history(
             detail="Trip was not found.",
         )
 
-    snapshot = graph.get_state(
+    snapshot = _get_graph_state_with_retry(
+        graph,
         {
             "configurable": {
                 "thread_id": trip.thread_id,
             }
-        }
+        },
     )
     values = getattr(snapshot, "values", {}) or {}
     raw_messages = values.get("raw_messages", [])
@@ -224,3 +229,17 @@ def get_trip_conversation_history(
             "messages": raw_messages,
         }
     )
+
+
+def _invoke_graph_with_retry(graph, *, payload: dict, config: dict):
+    try:
+        return graph.invoke(payload, config=config)
+    except OperationalError:
+        return graph.invoke(payload, config=config)
+
+
+def _get_graph_state_with_retry(graph, config: dict):
+    try:
+        return graph.get_state(config)
+    except OperationalError:
+        return graph.get_state(config)
