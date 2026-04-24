@@ -9,6 +9,319 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-24 - Smoothed Chat Sidebar Collapse
+
+Technical Summary:
+- Moved chat workspace column sizing from conditional Tailwind grid classes into a CSS grid transition driven by a `data-sidebar-collapsed` attribute.
+- Added short reduced-motion-aware entrance animation hooks to sidebar sections as the expanded and collapsed content swaps.
+
+Plain-English Summary:
+- Collapsing or expanding the chat sidebar should now feel smoother instead of snapping abruptly between widths and content states.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Persisted Greeting-Only New Chats
+
+Technical Summary:
+- Updated the new-chat opening-turn path so lightweight first messages that do not start full trip planning still create and activate a persisted trip workspace.
+- Cached the greeting-style user and assistant turn against the new persisted trip id so refreshes reopen the same chat instead of falling back to another recent session.
+- Guarded persisted-trip activation and draft updates by source trip id so late first-message responses cannot overwrite a newer chat workspace.
+- Preserved optimistic local greeting history when the backend conversation checkpoint is still empty, so a refresh does not wipe the visible first turn.
+- Replaced generated trip-id fallback titles with a stable `New chat` label for lightweight conversations.
+- Changed recent-trip cache writes to merge with existing cached rows instead of replacing the sidebar cache with a temporary one-trip list.
+
+Plain-English Summary:
+- A new chat that starts with “hi” or another short opener now gets its own sidebar record.
+- Refreshing after that first message should reopen the same chat rather than making it look like a different recent chat took over.
+- Older in-flight responses from another chat should no longer jump the user into the wrong recent conversation.
+- The first short message should remain visible after refresh even before the fuller planning conversation begins.
+- Lightweight chats now show as “New chat” instead of exposing a raw trip id in the sidebar.
+- The recent-chat list should stop briefly collapsing to one item and then reshuffling after a refresh.
+
+Files / Areas Touched:
+- `backend/app/services/trip_service.py`
+- `frontend/src/lib/recent-trips-cache.ts`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Immediate Sidebar Entry For New Chats
+
+Technical Summary:
+- Preserved the active newly persisted trip during sidebar refreshes so a just-created chat cannot be dropped while the trip-list API catches up.
+- Passed fresh trip ids into the chat sidebar and added a short reduced-motion-aware highlight animation for newly inserted recent sessions.
+
+Plain-English Summary:
+- After the first message in a new chat, the saved chat should appear in the left sidebar immediately instead of waiting for a refresh or another chat click.
+- New sidebar entries now get a subtle arrival animation so the save feels intentional.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/lib/recent-trips-cache.ts`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Matched Chat Stop Button To Send Style
+
+Technical Summary:
+- Restyled the running-state chat stop button to use the same accent button treatment as the send control.
+- Replaced the black stop glyph with a smaller white square using the shared composer contrast token.
+
+Plain-English Summary:
+- The stop button now looks like part of the Wandrix chat bar instead of a separate white control with a black square.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Moved Send Motion To Composer Bar
+
+Technical Summary:
+- Moved the send-click motion from the send button to the composer surface so it remains visible after the button swaps into the stop-generating state.
+- Strengthened the message bubble entrance distance for a clearer sent-message animation.
+
+Plain-English Summary:
+- The chat should now visibly respond when a message is sent, even while the send control quickly changes into the stop button.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Made Chat Send Animation Visible
+
+Technical Summary:
+- Strengthened the chat message entrance animation with clearer slide, fade, and bubble-scale motion for user and assistant rows.
+- Added a short send-button pop animation that runs immediately when a message is submitted.
+
+Plain-English Summary:
+- Sending a message should now visibly animate instead of feeling like the chat silently jumps into place.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Smoothed Chat Message Flow
+
+Technical Summary:
+- Reduced the chat message stack bottom padding from a large artificial spacer to normal composer-adjacent spacing.
+- Added viewport auto-scroll behavior that keeps new and running messages pinned near the bottom when the user is already in the active conversation flow.
+- Added a short reduced-motion-aware entrance animation for user and assistant message rows.
+
+Plain-English Summary:
+- New chat messages should now appear from the bottom in a more natural way, without leaving a strange empty gap under the conversation.
+- Sent and received messages now have a subtle animation instead of popping awkwardly into place.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Increased Chat Send Arrow Contrast
+
+Technical Summary:
+- Kept the chat send button solid accent-colored even when disabled instead of muting the background.
+- Increased the send arrow size and set its SVG stroke directly to white for stronger contrast.
+
+Plain-English Summary:
+- The send arrow should now be clearly visible inside the green button at all times.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Kept Disabled Send Arrow Visible
+
+Technical Summary:
+- Replaced whole-button opacity dimming on the disabled chat send button with a muted accent background.
+- Applied the composer contrast token directly through the send arrow SVG style so the stroke remains white in both enabled and disabled states.
+
+Plain-English Summary:
+- The send button still looks inactive when the message box is empty, but the arrow should remain clearly visible.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Forced White Chat Send Arrow
+
+Technical Summary:
+- Applied the composer contrast token directly to the send arrow SVG text and stroke classes so it no longer depends on inherited button color.
+
+Plain-English Summary:
+- The send arrow should now render white inside the green button.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Restored Solid Chat Send Button
+
+Technical Summary:
+- Restored the chat composer send button to a solid accent background while keeping the arrow white through the shared composer contrast token.
+
+Plain-English Summary:
+- The send button is green again, and the arrow inside it is white.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Greened Chat Composer Send Icon
+
+Technical Summary:
+- Updated the chat composer send button to use a soft accent surface with a green accent icon and border instead of a dark-looking arrow treatment.
+
+Plain-English Summary:
+- The send arrow now reads as green and matches the Wandrix travel-planning style more clearly.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Simplified Returning Chat Placeholder
+
+Technical Summary:
+- Replaced the returning-thread composer placeholder with a simpler chat-style prompt.
+
+Plain-English Summary:
+- The chat input now says “Message Wandrix...” instead of the more awkward “Continue shaping your trip...” copy.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Removed Chat Composer Search Icon
+
+Technical Summary:
+- Removed the search icon from the production chat composer and adjusted the bar padding so the input text starts cleanly without a misleading leading control.
+
+Plain-English Summary:
+- The chat bar no longer suggests search; it now reads plainly as a message composer for planning.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Centered Slim Chat Composer Controls
+
+Technical Summary:
+- Updated the Slim Split composer alignment from bottom-aligned controls to centered controls.
+- Removed per-control vertical offsets and tuned the composer height, gap, padding, and input text size for a more balanced single-line layout.
+
+Plain-English Summary:
+- The chat bar icon, placeholder text, and send button should now sit on the same visual centerline instead of feeling slightly dropped or uneven.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Removed Chat Composer Divider
+
+Technical Summary:
+- Removed the standalone top border from the chat composer root so the Slim Split input bar is the only visible composer boundary.
+
+Plain-English Summary:
+- The chat input area now looks less like a line plus a separate box and more like one clean control.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Flattened Slim Chat Composer
+
+Technical Summary:
+- Removed the nested visual shell from the Slim Split production composer so the input renders as one compact bar.
+- Kept the existing send and stop behavior while simplifying the composer markup and border treatment.
+
+Plain-English Summary:
+- The chat bar no longer looks like one container sitting inside another; it is now a single cleaner input surface.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Integrated Slim Split Chat Composer
+
+Technical Summary:
+- Applied the selected Slim Split preview treatment to the production chat composer.
+- Reworked the composer into a compact token-based bar with an embedded planning icon, smaller textarea, and a single right-side send or stop action slot.
+
+Plain-English Summary:
+- The real chat input now uses the slimmer style from the preview page, so it fits the chat workspace more neatly and avoids the oversized boxy look.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Chat Bar Preview Samples
+
+Technical Summary:
+- Added a standalone `/chat-bar-previews` page with 15 code-native chat composer treatments for review before changing the production composer.
+- Built the samples with existing Wandrix theme tokens and lucide icons so the selected direction can be integrated without introducing throwaway styling.
+
+Plain-English Summary:
+- There is now a separate page where different chat input styles can be compared side by side.
+- The real chat bar has not been changed yet, so a preferred sample can be chosen before integration.
+
+Files / Areas Touched:
+- `frontend/src/app/chat-bar-previews/page.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Stabilized First Message Chat Layout
+
+Technical Summary:
+- Switched the chat message stack spacing decision from cached initial messages to the live assistant thread message count.
+- Prevented the first new-chat message from changing vertical layout again when the temporary chat becomes a persisted trip.
+- Preserved the active assistant-ui thread during the `draft_trip` to persisted-trip handoff so the first response is not reset mid-run.
+- Removed the client-storage workspace read from initial render so server and client chat markup stay aligned during hydration.
+
+Plain-English Summary:
+- The first message in a new chat should now stay in a steadier position while Wandrix saves the trip behind the scenes.
+- The chat should feel less like it jumps, gets stuck generating, or repositions after the first send.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Smoothed New Chat Persistence Handoff
+
+Technical Summary:
+- Updated the first-message new-chat persistence handoff to replace the browser URL in-place after the ephemeral workspace becomes a persisted trip.
+- Avoided a transient Next route replacement from `/chat/new` to `/chat?trip=...` so the chat shell does not visibly remount after the first message.
+
+Plain-English Summary:
+- Sending the first message in a new chat should no longer look like the page refreshes when Wandrix creates the saved trip behind the scenes.
+- The address bar still updates to the real trip URL, but the active chat remains steady.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Flight UI Preview Pages
+
+Technical Summary:
+- Added a sample-only `/flight-previews` preview area with separate pages for the live board flight card, saved-trip flight reference view, Advanced flight selection, and missing-details flight state.
+- Created reusable flight preview fixtures and shells that render existing flight board components without writing trip data or calling provider APIs.
+- Verified the frontend with lint and production build checks.
+
+Plain-English Summary:
+- There are now standalone sample pages where the flight UI can be reviewed without needing to create or load a real trip.
+- These pages make it easier to compare the current visible flight boards and spot UI improvements before changing the live planning flow.
+
+Files / Areas Touched:
+- `frontend/src/app/flight-previews/`
+- `frontend/src/components/flights/flight-preview-pages.tsx`
+- `CHANGELOG.md`
+
 ## 2026-04-24 - Smoothed Chat Trip Switching
 
 Technical Summary:

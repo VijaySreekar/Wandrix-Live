@@ -26,6 +26,9 @@ from app.schemas.trip_conversation import TripConversationState
 from app.schemas.trip_draft import TripDraft, TripDraftStatus, TripDraftUpsertRequest
 
 
+DEFAULT_TRIP_TITLE = "New chat"
+
+
 def create_trip(
     db: Session,
     payload: TripCreateRequest,
@@ -48,7 +51,7 @@ def create_trip(
 
     trip_id = f"trip_{uuid4().hex}"
     thread_id = f"thread_{uuid4().hex}"
-    title = payload.title or f"Trip {trip_id[-6:]}"
+    title = payload.title or DEFAULT_TRIP_TITLE
     trip = create_trip_record(
         db,
         trip_id=trip_id,

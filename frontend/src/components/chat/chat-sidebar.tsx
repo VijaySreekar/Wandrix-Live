@@ -23,6 +23,7 @@ import {
   DialogTrigger,
 } from "@/components/animate-ui/components/radix/dialog";
 import { Button } from "@/components/ui/button";
+import { getRecentTripDisplayTitle } from "@/lib/recent-trips-cache";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { TripListItemResponse } from "@/types/trip";
 
@@ -64,6 +65,7 @@ type ChatSidebarProps = {
   deletingTripId: string | null;
   workspace: PlannerWorkspaceState | null;
   recentTrips: TripListItemResponse[];
+  freshTripIds?: string[];
 };
 
 export function ChatSidebar({
@@ -80,6 +82,7 @@ export function ChatSidebar({
   deletingTripId,
   workspace,
   recentTrips,
+  freshTripIds = [],
 }: ChatSidebarProps) {
   const [query, setQuery] = useState("");
   const [autoVisibleCount, setAutoVisibleCount] = useState(INITIAL_VISIBLE);
@@ -98,16 +101,18 @@ export function ChatSidebar({
         .filter((trip) => matchesTripQuery(trip, query))
         .map((trip) => ({
           id: trip.trip_id,
-          title:
+          title: getRecentTripDisplayTitle(
             trip.trip_id === currentTripId && workspace?.trip.trip_id === trip.trip_id
               ? workspace.tripDraft.title
               : trip.title,
+          ),
           activityTime: isHydrated
             ? formatTripActivityTime(trip.updated_at)
             : "Recently updated",
           isCurrent: trip.trip_id === currentTripId,
+          isFresh: freshTripIds.includes(trip.trip_id),
         })),
-    [currentTripId, isHydrated, query, recentTrips, workspace],
+    [currentTripId, freshTripIds, isHydrated, query, recentTrips, workspace],
   );
   const currentSessionIndex = recentSessions.findIndex((session) => session.isCurrent);
   const visibleCount = autoVisibleCount + manualVisibleCount;
@@ -163,12 +168,12 @@ export function ChatSidebar({
 
   return (
     <aside
+      data-collapsed={collapsed ? "true" : "false"}
       className={[
-        "flex h-full min-h-0 flex-col overflow-hidden border-r border-[color:var(--sidebar-shell-border)] bg-[color:var(--sidebar-shell-bg)] text-[color:var(--sidebar-text)]",
-        collapsed ? "w-[72px]" : "w-full",
+        "chat-sidebar-shell flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-[color:var(--sidebar-shell-border)] bg-[color:var(--sidebar-shell-bg)] text-[color:var(--sidebar-text)]",
       ].join(" ")}
     >
-      <div className={collapsed ? "px-2 pb-2 pt-3" : "px-3 pb-3 pt-3"}>
+      <div className={collapsed ? "chat-sidebar-section px-2 pb-2 pt-3" : "chat-sidebar-section px-3 pb-3 pt-3"}>
         <div className={collapsed ? "flex flex-col items-center gap-2" : "flex items-center gap-2"}>
           <button
             type="button"
@@ -207,7 +212,7 @@ export function ChatSidebar({
       </div>
 
       {!collapsed ? (
-        <div className="px-3 pb-2">
+        <div className="chat-sidebar-section px-3 pb-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[color:var(--sidebar-muted-text)]" />
             <input
@@ -225,7 +230,7 @@ export function ChatSidebar({
           </div>
         </div>
       ) : (
-        <div className="px-2 pb-2">
+        <div className="chat-sidebar-section px-2 pb-2">
           <div className="flex justify-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[color:var(--sidebar-shell-border)] bg-[color:var(--sidebar-surface)] text-[color:var(--sidebar-muted-text)]">
               <Search className="h-4 w-4" />
@@ -236,7 +241,7 @@ export function ChatSidebar({
 
       <div
         ref={listViewportRef}
-        className="min-h-0 flex-1 overflow-y-auto px-2 pt-1"
+        className="chat-sidebar-section min-h-0 flex-1 overflow-y-auto px-2 pt-1"
       >
         {!collapsed ? (
           <>
@@ -247,6 +252,9 @@ export function ChatSidebar({
                     key={session.id}
                     className={[
                       "group flex items-start gap-1 rounded-lg px-1 py-0.5",
+                      session.isFresh
+                        ? "animate-[sidebar-new-trip-glow_1800ms_ease-out_1] ring-1 ring-[color:var(--accent)]/30"
+                        : "",
                       session.isCurrent
                         ? "bg-[color:var(--sidebar-surface-strong)]"
                         : "hover:bg-[color:var(--sidebar-surface)]",
@@ -334,6 +342,9 @@ export function ChatSidebar({
                   }}
                   className={[
                     "flex h-10 w-10 items-center justify-center rounded-lg border text-[0.72rem] font-semibold uppercase transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent)]/40",
+                    session.isFresh
+                      ? "animate-[sidebar-new-trip-glow_1800ms_ease-out_1]"
+                      : "",
                     session.isCurrent
                       ? "border-[color:var(--accent)] bg-[color:var(--sidebar-surface-strong)] text-[color:var(--accent)]"
                       : "border-[color:var(--sidebar-shell-border)] bg-[color:var(--sidebar-surface)] text-[color:var(--sidebar-muted-text)] hover:bg-[color:var(--sidebar-hover)] hover:text-[color:var(--sidebar-text)]",
@@ -355,7 +366,7 @@ export function ChatSidebar({
 
       <div
         className={[
-          "flex items-center border-t border-[color:var(--sidebar-shell-border)] py-2",
+          "chat-sidebar-section flex items-center border-t border-[color:var(--sidebar-shell-border)] py-2",
           collapsed ? "justify-center px-2" : "px-2",
         ].join(" ")}
       >
@@ -556,7 +567,7 @@ function matchesTripQuery(trip: TripListItemResponse, query: string) {
   }
 
   const searchableText = [
-    trip.title,
+    getRecentTripDisplayTitle(trip.title),
     trip.from_location,
     trip.to_location,
     trip.phase,

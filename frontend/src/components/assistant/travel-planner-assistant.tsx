@@ -38,6 +38,7 @@ import {
 } from "@/lib/chat-history-cache";
 import { resolvePlannerLocationForTurn } from "@/lib/planner-location";
 import type { BrowserAuthSnapshot } from "@/lib/supabase/auth-snapshot";
+import { isEphemeralTripId } from "@/lib/trip-draft-starter";
 import type { ConversationBoardAction, PlannerProfileContext } from "@/types/conversation";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
@@ -49,8 +50,13 @@ type TravelPlannerAssistantProps = {
   skipInitialHistorySync: boolean;
   isSwitchingTrips: boolean;
   requestedTripId: string | null;
-  onEnsurePersistedTrip: () => Promise<PlannerWorkspaceState | null>;
-  onActivatePersistedTrip: (workspace: PlannerWorkspaceState) => void;
+  onEnsurePersistedTrip: (
+    sourceTripId?: string | null,
+  ) => Promise<PlannerWorkspaceState | null>;
+  onActivatePersistedTrip: (
+    workspace: PlannerWorkspaceState,
+    sourceTripId?: string | null,
+  ) => void;
   workspace: PlannerWorkspaceState | null;
   isBootstrapping: boolean;
   workspaceError: string | null;
@@ -245,6 +251,14 @@ export function TravelPlannerAssistant({
           }
 
           if (!cancelled) {
+            if (cachedMessages.length > 0) {
+              setSavedThreadState({
+                tripId,
+                messages: cachedMessages,
+              });
+              return;
+            }
+
             setSavedThreadState({
               tripId,
               messages: [],
@@ -474,6 +488,7 @@ function TravelPlannerAssistantRuntime({
       />
       <PersistedThreadStateSync tripId={tripId} />
       <EmptyThreadViewportReset />
+      <ChatViewportAutoScroll />
       <TravelPlannerBoardActions
         pendingBoardAction={pendingBoardAction}
         disabled={isBootstrapping || isSwitchingTrips || !hasWorkspace || hasError}
@@ -500,18 +515,7 @@ function TravelPlannerAssistantRuntime({
               )}
             </ThreadPrimitive.Empty>
 
-            <div
-              className={`mx-auto flex w-full max-w-[52rem] flex-col gap-6 ${
-                hasHydratedMessages ? "mt-auto pb-40" : "pb-4"
-              }`}
-            >
-              <ThreadPrimitive.Messages
-                components={{
-                  UserMessage,
-                  AssistantMessage,
-                }}
-              />
-            </div>
+            <ThreadMessagesStack hasHydratedMessages={hasHydratedMessages} />
           </ThreadPrimitive.Viewport>
 
           <Composer
@@ -537,6 +541,30 @@ function TravelPlannerAssistantRuntime({
   );
 }
 
+function ThreadMessagesStack({
+  hasHydratedMessages,
+}: {
+  hasHydratedMessages: boolean;
+}) {
+  const runtimeMessageCount = useThread((state) => state.messages.length);
+  const hasConversationMessages = hasHydratedMessages || runtimeMessageCount > 0;
+
+  return (
+    <div
+      className={`mx-auto flex w-full max-w-[52rem] flex-col gap-6 ${
+        hasConversationMessages ? "mt-auto pb-6" : "pb-4"
+      }`}
+    >
+      <ThreadPrimitive.Messages
+        components={{
+          UserMessage,
+          AssistantMessage,
+        }}
+      />
+    </div>
+  );
+}
+
 function ThreadHydrationSync({
   tripId,
   initialMessages,
@@ -548,6 +576,7 @@ function ThreadHydrationSync({
 }) {
   const runtime = useThreadRuntime();
   const runtimeMessages = useThread((state) => state.messages);
+  const isRunning = useThread((state) => state.isRunning);
   const didInitializeRef = useRef(false);
   const activeTripIdRef = useRef<string | null>(tripId);
   const lastHydratedSnapshotRef = useRef(
@@ -576,6 +605,22 @@ function ThreadHydrationSync({
     const tripChanged = activeTripIdRef.current !== tripId;
 
     if (tripChanged) {
+      const previousTripId = activeTripIdRef.current;
+      const preservingNewChatHandoff =
+        isEphemeralTripId(previousTripId) &&
+        Boolean(tripId && !isEphemeralTripId(tripId)) &&
+        runtimeMessages.length > 0;
+
+      if (preservingNewChatHandoff) {
+        activeTripIdRef.current = tripId;
+        lastHydratedSnapshotRef.current = runtimeSnapshot;
+        return;
+      }
+
+      if (isRunning) {
+        return;
+      }
+
       activeTripIdRef.current = tripId;
       lastHydratedSnapshotRef.current = initialSnapshot;
       runtime.reset(hydratedMessages);
@@ -587,13 +632,21 @@ function ThreadHydrationSync({
       initialSnapshot !== lastHydratedSnapshotRef.current &&
       runtimeSnapshot === lastHydratedSnapshotRef.current;
 
-    if (!historySeedChanged) {
+    if (!historySeedChanged || isRunning) {
       return;
     }
 
     lastHydratedSnapshotRef.current = initialSnapshot;
     runtime.reset(hydratedMessages);
-  }, [hydratedMessages, initialSnapshot, runtime, runtimeSnapshot, tripId]);
+  }, [
+    hydratedMessages,
+    initialSnapshot,
+    isRunning,
+    runtime,
+    runtimeMessages.length,
+    runtimeSnapshot,
+    tripId,
+  ]);
 
   return null;
 }
@@ -682,6 +735,52 @@ function EmptyThreadViewportReset() {
       window.clearTimeout(timeout);
     };
   }, [messages.length]);
+
+  return null;
+}
+
+function ChatViewportAutoScroll() {
+  const messageCount = useThread((state) => state.messages.length);
+  const isRunning = useThread((state) => state.isRunning);
+
+  useEffect(() => {
+    if (messageCount === 0) {
+      return;
+    }
+
+    const viewport = document.querySelector<HTMLElement>(
+      ".chat-workspace-scroll",
+    );
+
+    if (!viewport) {
+      return;
+    }
+
+    const distanceFromBottom =
+      viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+    const shouldStickToBottom =
+      messageCount <= 2 || isRunning || distanceFromBottom < 320;
+
+    if (!shouldStickToBottom) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+    const frame = window.requestAnimationFrame(() => {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+    });
+    const timeout = window.setTimeout(() => {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
+    }, 180);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [isRunning, messageCount]);
 
   return null;
 }
@@ -1057,9 +1156,9 @@ function AssistantWelcome({
 
 function UserMessage() {
   return (
-    <MessagePrimitive.Root className="flex justify-end">
+    <MessagePrimitive.Root className="chat-message-enter flex justify-end">
       <div className="flex max-w-[min(86%,44rem)] items-end gap-3">
-        <div className="min-w-0 flex-1 rounded-[1.1rem] rounded-br-md border border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,var(--color-background))] px-5 py-4 text-[length:var(--chat-size-body)] leading-[var(--chat-line-body)] text-foreground shadow-[var(--chat-shadow-card)]">
+        <div className="chat-user-bubble-enter min-w-0 flex-1 rounded-[1.1rem] rounded-br-md border border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,var(--color-background))] px-5 py-4 text-[length:var(--chat-size-body)] leading-[var(--chat-line-body)] text-foreground shadow-[var(--chat-shadow-card)]">
           <MessagePrimitive.Parts />
         </div>
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted/50 text-muted-foreground ring-1 ring-border/60">
@@ -1075,18 +1174,18 @@ function AssistantMessage() {
   const isRunning = status?.type === "running";
 
   return (
-    <MessagePrimitive.Root className="flex flex-col items-start gap-3">
+    <MessagePrimitive.Root className="chat-message-enter flex flex-col items-start gap-3">
       <div className="flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[color:color-mix(in_srgb,var(--accent)_12%,transparent)] text-[color:var(--accent)] shadow-[var(--chat-shadow-card)] ring-1 ring-[color:color-mix(in_srgb,var(--accent)_14%,transparent)]">
           <Bot className="h-4 w-4" />
         </div>
         <div className="max-w-[min(100%,48rem)]">
           {isRunning ? (
-            <div className="flex items-center py-2">
+            <div className="chat-assistant-bubble-enter flex items-center py-2">
               <AgentThinkingTyping />
             </div>
           ) : (
-            <div className="overflow-hidden rounded-[1rem] border border-border/70 bg-background/92 shadow-[var(--chat-shadow-soft)] dark:bg-card/96">
+            <div className="chat-assistant-bubble-enter overflow-hidden rounded-[1rem] border border-border/70 bg-background/92 shadow-[var(--chat-shadow-soft)] dark:bg-card/96">
               <div className="px-5 py-4 text-[length:var(--chat-size-body)] leading-[var(--chat-line-body)] text-foreground">
                 <MessagePrimitive.Parts />
               </div>
@@ -1112,51 +1211,83 @@ function Composer({
   const isEmptyThread = messages.length === 0;
   const sendDisabled = disabled || isRunning || composerIsEmpty || !composerRuntime;
   const showCancel = Boolean(composerRuntime && isRunning);
+  const [sendPulse, setSendPulse] = useState(false);
+  const sendPulseTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (sendPulseTimeoutRef.current !== null) {
+        window.clearTimeout(sendPulseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleSend = () => {
+    if (sendDisabled || !composerRuntime) {
+      return;
+    }
+
+    setSendPulse(true);
+    if (sendPulseTimeoutRef.current !== null) {
+      window.clearTimeout(sendPulseTimeoutRef.current);
+    }
+    sendPulseTimeoutRef.current = window.setTimeout(() => {
+      setSendPulse(false);
+      sendPulseTimeoutRef.current = null;
+    }, 420);
+    composerRuntime.send();
+  };
 
   return (
-    <ComposerPrimitive.Root className="border-t border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)] px-4 pb-4 pt-3 sm:px-8">
+    <ComposerPrimitive.Root className="bg-[color:var(--chat-pane-bg)] px-4 py-3 sm:px-8">
       <div className="mx-auto w-full max-w-[52rem]">
-        <div className="overflow-hidden rounded-xl border border-[color:var(--chat-rail-border-strong)] bg-[color:var(--chat-rail-surface-strong)] p-2">
-          <div className="flex items-end gap-2">
-            <div className="flex min-w-0 flex-1 rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] px-3 py-2.5 transition-colors focus-within:border-[color:var(--accent)]/45">
-              <ComposerPrimitive.Input
-                name="trip-message"
-                rows={1}
-                placeholder={
-                  disabled
-                    ? disabledPlaceholder
-                    : isEmptyThread
-                      ? "Start with a destination, a season, or just the kind of trip you want..."
-                      : "Continue shaping your trip..."
-                }
-                disabled={disabled}
-                className="min-h-12 max-h-40 w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
-              />
-            </div>
+        <div
+          className={`flex min-h-14 items-center gap-2.5 rounded-xl border border-[color:var(--chat-rail-border-strong)] bg-[color:var(--chat-rail-control-bg)] px-4 py-2 shadow-[var(--chat-shadow-card)] transition-colors focus-within:border-[color:var(--accent)]/50 ${
+            sendPulse ? "chat-composer-sent" : ""
+          }`}
+        >
+          <ComposerPrimitive.Input
+            name="trip-message"
+            rows={1}
+            placeholder={
+              disabled
+                ? disabledPlaceholder
+                : isEmptyThread
+                  ? "Start with a destination, a season, or just the kind of trip you want..."
+                  : "Message Wandrix..."
+            }
+            disabled={disabled}
+            className="min-h-9 max-h-32 min-w-0 flex-1 resize-none bg-transparent px-0 py-1.5 text-[0.95rem] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
+          />
+          {showCancel ? (
+            <button
+              type="button"
+              onClick={() => {
+                composerRuntime?.cancel();
+              }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[color:var(--accent)] text-[color:var(--chat-composer-on-accent)] shadow-[var(--chat-shadow-card)] transition-[opacity,transform] hover:-translate-y-0.5 hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)]/20"
+              aria-label="Stop generating"
+            >
+              <span className="h-3.5 w-3.5 rounded-[0.18rem] bg-[color:var(--chat-composer-on-accent)]" />
+            </button>
+          ) : (
             <button
               type="button"
               disabled={sendDisabled}
-              onClick={() => {
-                composerRuntime?.send();
-              }}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[linear-gradient(135deg,var(--accent),var(--accent2))] text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-55"
+              onClick={handleSend}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[color:var(--accent)] text-[color:var(--chat-composer-on-accent)] shadow-[var(--chat-shadow-card)] transition-[opacity,transform] hover:-translate-y-0.5 hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-100 disabled:hover:translate-y-0"
               aria-label="Send message"
             >
-              <ArrowUp className="h-4 w-4" />
-            </button>
-            {showCancel ? (
-              <button
-                type="button"
-                onClick={() => {
-                  composerRuntime?.cancel();
+              <ArrowUp
+                className="h-5 w-5"
+                strokeWidth={2.4}
+                style={{
+                  color: "#ffffff",
+                  stroke: "#ffffff",
                 }}
-                className="h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-foreground transition-colors hover:bg-[color:var(--chat-rail-surface)] disabled:hidden"
-                aria-label="Stop generating"
-              >
-                <span className="h-4 w-4 rounded-[0.2rem] bg-current" />
-              </button>
-            ) : null}
-          </div>
+              />
+            </button>
+          )}
         </div>
       </div>
     </ComposerPrimitive.Root>
@@ -1182,8 +1313,13 @@ async function buildAssistantReply({
   workspaceError: string | null;
   latestText: string;
   authSnapshot: BrowserAuthSnapshot | null;
-  onEnsurePersistedTrip: () => Promise<PlannerWorkspaceState | null>;
-  onActivatePersistedTrip: (workspace: PlannerWorkspaceState) => void;
+  onEnsurePersistedTrip: (
+    sourceTripId?: string | null,
+  ) => Promise<PlannerWorkspaceState | null>;
+  onActivatePersistedTrip: (
+    workspace: PlannerWorkspaceState,
+    sourceTripId?: string | null,
+  ) => void;
   profileContext: PlannerProfileContext | null;
   pendingBoardAction: ConversationBoardAction | null;
   onDraftUpdated: (tripDraft: TripDraft) => void;
@@ -1226,6 +1362,14 @@ async function buildAssistantReply({
         );
 
         if (!openingTurn.should_start_trip) {
+          const persistedWorkspace = await onEnsurePersistedTrip(workspace.trip.trip_id);
+          const resolvedTripId = persistedWorkspace?.trip.trip_id ?? null;
+
+          if (persistedWorkspace && resolvedTripId) {
+            cacheAssistantTurn(resolvedTripId, latestText, openingTurn.message);
+            onActivatePersistedTrip(persistedWorkspace, workspace.trip.trip_id);
+          }
+
           return openingTurn.message;
         }
       } catch {
@@ -1234,7 +1378,9 @@ async function buildAssistantReply({
     }
 
     const persistedWorkspace =
-      workspace?.isEphemeral ? await onEnsurePersistedTrip() : workspace;
+      workspace?.isEphemeral
+        ? await onEnsurePersistedTrip(workspace.trip.trip_id)
+        : workspace;
     const resolvedTripId = persistedWorkspace?.trip.trip_id ?? activeTripId;
 
     if (!resolvedTripId) {
@@ -1260,14 +1406,17 @@ async function buildAssistantReply({
       cacheAssistantTurn(resolvedTripId, latestText, response.message);
 
       if (shouldSurfacePersistedWorkspace) {
-        onActivatePersistedTrip({
-          ...persistedWorkspace,
-          trip: {
-            ...persistedWorkspace.trip,
-            title: response.trip_draft.title,
+        onActivatePersistedTrip(
+          {
+            ...persistedWorkspace,
+            trip: {
+              ...persistedWorkspace.trip,
+              title: response.trip_draft.title,
+            },
+            tripDraft: response.trip_draft,
           },
-          tripDraft: response.trip_draft,
-        });
+          workspace.trip.trip_id,
+        );
       }
     }
 

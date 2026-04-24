@@ -40,8 +40,10 @@ import {
 } from "@/lib/trip-draft-starter";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
+  DEFAULT_RECENT_CHAT_TITLE,
   filterMeaningfulRecentTrips,
   getRecentTripsCacheKey,
+  mergeRecentTripsForCacheWrite,
   mergeRecentTripsForSidebarRefresh,
   readRecentTripsCache,
   sortRecentTripsByActivity,
@@ -80,18 +82,12 @@ export function TravelPackageWorkspace({
     useState<string | null | undefined>(undefined);
   const selectedTripId =
     clientSelectedTripId === undefined ? routeSelectedTripId : clientSelectedTripId;
-  const [initialWorkspace] = useState<PlannerWorkspaceState | null>(() =>
-    initialMode === "new"
-      ? buildEphemeralWorkspace(null)
-      : readInitialWorkspace(routeSelectedTripId),
+  const [workspace, setWorkspace] = useState<PlannerWorkspaceState | null>(() =>
+    initialMode === "new" ? buildEphemeralWorkspace(null) : null,
   );
-  const [workspace, setWorkspace] =
-    useState<PlannerWorkspaceState | null>(initialWorkspace);
   const [recentTrips, setRecentTrips] = useState<TripListItemResponse[]>([]);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [isBootstrapping, setIsBootstrapping] = useState(
-    !initialWorkspace && initialMode !== "new",
-  );
+  const [isBootstrapping, setIsBootstrapping] = useState(initialMode !== "new");
   const [isCreatingTrip, setIsCreatingTrip] = useState(false);
   const [deletingTripId, setDeletingTripId] = useState<string | null>(null);
   const [renamingTripId, setRenamingTripId] = useState<string | null>(null);
@@ -119,6 +115,11 @@ export function TravelPackageWorkspace({
   const { isSidebarCollapsed, setIsSidebarCollapsed } =
     useChatSidebarCollapsedState();
   const shouldOpenFreshChat = initialMode === "new" && !selectedTripId;
+
+  function getProtectedRecentTripIds() {
+    const activeTripId = workspaceTripIdRef.current;
+    return activeTripId && !isEphemeralTripId(activeTripId) ? [activeTripId] : [];
+  }
 
   useEffect(() => {
     function handlePopState() {
@@ -242,7 +243,9 @@ export function TravelPackageWorkspace({
       if (canUseCachedWorkspace && cachedWorkspace) {
         setWorkspace(cachedWorkspace);
         setRecentTrips((currentTrips) =>
-          mergeRecentTripsWithWorkspace(currentTrips, cachedWorkspace),
+          currentTrips.length > 0
+            ? mergeRecentTripsWithWorkspace(currentTrips, cachedWorkspace)
+            : currentTrips,
         );
         setIsBootstrapping(false);
       }
@@ -307,6 +310,7 @@ export function TravelPackageWorkspace({
               nextAuthSnapshot.accessToken,
               () => cancelled,
               setRecentTrips,
+              getProtectedRecentTripIds,
             );
           }
 
@@ -328,6 +332,7 @@ export function TravelPackageWorkspace({
               nextAuthSnapshot.accessToken,
               () => cancelled,
               setRecentTrips,
+              getProtectedRecentTripIds,
             );
           }
 
@@ -379,6 +384,7 @@ export function TravelPackageWorkspace({
             nextAuthSnapshot.accessToken,
             () => cancelled,
             setRecentTrips,
+            getProtectedRecentTripIds,
           );
         }
       } catch (caughtError) {
@@ -414,7 +420,17 @@ export function TravelPackageWorkspace({
       return;
     }
 
-    writeRecentTripsCache(recentTripsCacheKey, recentTrips);
+    if (filterMeaningfulRecentTrips(recentTrips).length === 0) {
+      return;
+    }
+
+    writeRecentTripsCache(
+      recentTripsCacheKey,
+      mergeRecentTripsForCacheWrite(
+        readRecentTripsCache(recentTripsCacheKey),
+        recentTrips,
+      ),
+    );
   }, [recentTrips, recentTripsCacheKey]);
 
   useEffect(() => {
@@ -437,6 +453,7 @@ export function TravelPackageWorkspace({
       authSnapshot.accessToken,
       () => false,
       setRecentTrips,
+      getProtectedRecentTripIds,
     );
   }, [
     authSnapshot?.accessToken,
@@ -457,6 +474,10 @@ export function TravelPackageWorkspace({
   function handleDraftUpdated(nextDraft: PlannerWorkspaceState["tripDraft"]) {
     setWorkspace((current) => {
       if (!current) {
+        return current;
+      }
+
+      if (current.trip.trip_id !== nextDraft.trip_id) {
         return current;
       }
 
@@ -625,8 +646,12 @@ export function TravelPackageWorkspace({
     }
   }
 
-  async function ensurePersistedTrip() {
+  async function ensurePersistedTrip(sourceTripId?: string | null) {
     if (!workspace) {
+      return null;
+    }
+
+    if (sourceTripId && workspaceTripIdRef.current !== sourceTripId) {
       return null;
     }
 
@@ -653,12 +678,23 @@ export function TravelPackageWorkspace({
       browserSession.browser_session_id.startsWith("draft_browser_session_")
     ) {
       browserSession = await ensureBrowserSession(nextAuthSnapshot.accessToken);
+      if (sourceTripId && workspaceTripIdRef.current !== sourceTripId) {
+        return null;
+      }
     }
 
     const trip = await createTrip(
-      { browser_session_id: browserSession.browser_session_id },
+      {
+        browser_session_id: browserSession.browser_session_id,
+        title: DEFAULT_RECENT_CHAT_TITLE,
+      },
       nextAuthSnapshot.accessToken,
     );
+
+    if (sourceTripId && workspaceTripIdRef.current !== sourceTripId) {
+      return null;
+    }
+
     const nextWorkspace: PlannerWorkspaceState = {
       isEphemeral: false,
       browserSession,
@@ -670,7 +706,14 @@ export function TravelPackageWorkspace({
     return nextWorkspace;
   }
 
-  function activatePersistedTrip(nextWorkspace: PlannerWorkspaceState) {
+  function activatePersistedTrip(
+    nextWorkspace: PlannerWorkspaceState,
+    sourceTripId?: string | null,
+  ) {
+    if (sourceTripId && workspaceTripIdRef.current !== sourceTripId) {
+      return;
+    }
+
     detachedPersistedWorkspaceRef.current = null;
     setPendingTripId(nextWorkspace.trip.trip_id);
     setClientSelectedTripId(nextWorkspace.trip.trip_id);
@@ -684,13 +727,7 @@ export function TravelPackageWorkspace({
       mergeRecentTripsWithWorkspace(currentTrips, nextWorkspace),
     );
 
-    const nextParams = new URLSearchParams(searchParams.toString());
-    nextParams.set("trip", nextWorkspace.trip.trip_id);
-    nextParams.delete("new");
-    const nextQuery = nextParams.toString();
-    router.replace(nextQuery ? `${CHAT_ROUTE}?${nextQuery}` : CHAT_ROUTE, {
-      scroll: false,
-    });
+    updateTripUrlWithoutNavigation(nextWorkspace.trip.trip_id, "replace");
   }
 
   async function handleCreateTrip() {
@@ -891,12 +928,8 @@ export function TravelPackageWorkspace({
 
   return (
     <section
-      className={[
-        "grid h-full min-h-0 bg-background",
-        isSidebarCollapsed
-          ? "xl:grid-cols-[72px_minmax(0,0.72fr)_minmax(0,1.28fr)]"
-          : "xl:grid-cols-[264px_minmax(0,0.8fr)_minmax(0,1.2fr)]",
-      ].join(" ")}
+      data-sidebar-collapsed={isSidebarCollapsed ? "true" : "false"}
+      className="chat-workspace-layout grid h-full min-h-0 bg-background"
     >
       <ChatSidebar
         activeTripId={requestedTripId}
@@ -916,6 +949,7 @@ export function TravelPackageWorkspace({
         deletingTripId={deletingTripId}
         workspace={workspace}
         recentTrips={recentTrips}
+        freshTripIds={freshTripIds}
       />
 
       <div className="min-h-0 border-r border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)]">
@@ -1156,6 +1190,7 @@ async function refreshRecentTrips(
   accessToken: string,
   shouldCancel: () => boolean,
   setRecentTrips: Dispatch<SetStateAction<TripListItemResponse[]>>,
+  getPreservedTripIds: () => string[] = () => [],
 ) {
   try {
     const nextTrips = await withAbortableTimeout(
@@ -1166,7 +1201,9 @@ async function refreshRecentTrips(
 
     if (!shouldCancel()) {
       setRecentTrips((currentTrips) =>
-        mergeRecentTripsForSidebarRefresh(currentTrips, nextTrips.items),
+        mergeRecentTripsForSidebarRefresh(currentTrips, nextTrips.items, {
+          preserveTripIds: getPreservedTripIds(),
+        }),
       );
     }
   } catch {
@@ -1187,14 +1224,17 @@ function readLastActiveTripId() {
   return storedTripId.startsWith("draft_trip_") ? null : storedTripId;
 }
 
-function readInitialWorkspace(routeSelectedTripId: string | null) {
-  const initialTripId = routeSelectedTripId ?? readLastActiveTripId();
-  return readWorkspaceCache(initialTripId);
-}
-
-function updateTripUrlWithoutNavigation(tripId: string) {
+function updateTripUrlWithoutNavigation(
+  tripId: string,
+  mode: "push" | "replace" = "push",
+) {
   const nextUrl = `${CHAT_ROUTE}?trip=${encodeURIComponent(tripId)}`;
   if (window.location.pathname === CHAT_ROUTE && window.location.search === `?trip=${tripId}`) {
+    return;
+  }
+
+  if (mode === "replace") {
+    window.history.replaceState(null, "", nextUrl);
     return;
   }
 

@@ -2,6 +2,7 @@ import type { TripListItemResponse } from "@/types/trip";
 import type { ChatPlannerPhase } from "@/types/trip-conversation";
 
 const RECENT_TRIPS_CACHE_PREFIX = "wandrix:recent-trips:";
+export const DEFAULT_RECENT_CHAT_TITLE = "New chat";
 const VALID_CHAT_PHASES: ChatPlannerPhase[] = [
   "opening",
   "collecting_requirements",
@@ -137,11 +138,46 @@ export function sortRecentTripsByActivity(trips: TripListItemResponse[]) {
   return [...trips].sort(compareRecentTripActivity);
 }
 
+export function getRecentTripDisplayTitle(title: string) {
+  const trimmedTitle = title.trim();
+
+  if (!trimmedTitle || isGeneratedTripTitle(trimmedTitle)) {
+    return DEFAULT_RECENT_CHAT_TITLE;
+  }
+
+  return trimmedTitle;
+}
+
+export function mergeRecentTripsForCacheWrite(
+  cachedTrips: TripListItemResponse[],
+  liveTrips: TripListItemResponse[],
+) {
+  const nextTripsById = new Map<string, TripListItemResponse>();
+
+  for (const trip of filterMeaningfulRecentTrips(cachedTrips)) {
+    nextTripsById.set(trip.trip_id, trip);
+  }
+
+  for (const trip of filterMeaningfulRecentTrips(liveTrips)) {
+    const cachedTrip = nextTripsById.get(trip.trip_id);
+    nextTripsById.set(
+      trip.trip_id,
+      cachedTrip ? mergeRecentTripRows(cachedTrip, trip) : trip,
+    );
+  }
+
+  return sortRecentTripsByActivity([...nextTripsById.values()]);
+}
+
 export function mergeRecentTripsForSidebarRefresh(
   currentTrips: TripListItemResponse[],
   nextTrips: TripListItemResponse[],
+  options: {
+    preserveTripIds?: string[];
+  } = {},
 ) {
   const filteredNextTrips = filterMeaningfulRecentTrips(nextTrips);
+  const preserveTripIds = new Set(options.preserveTripIds ?? []);
 
   if (currentTrips.length === 0) {
     return sortRecentTripsByActivity(filteredNextTrips);
@@ -152,7 +188,11 @@ export function mergeRecentTripsForSidebarRefresh(
   );
   const preservedTrips = currentTrips.flatMap((trip) => {
     const refreshedTrip = nextTripById.get(trip.trip_id);
-    return refreshedTrip ? [mergeRecentTripRows(trip, refreshedTrip)] : [];
+    if (refreshedTrip) {
+      return [mergeRecentTripRows(trip, refreshedTrip)];
+    }
+
+    return preserveTripIds.has(trip.trip_id) ? [trip] : [];
   });
   const unseenTrips = sortRecentTripsByActivity(
     filteredNextTrips.filter(
@@ -222,4 +262,8 @@ function compareRecentTripActivity(
 function toRecentTripTimestamp(value: string) {
   const timestamp = Date.parse(value);
   return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function isGeneratedTripTitle(title: string) {
+  return /^Trip [a-f0-9]{6}$/i.test(title);
 }
