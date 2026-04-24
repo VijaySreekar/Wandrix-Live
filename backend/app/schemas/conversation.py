@@ -6,10 +6,13 @@ from app.schemas.trip_conversation import (
     CheckpointConversationMessage,
     ChatPlannerPhase,
     PlannerAdvancedAnchor,
+    PlannerFlightStrategy,
     PlannerActivityCandidateKind,
     PlannerActivityDaypart,
     PlannerActivityDisposition,
     PlannerTripPace,
+    PlannerTripStyleTradeoffAxis,
+    PlannerTripStyleTradeoffChoice,
     PlannerTripDirectionAccent,
     PlannerTripDirectionPrimary,
     PlannerReviewResolutionScope,
@@ -54,6 +57,11 @@ class ConversationBoardAction(BaseModel):
         "select_date_option",
         "pick_dates_for_me",
         "confirm_working_dates",
+        "select_flight_strategy",
+        "select_outbound_flight",
+        "select_return_flight",
+        "confirm_flight_selection",
+        "keep_flights_open",
         "select_stay_option",
         "select_stay_hotel",
         "keep_current_stay_choice",
@@ -74,10 +82,15 @@ class ConversationBoardAction(BaseModel):
         "select_trip_style_pace",
         "confirm_trip_style_pace",
         "keep_current_trip_style_pace",
+        "set_trip_style_tradeoff",
+        "confirm_trip_style_tradeoffs",
+        "keep_current_trip_style_tradeoffs",
         "set_stay_hotel_filters",
         "set_stay_hotel_sort",
         "set_stay_hotel_page",
         "reset_stay_hotel_filters",
+        "revise_advanced_review_section",
+        "finalize_advanced_plan",
         "finalize_quick_plan",
         "reopen_plan",
     ]
@@ -86,6 +99,8 @@ class ConversationBoardAction(BaseModel):
     country_or_region: str | None = Field(default=None, max_length=120)
     suggestion_id: str | None = Field(default=None, max_length=80)
     date_option_id: str | None = Field(default=None, max_length=80)
+    flight_strategy: PlannerFlightStrategy | None = None
+    flight_option_id: str | None = Field(default=None, max_length=120)
     stay_option_id: str | None = Field(default=None, max_length=80)
     stay_segment_id: str | None = Field(default=None, max_length=80)
     stay_hotel_id: str | None = Field(default=None, max_length=120)
@@ -99,6 +114,8 @@ class ConversationBoardAction(BaseModel):
     trip_style_direction_primary: PlannerTripDirectionPrimary | None = None
     trip_style_direction_accent: PlannerTripDirectionAccent | None = None
     trip_style_pace: PlannerTripPace | None = None
+    trip_style_tradeoff_axis: PlannerTripStyleTradeoffAxis | None = None
+    trip_style_tradeoff_value: PlannerTripStyleTradeoffChoice | None = None
     review_resolution_scope: PlannerReviewResolutionScope | None = None
     stay_hotel_max_nightly_rate: float | None = Field(default=None, ge=0)
     stay_hotel_area_filter: str | None = Field(default=None, max_length=160)

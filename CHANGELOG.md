@@ -9,6 +9,365 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-24 - Added Planner Conflict Detection
+
+Technical Summary:
+- Added planner-owned conflict records with severity, category, affected areas, evidence, source decision ids, suggested repair text, and optional revision target.
+- Built advisory conflict detection from existing Trip Style, Pace, Flights, Stay, Weather, Activities, and provider-confidence signals without automatically mutating the plan.
+- Surfaced planning tensions in Advanced Review and the live board, with repair buttons routing to existing Advanced revision workspaces where possible.
+- Preserved conflicts in brochure worth-reviewing notes and finalized warning output.
+- Added targeted backend coverage for schedule-density, style mismatch, review propagation, provider-confidence conflict, and brochure preservation.
+
+Plain-English Summary:
+- Wandrix can now notice when parts of the plan pull against each other, such as a slow-paced trip becoming too full or a food-led trip missing food anchors.
+- These tensions are advisory: the app explains them and suggests where to review, but it does not silently change the trip.
+- Finalized brochures now keep those caution notes so the saved proposal remains honest.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/services/brochure_service.py`
+- `backend/tests/test_brochure_service.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Confidence-Aware Provider Clarification
+
+Technical Summary:
+- Added structured provider reliability blockers to planner observability so blocked module activation records the unreliable field, source, confidence, and traveler-facing reason.
+- Converted the highest-priority reliability blocker into an open question for the conversation state, including cases where a value exists but came from profile memory or another weak source.
+- Updated Quick Plan waiting copy to name the next reliability question instead of only saying live planning is blocked.
+- Threaded provider activation context through conversation-state building so confidence questions stay visible only while the relevant field remains unreliable.
+- Added runtime coverage for profile-derived origin blocking live flight search and producing a route clarification.
+
+Plain-English Summary:
+- Wandrix now distinguishes “we do not know this yet” from “we have a guess, but it is not reliable enough for live provider checks.”
+- If a flight search would use a profile-default origin or another soft assumption, the chat and board now ask the exact confirmation needed before spending provider calls.
+- This makes the planner more careful without making the user repeat details that are already genuinely confirmed.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Surfaced Decision Confidence In Advanced Review
+
+Technical Summary:
+- Added Advanced Review decision-signal contracts that expose current decision value, source, confidence, status, related anchor, and traveler-facing caution note.
+- Reordered planner memory merge timing so current-turn decision memory can inform the review workspace instead of appearing one turn late.
+- Updated Advanced Review readiness and section notes to account for low-confidence, inferred, profile-default, working, or needs-review decision memory without overriding stronger explicit choices.
+- Rendered a Decision Sources panel in the Advanced Review board and added frontend type/default parity.
+- Added merge semantics coverage for low-confidence decision memory influencing review readiness and source notes.
+
+Plain-English Summary:
+- The review board now shows why Wandrix trusts each major planning choice, whether it was chosen directly, inferred, pulled from profile defaults, or based on provider data.
+- Weaker signals now become gentle “worth checking” notes instead of being hidden behind a polished summary.
+- This makes the final review more transparent and helps users catch assumptions before saving a brochure-ready plan.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Planner Decision Memory Foundation
+
+Technical Summary:
+- Added planner-owned decision memory records for core trip facts and Advanced Planning decisions with source, confidence, status, rationale, related anchor, and update time.
+- Extended conversation memory so intake fields, profile defaults, board actions, chat decisions, provider-backed weather, Trip Style, Flights, Stay, Activities, and Advanced Review can be summarized as current decision state.
+- Added reducer helpers that preserve stronger explicit/board sources over weaker inferred/profile/system updates and keep profile defaults as working memory rather than confirmed facts.
+- Added frontend type/default parity for the new decision memory contract.
+- Added merge semantics coverage for profile-default softness, source-priority preservation, completed Trip Style memory, and board-confirmed flight memory.
+
+Plain-English Summary:
+- Wandrix now remembers not just what the current plan says, but where important decisions came from and how strongly it should trust them.
+- Profile defaults remain helpful suggestions instead of being treated like user-confirmed facts.
+- This gives future planner intelligence a cleaner base for better clarification, provider readiness, review explanations, and resume behavior.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Upgraded Advanced Brochures Into Proposal Outputs
+
+Technical Summary:
+- Extended brochure snapshot payloads with optional Advanced Review, trip character, section summary, flexible-item, planned-experience, and worth-reviewing fields while preserving legacy payload validation.
+- Built the new Advanced brochure fields from finalized conversation state across review, trip style, flights, stay, activities, and weather planning.
+- Redesigned the web brochure as a luxury proposal with an immersive hero, proposal status cards, trip character section, flexible/review notes, refined itinerary treatment, and logistics side panels.
+- Added Advanced proposal sections to print HTML and added a system Chrome fallback for PDF rendering when bundled Playwright Chromium is unavailable.
+- Added targeted brochure service tests for Advanced payloads, needs-review notes, legacy payload compatibility, and Quick Plan compatibility.
+
+Plain-English Summary:
+- Finalized Advanced trips now open as polished proposal-style brochures instead of plain trip summaries.
+- The brochure shows what is selected, what is still flexible, what is worth reviewing, and how trip character, flights, stay, activities, and weather shaped the saved plan.
+- Older and Quick Plan brochures still load cleanly without requiring Advanced-only data.
+
+Files / Areas Touched:
+- `backend/app/schemas/brochure.py`
+- `backend/app/services/brochure_service.py`
+- `backend/tests/test_brochure_service.py`
+- `frontend/src/components/brochure/trip-brochure.tsx`
+- `frontend/src/types/brochure.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Advanced Review Finalization
+
+Technical Summary:
+- Added a dedicated `finalize_advanced_plan` board action and structured `requested_advanced_finalization` planner update.
+- Routed Advanced Review finalization into the existing finalized status and immutable brochure snapshot flow without changing Quick Plan finalization.
+- Added an Advanced Review finalization panel with readiness-specific advisory copy for ready, flexible, and needs-review states.
+- Updated assistant responses, audit messages, and decision history so Advanced finalization is distinct from Quick Plan locking.
+- Added backend coverage for board/chat Advanced finalization, advisory warnings, Quick Plan separation, finalized-lock behavior, and brochure snapshot triggering.
+
+Plain-English Summary:
+- Users can now save a reviewed Advanced Planning trip as a brochure-ready version from the review board.
+- Flexible choices and warning notes are allowed, but Wandrix explains what will be captured before saving.
+- Quick Plan finalization remains separate, so the two planning modes stay clear.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/schemas/conversation.py`
+- `backend/tests/test_conversation_service.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Advanced Planning Review Board
+
+Technical Summary:
+- Added planner-owned Advanced Review state with readiness status, completed/open summaries, section cards, and review notes.
+- Added the `advanced_review_workspace` board mode plus review-specific backend/frontend contracts and board action support for revising flights, stay, trip style, or activities.
+- Routed Advanced Planning into review when enabled planning areas are complete or when the user asks to review the plan, while preserving Quick Plan finalization behavior.
+- Updated chat understanding instructions so review language requests review rather than finalization, and review revision language routes back to existing workspaces.
+- Added targeted backend coverage for review summaries, automatic review entry, chat-requested review, revision routing, and understanding prompt behavior.
+
+Plain-English Summary:
+- Wandrix can now show a clean “what we have so far” review inside chat before finalizing anything.
+- The review board summarizes working flights, current stay, trip character, planned experiences, flexible items, and weather notes using traveler-friendly language.
+- Users can jump back into a specific planning area from review without treating the plan as booked or brochure-ready.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Forecast-Aware Weather Nudges
+
+Technical Summary:
+- Extended normalized weather contracts with forecast dates, weather codes, condition tags, temperature bands, and risk levels.
+- Added planner-owned weather context with ready/unavailable/not-requested status, day impact summaries, and activity influence notes.
+- Fed live forecast signals into Advanced Activities as soft ranking and scheduling nudges while preserving manual edits, fixed events, trip style, stay, and flight constraints.
+- Updated the live board and activities workspace summaries so weather influence is visible without pretending long-range forecasts exist.
+- Added targeted provider and planner coverage for weather code mapping, unavailable forecast handling, and rainy-day indoor activity nudging.
+
+Plain-English Summary:
+- Weather now helps shape the plan when real forecast data is available.
+- Rain, storms, heat, cold, snow, and clear weather can gently influence which activities are emphasized and how days are explained.
+- If forecast data is not available yet, Wandrix says so plainly and only uses the traveler’s weather preference lightly.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/services/providers/weather.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_weather_provider.py`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Enriched Advanced Flight Inventory
+
+Technical Summary:
+- Extended normalized flight contracts with fare text, stop counts, layover summaries, leg details, timing quality, and inventory notices.
+- Updated Amadeus and Travelpayouts flight adapters to preserve richer segment, duration, transfer, fare, and partial-inventory detail behind internal provider normalization.
+- Added strategy-aware flight option ranking so smoothest route favors fewer stops, best timing favors humane travel windows, and best value favors lower fare snapshots when available.
+- Upgraded the Advanced flights workspace and selected-flight live board treatment to show richer flight details without becoming a raw inventory table.
+- Added targeted backend coverage for multi-segment live inventory mapping, cached fallback detail, and richer strategy recommendation behavior.
+
+Plain-English Summary:
+- Flight choices now feel much more useful inside chat.
+- The user can see whether an option is direct or has stops, how long it takes, what fare snapshot is available, and whether the inventory is live, cached, or planning-grade.
+- Wandrix still frames flights as working planning choices, not final schedules.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/services/providers/flights.py`
+- `backend/tests/test_flights_provider.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Flight Timing Impact For Advanced Planning
+
+Technical Summary:
+- Extended planner-owned `flight_planning` with confirmed selected-flight snapshots, arrival/departure impact summaries, and timing review notes.
+- Updated Advanced timeline derivation so only confirmed selected outbound/return flights become flight timeline anchors; raw provider options remain workspace candidates only.
+- Fed confirmed flight timing into the activities scheduler as soft arrival/departure constraints, lightening Day 1 for late arrivals and the final day for early returns while preserving fixed events, manual placements, and reserve decisions.
+- Updated assistant response copy and live board rendering so selected working flights and flight timing impacts are visible without implying booking or ticketing.
+- Added targeted coverage for selected-flight timeline anchors, late-arrival/early-return activity softening, keep-flexible behavior, and fixed-event preservation under flight pressure.
+
+Plain-English Summary:
+- Confirmed flights now matter to the trip plan.
+- If the selected outbound arrives late, Wandrix keeps the first day lighter; if the return leaves early, it avoids overfilling the final day.
+- The plan still respects user-picked activities and fixed events first, and keeps flight choices clearly framed as working planning inputs, not bookings.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Advanced Flights Working Options
+
+Technical Summary:
+- Added planner-owned `flight_planning` state with strategy cards, outbound/return option cards, route-readiness blocking, placeholder handling, selection status, summaries, and downstream notes.
+- Added Advanced flight board/chat actions for selecting a strategy, selecting outbound and return options, confirming flights, and keeping flights open, all merged through the same reducer path.
+- Added the dedicated `advanced_flights_workspace` board mode and frontend workspace controls, plus a live-board summary for completed or in-progress flight planning.
+- Reordered flight provider enrichment to prefer Travelpayouts results first, with Amadeus retained as fallback.
+- Added targeted backend coverage for provider ordering, blocked flight readiness, provider-backed options, placeholders, board/chat convergence, runtime completion, and understanding prompt semantics.
+
+Plain-English Summary:
+- Flights now work as a real Advanced Planning branch inside chat.
+- The user can choose what kind of flight shape Wandrix should plan around, pick outbound and return options separately, or intentionally keep flights flexible.
+- If live inventory is weak, Wandrix still gives useful planning placeholders without pretending anything is booked.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/services/providers/flights.py`
+- `backend/tests/test_flights_provider.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Closed Trip Style Verification Gaps
+
+Technical Summary:
+- Updated the Trip Style runtime expectation so selecting the `trip_style` Advanced anchor now verifies the dedicated Direction workspace instead of the old generic placeholder board.
+- Preserved the stay-review response wording that reassures users Activities remain the active planning driver while a strained stay choice is reviewed.
+- Shortened the completed Trip Style board subtitle so live persisted conversations stay inside the typed board contract after Direction, Pace, and Tradeoffs are all summarized.
+
+Plain-English Summary:
+- The Trip Style branch verification now matches the real Direction, Pace, and Tradeoffs flow.
+- When Activities create tension with a saved stay choice, Wandrix now clearly says Activities are still leading while it asks the user to review the stay.
+- The live board handoff after Trip Style completion no longer risks failing because the summary text is too long.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_planner_runtime_quality.py`
+
+## 2026-04-24 - Added Trip Style Tradeoffs Before Activities
+
+Technical Summary:
+- Extended Advanced Trip Style from `Direction -> Pace -> completed` to `Direction -> Pace -> Tradeoffs -> completed`, with the new `advanced_trip_style_tradeoffs` board mode and planner-owned tradeoff cards, decisions, status, rationale, and downstream summaries.
+- Added board/chat actions for setting and confirming tradeoffs, using the same reducer path for board clicks and structured chat updates.
+- Implemented adaptive v1 tradeoff card selection across must-sees vs wandering, convenience vs atmosphere, early starts vs evening energy, and polished vs hidden gems, informed by Direction, Pace, accent, stay/hotel context, and trip style signals.
+- Fed confirmed Tradeoffs into activity ranking and rationale as soft tie-breakers while preserving existing activity dispositions, reserves, manual schedule preferences, and fixed-time event locks.
+- Added focused backend coverage for Tradeoff action merging, adaptive card selection, Tradeoff completion, activity ranking influence, runtime handoff, and understanding prompt semantics.
+
+Plain-English Summary:
+- Trip Style now has a final refinement step before Activities opens.
+- After choosing the trip character and day pace, the user can decide how Wandrix should break close calls, like must-sees vs wandering or convenience vs atmosphere.
+- Activities now inherit those choices as soft preferences, not rigid rules, so the plan feels more intentional without overwriting user edits.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
 ## 2026-04-24 - Added Trip Style Pace Before Activities
 
 Technical Summary:

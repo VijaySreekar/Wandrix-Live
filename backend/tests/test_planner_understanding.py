@@ -202,6 +202,34 @@ def test_understanding_prompt_teaches_budget_nuance(monkeypatch) -> None:
     )
 
 
+def test_understanding_prompt_teaches_advanced_flight_updates(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="Use the smoother outbound and keep flights flexible if needed.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert "requested_flight_updates" in prompt
+    assert "smoothest_route, best_timing, best_value, or keep_flexible" in prompt
+    assert "select_outbound or select_return" in prompt
+    assert 'User: "Keep flights flexible for now."' in prompt
+
+
 def test_understanding_prompt_teaches_review_resolution_semantics(monkeypatch) -> None:
     captured: dict = {}
     monkeypatch.setattr(
@@ -352,6 +380,22 @@ def test_understanding_prompt_teaches_module_scope_narrowing(monkeypatch) -> Non
         in prompt
     )
     assert (
+        "If the user is in Advanced Planning and asks to review the plan, check what we have, see the current trip, or look over everything, set requested_advanced_review to true. Do not set planner_intent to confirm_plan for review language."
+        in prompt
+    )
+    assert (
+        "If the user is in the Advanced review workspace and asks to revise flights, stay, trip style, or activities, set requested_advanced_anchor to that matching anchor so the app can return to that planning workspace."
+        in prompt
+    )
+    assert (
+        "If the user is in the Advanced review workspace and clearly asks to finalize, lock, save, or make the reviewed Advanced plan brochure-ready, set requested_advanced_finalization to true. Do not use planner_intent confirm_plan for Advanced review finalization."
+        in prompt
+    )
+    assert (
+        "If the user asks to finalize Advanced Planning before the Advanced review workspace is open, set requested_advanced_review to true and requested_advanced_finalization to false so the app can show the review first."
+        in prompt
+    )
+    assert (
         "If the user is already in the Advanced activities workspace and clearly says to make an activity or event essential, keep it as a maybe, or pass on it, return that in requested_activity_decisions."
         in prompt
     )
@@ -426,6 +470,7 @@ def test_understanding_prompt_teaches_trip_style_direction_semantics(monkeypatch
 
     assert "requested_trip_style_direction_updates" in prompt
     assert "requested_trip_style_pace_updates" in prompt
+    assert "requested_trip_style_tradeoff_updates" in prompt
     assert (
         "If the user is already in the Advanced trip-style Direction workspace and clearly chooses a main trip character like food-led, culture-led, nightlife-led, outdoors-led, or balanced, return that in requested_trip_style_direction_updates with action select_primary."
         in prompt
@@ -442,6 +487,12 @@ def test_understanding_prompt_teaches_trip_style_direction_semantics(monkeypatch
     )
     assert 'User: "Keep the days slower with more open time."' in prompt
     assert 'User: "Balanced is good, lock that in."' in prompt
+    assert (
+        "Tradeoff axes and values are:"
+        in prompt
+    )
+    assert 'User: "Prioritize must-sees over wandering."' in prompt
+    assert 'User: "These tradeoffs look good."' in prompt
 
 
 def test_understanding_prompt_teaches_destination_option_preservation(monkeypatch) -> None:

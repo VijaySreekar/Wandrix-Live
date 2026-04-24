@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   BedDouble,
   CalendarRange,
@@ -37,8 +38,12 @@ import {
 } from "@/components/package/trip-board-cards";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
-import type { AdvancedActivityCandidateCard } from "@/types/trip-conversation";
-import type { TimelineItem } from "@/types/trip-draft";
+import type {
+  AdvancedActivityCandidateCard,
+  AdvancedFlightOptionCard,
+  PlannerConflictRecord,
+} from "@/types/trip-conversation";
+import type { FlightDetail, TimelineItem } from "@/types/trip-draft";
 
 type TripLiveBoardProps = {
   workspace: PlannerWorkspaceState;
@@ -49,9 +54,21 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
   const { tripDraft } = workspace;
   const { configuration, module_outputs: moduleOutputs, conversation } =
     tripDraft;
-  const outboundFlight = moduleOutputs.flights.find(
-    (flight) => flight.direction === "outbound",
-  );
+  const flightPlanning = conversation.flight_planning ?? null;
+  const selectedOutboundFlight =
+    flightPlanning?.selection_status === "completed"
+      ? toFlightDetail(flightPlanning.selected_outbound_flight)
+      : null;
+  const selectedReturnFlight =
+    flightPlanning?.selection_status === "completed"
+      ? toFlightDetail(flightPlanning.selected_return_flight)
+      : null;
+  const outboundFlight =
+    selectedOutboundFlight ??
+    moduleOutputs.flights.find((flight) => flight.direction === "outbound");
+  const returnFlight =
+    selectedReturnFlight ??
+    moduleOutputs.flights.find((flight) => flight.direction === "return");
   const stay =
     moduleOutputs.hotels.find(
       (hotel) =>
@@ -73,6 +90,11 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
         tripStylePlanning.workspace_summary ||
         null
       : null;
+  const flightPlanningSummary =
+    flightPlanning?.completion_summary ||
+    flightPlanning?.selection_summary ||
+    flightPlanning?.workspace_summary ||
+    null;
   const leadActivityCandidate =
     activityPlanning.visible_candidates.find(
       (candidate) => candidate.disposition === "essential",
@@ -83,6 +105,8 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
     activityPlanning.visible_candidates[0] ??
     null;
   const weather = moduleOutputs.weather.slice(0, 3);
+  const weatherPlanning = conversation.weather_planning ?? null;
+  const plannerConflicts = conversation.planner_conflicts ?? [];
   const timelineSections = useMemo(
     () => buildTimelineSections(tripDraft.timeline),
     [tripDraft.timeline],
@@ -167,8 +191,49 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
 
             {/* Sidebar column */}
             <div className="space-y-5 xl:sticky xl:top-6">
-              <FlightCard flight={outboundFlight} />
-              <WeatherCard forecasts={weather} />
+              {plannerConflicts.length ? (
+                <InfoCard
+                  icon={AlertTriangle}
+                  title="Planning tensions"
+                  subtitle="Worth resolving before this becomes brochure-ready"
+                >
+                  <LiveBoardConflictList conflicts={plannerConflicts} />
+                </InfoCard>
+              ) : null}
+              <FlightCard flight={outboundFlight} returnFlight={returnFlight} />
+              {flightPlanningSummary ? (
+                <InfoCard
+                  icon={Plane}
+                  title="Flight planning"
+                  subtitle={
+                    flightPlanning?.selection_status === "kept_open"
+                      ? "Flights intentionally flexible"
+                      : flightPlanning?.selection_status === "completed"
+                        ? "Working flights selected"
+                        : "Flight shape in progress"
+                  }
+                >
+                  <p className="text-sm leading-7 text-foreground/66">
+                    {flightPlanningSummary}
+                  </p>
+                  {flightPlanning?.arrival_day_impact_summary ? (
+                    <p className="mt-2 text-sm leading-7 text-foreground/66">
+                      {flightPlanning.arrival_day_impact_summary}
+                    </p>
+                  ) : null}
+                  {flightPlanning?.departure_day_impact_summary ? (
+                    <p className="mt-2 text-sm leading-7 text-foreground/66">
+                      {flightPlanning.departure_day_impact_summary}
+                    </p>
+                  ) : null}
+                </InfoCard>
+              ) : null}
+              <WeatherCard
+                forecasts={weather}
+                status={weatherPlanning?.results_status}
+                summary={weatherPlanning?.workspace_summary}
+                influenceNotes={weatherPlanning?.activity_influence_notes}
+              />
               <InfoCard
                 icon={BedDouble}
                 title="Stay details"
@@ -206,6 +271,32 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
       </div>
     </div>
   );
+}
+
+function toFlightDetail(
+  option: AdvancedFlightOptionCard | null | undefined,
+): FlightDetail | null {
+  if (!option) {
+    return null;
+  }
+  return {
+    id: option.id,
+    direction: option.direction,
+    carrier: option.carrier,
+    flight_number: option.flight_number ?? null,
+    departure_airport: option.departure_airport,
+    arrival_airport: option.arrival_airport,
+    departure_time: option.departure_time ?? null,
+    arrival_time: option.arrival_time ?? null,
+    duration_text: option.duration_text ?? null,
+    price_text: option.price_text ?? null,
+    stop_count: option.stop_count ?? null,
+    layover_summary: option.layover_summary ?? null,
+    legs: option.legs ?? [],
+    timing_quality: option.timing_quality ?? null,
+    inventory_notice: option.inventory_notice ?? null,
+    notes: [option.summary, ...option.tradeoffs].filter(Boolean),
+  };
 }
 
 function PlanConfirmationPanel({
@@ -659,6 +750,28 @@ function InfoCard({
       <p className="mt-3.5 text-sm leading-relaxed text-foreground/56">{subtitle}</p>
       <div className="mt-5">{children}</div>
     </section>
+  );
+}
+
+function LiveBoardConflictList({
+  conflicts,
+}: {
+  conflicts: PlannerConflictRecord[];
+}) {
+  return (
+    <div className="space-y-3">
+      {conflicts.slice(0, 3).map((conflict) => (
+        <div
+          key={conflict.id}
+          className="rounded-lg bg-background px-4 py-3 text-sm leading-relaxed"
+        >
+          <p className="font-semibold text-foreground/82">{conflict.summary}</p>
+          <p className="mt-1 text-xs leading-5 text-foreground/58">
+            {conflict.suggested_repair}
+          </p>
+        </div>
+      ))}
+    </div>
   );
 }
 

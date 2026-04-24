@@ -7,8 +7,10 @@ import {
   CalendarRange,
   ChevronDown,
   ChevronUp,
+  Clock,
   ExternalLink,
   MapPin,
+  Plane,
 } from "lucide-react";
 
 import { getLiveDestinationImage } from "@/components/package/trip-board-cards";
@@ -19,13 +21,19 @@ import type {
   AdvancedActivityCandidateCard,
   AdvancedDateOptionCard,
   AdvancedAnchorChoiceCard,
+  AdvancedReviewDecisionSignal,
+  AdvancedReviewSectionCard,
+  AdvancedFlightOptionCard,
   AdvancedStayHotelOptionCard,
   AdvancedStayOptionCard,
   DestinationSuggestionCard,
   PlanningModeChoiceCard,
   PlannerActivityDaypart,
+  PlannerAdvancedAnchor,
+  PlannerConflictRecord,
   PlannerHotelStyleTag,
   PlannerTripPace,
+  PlannerTripStyleTradeoffAxis,
   PlannerTripDirectionAccent,
   PlannerTripDirectionPrimary,
   PlannerDecisionCard,
@@ -184,6 +192,29 @@ export function TripSuggestionBoard({
     );
   }
 
+  if (board.mode === "advanced_flights_workspace") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <AdvancedFlightsWorkspace
+            board={board}
+            disabled={disabled}
+            onAction={onAction}
+          />
+        </div>
+      </section>
+    );
+  }
+
   if (board.mode === "advanced_trip_style_direction") {
     return (
       <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
@@ -230,6 +261,29 @@ export function TripSuggestionBoard({
     );
   }
 
+  if (board.mode === "advanced_trip_style_tradeoffs") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <AdvancedTripStyleTradeoffsWorkspace
+            board={board}
+            disabled={disabled}
+            onAction={onAction}
+          />
+        </div>
+      </section>
+    );
+  }
+
   if (board.mode === "advanced_activities_workspace") {
     return (
       <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
@@ -244,6 +298,29 @@ export function TripSuggestionBoard({
 
         <div className="flex-1 overflow-y-auto px-8 py-8">
           <AdvancedActivitiesWorkspace
+            board={board}
+            disabled={disabled}
+            onAction={onAction}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  if (board.mode === "advanced_review_workspace") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <AdvancedReviewWorkspace
             board={board}
             disabled={disabled}
             onAction={onAction}
@@ -431,6 +508,415 @@ export function TripSuggestionBoard({
   );
 }
 
+function AdvancedFlightsWorkspace({
+  board,
+  disabled,
+  onAction,
+}: {
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const strategies = board.flight_strategy_cards ?? [];
+  const outboundOptions = board.outbound_flight_options ?? [];
+  const returnOptions = board.return_flight_options ?? [];
+  const selectedStrategy = board.selected_flight_strategy ?? null;
+  const selectedOutboundId = board.selected_outbound_flight_id ?? null;
+  const selectedReturnId = board.selected_return_flight_id ?? null;
+  const blocked = board.flight_results_status === "blocked";
+  const canConfirm =
+    !blocked &&
+    (selectedStrategy === "keep_flexible" ||
+      Boolean(selectedOutboundId && selectedReturnId));
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+              Route readiness
+            </p>
+            {board.flight_workspace_summary ? (
+              <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                {board.flight_workspace_summary}
+              </p>
+            ) : null}
+            {board.flight_selection_summary ? (
+              <p className="mt-2 text-sm font-medium leading-6 text-[var(--planner-board-text)]">
+                {board.flight_selection_summary}
+              </p>
+            ) : null}
+          </div>
+          <span className="rounded-md bg-[var(--planner-board-soft)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--planner-board-accent-text)]">
+            {formatFlightResultsStatus(board.flight_results_status)}
+          </span>
+        </div>
+        {blocked && board.flight_missing_requirements?.length ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {board.flight_missing_requirements.map((item) => (
+              <span
+                key={item}
+                className="rounded-md border border-[var(--planner-board-border)] px-2.5 py-1 text-[11px] font-medium text-[var(--planner-board-muted-strong)]"
+              >
+                Needs {item}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {board.have_details.length || board.need_details.length ? (
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {[...board.have_details, ...board.need_details].map((item) => (
+              <div
+                key={item.id}
+                className="rounded-lg border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-3 py-3"
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                  {item.label}
+                </p>
+                <p className="mt-1 text-sm font-medium text-[var(--planner-board-text)]">
+                  {item.value || "Needed"}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+          Choose the flight tradeoff
+        </p>
+        <div className="grid gap-4">
+          {strategies.map((strategy) => (
+            <button
+              key={strategy.id}
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "select_flight_strategy",
+                  flight_strategy: strategy.id,
+                })
+              }
+              className={cn(
+                "rounded-xl border px-5 py-4 text-left transition-colors",
+                selectedStrategy === strategy.id
+                  ? "border-[color:var(--accent)] bg-[var(--planner-board-card)]"
+                  : "border-[var(--planner-board-border)] bg-[var(--planner-board-card)] hover:bg-[var(--planner-board-card-hover)]",
+                disabled ? "cursor-wait opacity-70" : "cursor-pointer",
+              )}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-display text-lg font-bold text-[var(--planner-board-text)]">
+                  {strategy.title}
+                </h3>
+                {strategy.recommended ? (
+                  <span className="rounded-md bg-[var(--planner-board-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--planner-board-accent-text)]">
+                    Recommended
+                  </span>
+                ) : null}
+                {selectedStrategy === strategy.id ? (
+                  <span className="rounded-md border border-[color:var(--accent)] px-2 py-1 text-[11px] font-semibold text-[color:var(--accent)]">
+                    Selected
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                {strategy.description}
+              </p>
+              {strategy.bullets.length ? (
+                <ul className="mt-3 grid gap-2">
+                  {strategy.bullets.slice(0, 3).map((bullet) => (
+                    <li
+                      key={bullet}
+                      className="flex items-start gap-2 text-xs leading-5 text-[var(--planner-board-muted)]"
+                    >
+                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--accent)]" />
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!blocked ? (
+        <div className="grid gap-5 xl:grid-cols-2">
+          <FlightOptionSection
+            title="Outbound options"
+            options={outboundOptions}
+            selectedId={selectedOutboundId}
+            disabled={disabled || selectedStrategy === "keep_flexible"}
+            actionType="select_outbound_flight"
+            onAction={onAction}
+          />
+          <FlightOptionSection
+            title="Return options"
+            options={returnOptions}
+            selectedId={selectedReturnId}
+            disabled={disabled || selectedStrategy === "keep_flexible"}
+            actionType="select_return_flight"
+            onAction={onAction}
+          />
+        </div>
+      ) : null}
+
+      {board.flight_downstream_notes?.length ? (
+        <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            Planning notes
+          </p>
+          <div className="mt-3 space-y-2">
+            {board.flight_downstream_notes.map((note) => (
+              <p
+                key={note}
+                className="text-sm leading-6 text-[var(--planner-board-muted)]"
+              >
+                {note}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+        <div className="max-w-xl text-sm leading-6 text-[var(--planner-board-muted)]">
+          <p>
+            Confirm when the outbound and return shape is good enough for
+            planning. Flights remain working choices for the itinerary.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={disabled || blocked}
+            onClick={() =>
+              onAction({
+                action_id: crypto.randomUUID(),
+                type: "keep_flights_open",
+              })
+            }
+            className={cn(
+              "rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition-colors",
+              disabled || blocked
+                ? "cursor-not-allowed border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-60"
+                : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+            )}
+          >
+            Keep flexible
+          </button>
+          <button
+            type="button"
+            disabled={disabled || !canConfirm}
+            onClick={() =>
+              onAction({
+                action_id: crypto.randomUUID(),
+                type: "confirm_flight_selection",
+                flight_strategy: selectedStrategy,
+              })
+            }
+            className={cn(
+              "rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition-colors",
+              disabled || !canConfirm
+                ? "cursor-not-allowed border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-60"
+                : "border-[color:var(--accent)] bg-[color:var(--accent)] text-white hover:opacity-90",
+            )}
+          >
+            Confirm flights
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FlightOptionSection({
+  title,
+  options,
+  selectedId,
+  disabled,
+  actionType,
+  onAction,
+}: {
+  title: string;
+  options: AdvancedFlightOptionCard[];
+  selectedId: string | null;
+  disabled: boolean;
+  actionType: "select_outbound_flight" | "select_return_flight";
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  return (
+    <section className="space-y-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+        {title}
+      </p>
+      <div className="grid gap-3">
+        {options.map((option) => (
+          <FlightOptionCard
+            key={option.id}
+            option={option}
+            selected={selectedId === option.id}
+            disabled={disabled}
+            actionType={actionType}
+            onAction={onAction}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FlightOptionCard({
+  option,
+  selected,
+  disabled,
+  actionType,
+  onAction,
+}: {
+  option: AdvancedFlightOptionCard;
+  selected: boolean;
+  disabled: boolean;
+  actionType: "select_outbound_flight" | "select_return_flight";
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() =>
+        onAction({
+          action_id: crypto.randomUUID(),
+          type: actionType,
+          flight_option_id: option.id,
+        })
+      }
+      className={cn(
+        "rounded-xl border bg-[var(--planner-board-card)] px-5 py-4 text-left transition-colors",
+        selected
+          ? "border-[color:var(--accent)]"
+          : "border-[var(--planner-board-border)] hover:bg-[var(--planner-board-card-hover)]",
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md bg-[var(--planner-board-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+              {option.direction === "outbound" ? "Outbound" : "Return"}
+            </span>
+            {option.recommended ? (
+              <span className="rounded-md bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+                Recommended
+              </span>
+            ) : null}
+            {option.source_kind === "placeholder" ? (
+              <span className="rounded-md border border-[var(--planner-board-border)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                Placeholder
+              </span>
+            ) : null}
+            {selected ? (
+              <span className="rounded-md border border-[color:var(--accent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+                Selected
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <div className="min-w-0">
+              <p className="font-display text-lg font-bold text-[var(--planner-board-text)]">
+                {option.departure_airport}
+              </p>
+              <p className="text-xs text-[var(--planner-board-muted)]">
+                {formatFlightDateTime(option.departure_time) || "Time open"}
+              </p>
+            </div>
+            <div className="flex flex-1 items-center gap-2 text-[var(--planner-board-muted)]">
+              <Plane className="h-4 w-4 shrink-0 text-[color:var(--accent)]" />
+              <div className="h-px flex-1 border-t border-dashed border-[var(--planner-board-border)]" />
+              {option.duration_text ? (
+                <span className="inline-flex items-center gap-1 text-xs">
+                  <Clock className="h-3.5 w-3.5" />
+                  {option.duration_text}
+                </span>
+              ) : null}
+            </div>
+            <div className="min-w-0 text-right">
+              <p className="font-display text-lg font-bold text-[var(--planner-board-text)]">
+                {option.arrival_airport}
+              </p>
+              <p className="text-xs text-[var(--planner-board-muted)]">
+                {formatFlightDateTime(option.arrival_time) || "Arrival open"}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-[var(--planner-board-muted)]">
+            {option.summary}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {formatFlightStopLabel(option.stop_count) ? (
+              <span className="rounded-md border border-[var(--planner-board-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--planner-board-muted-strong)]">
+                {formatFlightStopLabel(option.stop_count)}
+              </span>
+            ) : null}
+            {option.price_text ? (
+              <span className="rounded-md border border-[var(--planner-board-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--planner-board-muted-strong)]">
+                {option.price_text}
+              </span>
+            ) : null}
+            {option.timing_quality ? (
+              <span className="rounded-md border border-[var(--planner-board-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--planner-board-muted-strong)]">
+                {option.timing_quality}
+              </span>
+            ) : null}
+          </div>
+          {option.layover_summary ? (
+            <p className="mt-2 text-xs leading-5 text-[var(--planner-board-muted)]">
+              {option.layover_summary}
+            </p>
+          ) : null}
+          {option.legs?.length ? (
+            <div className="mt-3 grid gap-2">
+              {option.legs.slice(0, 3).map((leg, index) => (
+                <div
+                  key={`${option.id}-leg-${index}`}
+                  className="rounded-md bg-[var(--planner-board-soft)] px-3 py-2 text-xs leading-5 text-[var(--planner-board-muted)]"
+                >
+                  <span className="font-semibold text-[var(--planner-board-text)]">
+                    {leg.departure_airport} to {leg.arrival_airport}
+                  </span>
+                  {leg.carrier ? ` · ${leg.carrier}` : ""}
+                  {leg.flight_number ? ` ${leg.flight_number}` : ""}
+                  {leg.duration_text ? ` · ${leg.duration_text}` : ""}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {option.tradeoffs.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {option.tradeoffs.slice(0, 3).map((tradeoff) => (
+                <span
+                  key={tradeoff}
+                  className="rounded-md bg-[var(--planner-board-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--planner-board-muted)]"
+                >
+                  {tradeoff}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {option.inventory_notice ? (
+            <p className="mt-3 text-xs leading-5 text-[var(--planner-board-muted)]">
+              {option.inventory_notice}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </button>
+  );
+}
+
 function AdvancedActivitiesWorkspace({
   board,
   disabled,
@@ -499,6 +985,9 @@ function AdvancedActivitiesWorkspace({
             <p className="text-[var(--planner-board-muted-strong)]">
               {board.activity_schedule_summary}
             </p>
+          ) : null}
+          {board.weather_workspace_summary ? (
+            <p>{board.weather_workspace_summary}</p>
           ) : null}
         </div>
         <button
@@ -641,6 +1130,434 @@ function AdvancedActivitiesWorkspace({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function AdvancedReviewWorkspace({
+  board,
+  disabled,
+  onAction,
+}: {
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const sections = board.advanced_review_section_cards ?? [];
+  const notes = board.advanced_review_notes ?? [];
+  const decisionSignals = board.advanced_review_decision_signals ?? [];
+  const conflicts = board.planner_conflicts ?? [];
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+              Working review
+            </p>
+            {board.advanced_review_summary ? (
+              <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                {board.advanced_review_summary}
+              </p>
+            ) : null}
+          </div>
+          <span
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em]",
+              board.advanced_review_readiness_status === "needs_review"
+                ? "bg-[var(--planner-board-soft)] text-[var(--planner-board-cta)]"
+                : board.advanced_review_readiness_status === "ready"
+                  ? "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]"
+                  : "bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]",
+            )}
+          >
+            {formatReviewStatus(board.advanced_review_readiness_status)}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {board.advanced_review_completed_summary ? (
+            <ReviewSummaryTile
+              label="Selected"
+              value={board.advanced_review_completed_summary}
+            />
+          ) : null}
+          {board.advanced_review_open_summary ? (
+            <ReviewSummaryTile
+              label="Still flexible"
+              value={board.advanced_review_open_summary}
+            />
+          ) : null}
+        </div>
+      </div>
+
+      {decisionSignals.length ? (
+        <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                Decision sources
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                The review keeps track of what was directly chosen, inferred, or
+                supplied by live planning data.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {decisionSignals.map((signal) => (
+              <AdvancedReviewDecisionSignalCard
+                key={`${signal.id}-${signal.value_summary}`}
+                signal={signal}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {conflicts.length ? (
+        <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            Planning tensions
+          </p>
+          <div className="mt-3 space-y-3">
+            {conflicts.map((conflict) => (
+              <AdvancedReviewConflictCard
+                key={conflict.id}
+                conflict={conflict}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {notes.length ? (
+        <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            Worth reviewing
+          </p>
+          <div className="mt-3 space-y-2">
+            {notes.map((note) => (
+              <p key={note} className="text-sm leading-6 text-[var(--planner-board-muted)]">
+                {note}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+              Save brochure-ready version
+            </p>
+            <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+              {getAdvancedReviewFinalizationCopy(
+                board.advanced_review_readiness_status,
+              )}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-[var(--planner-board-muted-strong)]">
+              These are planning choices, not bookings. Finalizing saves this version
+              to Saved Trips and keeps it ready for the brochure view.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() =>
+              onAction({
+                action_id: crypto.randomUUID(),
+                type: "finalize_advanced_plan",
+              })
+            }
+            className={cn(
+              "rounded-md px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors",
+              disabled
+                ? "cursor-wait bg-[var(--planner-board-muted-strong)] text-[var(--planner-board-card)] opacity-70"
+                : "bg-[var(--planner-board-cta)] text-white hover:bg-[var(--planner-board-cta-hover)]",
+            )}
+          >
+            Save version
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4">
+        {sections.map((section) => (
+          <AdvancedReviewSection
+            key={section.id}
+            section={section}
+            disabled={disabled}
+            onAction={onAction}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdvancedReviewConflictCard({
+  conflict,
+  disabled,
+  onAction,
+}: {
+  conflict: PlannerConflictRecord;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const revisionAnchor = getConflictRevisionAnchor(conflict);
+  return (
+    <article className="rounded-lg border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-4 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                getConflictBadgeClass(conflict.severity),
+              )}
+            >
+              {formatConflictSeverity(conflict.severity)}
+            </span>
+            {conflict.affected_areas.length ? (
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--planner-board-muted-strong)]">
+                {conflict.affected_areas.join(" / ")}
+              </p>
+            ) : null}
+          </div>
+          <p className="mt-2 text-sm font-semibold leading-6 text-[var(--planner-board-foreground)]">
+            {conflict.summary}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-[var(--planner-board-muted)]">
+            {conflict.suggested_repair}
+          </p>
+          {conflict.evidence.length ? (
+            <div className="mt-2 space-y-1">
+              {conflict.evidence.slice(0, 2).map((item) => (
+                <p
+                  key={item}
+                  className="text-xs leading-5 text-[var(--planner-board-muted-strong)]"
+                >
+                  {item}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        {revisionAnchor ? (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() =>
+              onAction({
+                action_id: crypto.randomUUID(),
+                type: "revise_advanced_review_section",
+                advanced_anchor: revisionAnchor,
+              })
+            }
+            className={cn(
+              "rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors",
+              disabled
+                ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-card)]",
+            )}
+          >
+            Review
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function getConflictRevisionAnchor(
+  conflict: PlannerConflictRecord,
+): PlannerAdvancedAnchor | null {
+  if (
+    conflict.revision_target === "flight" ||
+    conflict.revision_target === "stay" ||
+    conflict.revision_target === "trip_style" ||
+    conflict.revision_target === "activities"
+  ) {
+    return conflict.revision_target;
+  }
+  return null;
+}
+
+function formatConflictSeverity(severity: PlannerConflictRecord["severity"]) {
+  if (severity === "important") {
+    return "Important";
+  }
+  if (severity === "info") {
+    return "Note";
+  }
+  return "Worth resolving";
+}
+
+function getConflictBadgeClass(severity: PlannerConflictRecord["severity"]) {
+  if (severity === "important") {
+    return "bg-[var(--planner-board-card)] text-[var(--planner-board-cta)]";
+  }
+  if (severity === "info") {
+    return "bg-[var(--planner-board-card)] text-[var(--planner-board-muted-strong)]";
+  }
+  return "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]";
+}
+
+function AdvancedReviewDecisionSignalCard({
+  signal,
+}: {
+  signal: AdvancedReviewDecisionSignal;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--planner-board-muted-strong)]">
+          {signal.title}
+        </p>
+        <span
+          className={cn(
+            "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]",
+            getDecisionSignalBadgeClass(signal.confidence),
+          )}
+        >
+          {signal.confidence_label}
+        </span>
+      </div>
+      <p className="mt-2 text-sm font-semibold text-[var(--planner-board-foreground)]">
+        {signal.value_summary}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-[var(--planner-board-muted-strong)]">
+        {signal.source_label} / {formatDecisionSignalStatus(signal.status)}
+      </p>
+      {signal.note ? (
+        <p className="mt-2 text-xs leading-5 text-[var(--planner-board-muted)]">
+          {signal.note}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function formatDecisionSignalStatus(
+  status: AdvancedReviewDecisionSignal["status"],
+) {
+  if (status === "needs_review") {
+    return "Worth reviewing";
+  }
+  if (status === "confirmed") {
+    return "Selected";
+  }
+  if (status === "superseded") {
+    return "Updated";
+  }
+  return "Working";
+}
+
+function getDecisionSignalBadgeClass(
+  confidence: AdvancedReviewDecisionSignal["confidence"],
+) {
+  if (confidence === "high") {
+    return "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]";
+  }
+  if (confidence === "low") {
+    return "bg-[var(--planner-board-card)] text-[var(--planner-board-cta)]";
+  }
+  return "bg-[var(--planner-board-card)] text-[var(--planner-board-muted-strong)]";
+}
+
+function getAdvancedReviewFinalizationCopy(
+  status: TripSuggestionBoardState["advanced_review_readiness_status"],
+) {
+  if (status === "needs_review") {
+    return "Worth reviewing items will be saved with caution notes unless you revise first.";
+  }
+  if (status === "flexible") {
+    return "Some choices are intentionally flexible and will be captured that way.";
+  }
+  return "Ready to save as brochure-ready.";
+}
+
+function ReviewSummaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-[var(--planner-board-soft)] px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+        {label}
+      </p>
+      <p className="mt-1 text-sm leading-6 text-[var(--planner-board-muted)]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function AdvancedReviewSection({
+  section,
+  disabled,
+  onAction,
+}: {
+  section: AdvancedReviewSectionCard;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  return (
+    <article className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-display text-lg font-bold text-[var(--planner-board-text)]">
+              {section.title}
+            </h3>
+            <span
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                section.status === "needs_review"
+                  ? "bg-[var(--planner-board-soft)] text-[var(--planner-board-cta)]"
+                  : section.status === "ready"
+                    ? "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]"
+                    : "bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]",
+              )}
+            >
+              {formatReviewStatus(section.status)}
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+            {section.summary}
+          </p>
+        </div>
+        {section.revision_anchor ? (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() =>
+              onAction({
+                action_id: crypto.randomUUID(),
+                type: "revise_advanced_review_section",
+                advanced_anchor: section.revision_anchor as PlannerAdvancedAnchor,
+              })
+            }
+            className={cn(
+              "rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors",
+              disabled
+                ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+            )}
+          >
+            {section.cta_label || "Review"}
+          </button>
+        ) : null}
+      </div>
+      {section.notes.length ? (
+        <div className="mt-4 space-y-2 border-t border-[var(--planner-board-border)] pt-4">
+          {section.notes.map((note) => (
+            <p key={note} className="text-sm leading-6 text-[var(--planner-board-muted)]">
+              {note}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </article>
   );
 }
 
@@ -964,6 +1881,162 @@ function AdvancedTripStylePaceWorkspace({
           )}
         >
           Confirm pace
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AdvancedTripStyleTradeoffsWorkspace({
+  board,
+  disabled,
+  onAction,
+}: {
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const tradeoffCards = board.trip_style_recommended_tradeoff_cards ?? [];
+  const selectedTradeoffs = board.selected_trip_style_tradeoffs ?? [];
+  const selectedPrimary = board.selected_trip_style_primary ?? null;
+  const selectedAccent = board.selected_trip_style_accent ?? null;
+  const selectedPace = board.selected_trip_style_pace ?? null;
+  const selectedByAxis = new Map(
+    selectedTradeoffs.map((decision) => [
+      decision.axis,
+      decision.selected_value,
+    ]),
+  );
+  const directionLabel = selectedPrimary
+    ? formatTripDirectionPrimaryLabel(selectedPrimary)
+    : "Balanced";
+  const accentLabel = selectedAccent
+    ? ` with a ${formatTripDirectionAccentLabel(selectedAccent).toLowerCase()} accent`
+    : "";
+  const paceLabel = selectedPace
+    ? ` at a ${formatTripPaceLabel(selectedPace).toLowerCase()} pace`
+    : "";
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+          Current trip character
+        </p>
+        <p className="mt-2 font-display text-xl font-bold text-[var(--planner-board-text)]">
+          {directionLabel}
+          {accentLabel}
+          {paceLabel}
+        </p>
+        {board.trip_style_pace_downstream_influence_summary ? (
+          <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+            {board.trip_style_pace_downstream_influence_summary}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="space-y-4">
+        {tradeoffCards.map((card) => {
+          const selectedValue = selectedByAxis.get(card.axis);
+          return (
+            <article
+              key={card.axis}
+              className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                    {formatTripTradeoffAxisLabel(card.axis)}
+                  </p>
+                  <h3 className="mt-1 font-display text-lg font-bold text-[var(--planner-board-text)]">
+                    {card.title}
+                  </h3>
+                </div>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                {card.description}
+              </p>
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                {card.options.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      onAction({
+                        action_id: crypto.randomUUID(),
+                        type: "set_trip_style_tradeoff",
+                        trip_style_tradeoff_axis: card.axis,
+                        trip_style_tradeoff_value: option.value,
+                      })
+                    }
+                    className={cn(
+                      "rounded-xl border px-4 py-4 text-left transition-colors",
+                      selectedValue === option.value
+                        ? "border-[color:var(--accent)] bg-[var(--planner-board-card)]"
+                        : "border-[var(--planner-board-border)] bg-[var(--planner-board-card)] hover:bg-[var(--planner-board-card-hover)]",
+                      disabled ? "cursor-wait opacity-70" : "cursor-pointer",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-[var(--planner-board-text)]">
+                        {option.label}
+                      </p>
+                      {option.recommended ? (
+                        <span className="rounded-md bg-[var(--planner-board-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--planner-board-accent-text)]">
+                          Recommended
+                        </span>
+                      ) : null}
+                      {selectedValue === option.value ? (
+                        <span className="rounded-md border border-[color:var(--accent)] px-2 py-1 text-[11px] font-semibold text-[color:var(--accent)]">
+                          Selected
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                      {option.description}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+        <div className="max-w-xl text-sm leading-6 text-[var(--planner-board-muted)]">
+          {board.trip_style_tradeoff_rationale ? (
+            <p>{board.trip_style_tradeoff_rationale}</p>
+          ) : (
+            <p>
+              Confirm these tie-breakers when they feel right, and Activities
+              will inherit the full Trip Style.
+            </p>
+          )}
+          {board.trip_style_tradeoff_downstream_influence_summary ? (
+            <p className="mt-2">
+              {board.trip_style_tradeoff_downstream_influence_summary}
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          disabled={disabled || tradeoffCards.length === 0}
+          onClick={() =>
+            onAction({
+              action_id: crypto.randomUUID(),
+              type: "confirm_trip_style_tradeoffs",
+            })
+          }
+          className={cn(
+            "rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition-colors",
+            disabled || tradeoffCards.length === 0
+              ? "cursor-not-allowed border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-60"
+              : "border-[color:var(--accent)] bg-[color:var(--accent)] text-white hover:opacity-90",
+          )}
+        >
+          Confirm tradeoffs
         </button>
       </div>
     </div>
@@ -1587,6 +2660,45 @@ function AdvancedActivityCandidateCardView({
 
 function formatDaypartLabel(daypart: PlannerActivityDaypart) {
   return daypart.charAt(0).toUpperCase() + daypart.slice(1);
+}
+
+function formatFlightResultsStatus(
+  status: TripSuggestionBoardState["flight_results_status"],
+) {
+  return {
+    blocked: "Needs details",
+    ready: "Options ready",
+    placeholder: "Working shapes",
+  }[status ?? "blocked"];
+}
+
+function formatFlightDateTime(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatFlightStopLabel(value: number | null | undefined) {
+  if (value == null) {
+    return null;
+  }
+  if (value === 0) {
+    return "Direct";
+  }
+  if (value === 1) {
+    return "1 stop";
+  }
+  return `${value} stops`;
 }
 
 function PlanningModeOptionCard({
@@ -2758,6 +3870,15 @@ function tripPaceDescription(pace: PlannerTripPace) {
   }[pace];
 }
 
+function formatTripTradeoffAxisLabel(axis: PlannerTripStyleTradeoffAxis) {
+  return {
+    must_sees_vs_wandering: "Must-sees vs wandering",
+    convenience_vs_atmosphere: "Convenience vs atmosphere",
+    early_starts_vs_evening_energy: "Early starts vs evening energy",
+    polished_vs_hidden_gems: "Polished vs hidden gems",
+  }[axis];
+}
+
 function normalizeAreaLabel(value: string | null | undefined) {
   if (!value) {
     return "This part of Kyoto";
@@ -2801,6 +3922,16 @@ function badgeLabel(card: DestinationSuggestionCard) {
 function badgeClassName(card: DestinationSuggestionCard) {
   const normalized = badgeLabel(card).toLowerCase();
   return BADGE_STYLES[normalized] ?? "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]";
+}
+
+function formatReviewStatus(status: string | null | undefined) {
+  if (status === "needs_review") {
+    return "Worth reviewing";
+  }
+  if (status === "ready") {
+    return "Selected";
+  }
+  return "Flexible";
 }
 
 function DestinationSuggestionOption({

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from app.graph.planner.board_action_merge import apply_board_action_updates
 from app.graph.planner import conversation_state
@@ -18,9 +18,11 @@ from app.graph.planner.turn_models import (
     ConversationOptionCandidate,
     RequestedActivityDecision,
     RequestedActivityScheduleEdit,
+    RequestedFlightUpdate,
     RequestedReviewResolution,
     RequestedTripStyleDirectionUpdate,
     RequestedTripStylePaceUpdate,
+    RequestedTripStyleTradeoffUpdate,
     TripFieldConfidenceUpdate,
     TripFieldSourceUpdate,
     TripOpenQuestionUpdate,
@@ -29,14 +31,17 @@ from app.graph.planner.turn_models import (
 from app.schemas.trip_conversation import (
     ConversationDecisionEvent,
     PlannerDecisionCard,
+    PlannerDecisionMemoryRecord,
     TripConversationState,
 )
 from app.schemas.trip_draft import TripDraftStatus
 from app.schemas.trip_planning import (
     ActivityDetail,
+    FlightDetail,
     HotelStayDetail,
     TripConfiguration,
     TripModuleOutputs,
+    WeatherDetail,
 )
 from app.services.providers.movement import MovementEstimate
 
@@ -172,6 +177,101 @@ def test_field_memory_preserves_profile_default_source_as_inferred() -> None:
     assert origin_memory.confidence_level == "medium"
     assert status.confirmed_fields == ["to_location"]
     assert status.inferred_fields == ["from_location"]
+
+
+def test_decision_memory_tracks_profile_defaults_as_working_not_confirmed() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(from_location="London", to_location="Barcelona")
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            from_location="London",
+            to_location="Barcelona",
+            confirmed_fields=["to_location"],
+            inferred_fields=["from_location"],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="from_location", confidence="medium"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="from_location", source="profile_default"),
+            ],
+        ),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Barcelona is locked, and London is just the current default origin.",
+        turn_id="turn_1",
+        user_message="Plan Barcelona next spring.",
+        now=now,
+    )
+
+    decision_memory = {
+        record.key: record for record in conversation.memory.decision_memory
+    }
+
+    assert decision_memory["destination"].value_summary == "Barcelona"
+    assert decision_memory["destination"].source == "user_explicit"
+    assert decision_memory["destination"].status == "confirmed"
+    assert decision_memory["origin"].value_summary == "London"
+    assert decision_memory["origin"].source == "profile_default"
+    assert decision_memory["origin"].confidence == "medium"
+    assert decision_memory["origin"].status == "working"
+
+
+def test_decision_memory_preserves_stronger_explicit_source_for_same_value() -> None:
+    now = datetime.now(timezone.utc)
+    current = TripConversationState.model_validate(
+        {
+            "memory": {
+                "decision_memory": [
+                    {
+                        "key": "destination",
+                        "value_summary": "Lisbon",
+                        "source": "user_explicit",
+                        "confidence": "high",
+                        "status": "confirmed",
+                        "rationale": "The user explicitly chose Lisbon.",
+                        "updated_at": now.isoformat(),
+                    }
+                ]
+            }
+        }
+    )
+    configuration = TripConfiguration(to_location="Lisbon")
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            to_location="Lisbon",
+            inferred_fields=["to_location"],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="profile_default"),
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="medium"),
+            ],
+        ),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Lisbon is still the default destination.",
+        turn_id="turn_2",
+        user_message="Keep going.",
+        now=now,
+    )
+
+    destination_memory = next(
+        record
+        for record in conversation.memory.decision_memory
+        if record.key == "destination"
+    )
+
+    assert destination_memory.value_summary == "Lisbon"
+    assert destination_memory.source == "user_explicit"
+    assert destination_memory.confidence == "high"
+    assert destination_memory.status == "confirmed"
 
 
 def test_explicit_correction_replaces_prior_inferred_field_memory() -> None:
@@ -322,6 +422,126 @@ def test_board_trip_style_pace_action_is_merged_into_turn_update() -> None:
     pace_update = update.requested_trip_style_pace_updates[0]
     assert pace_update.action == "confirm"
     assert pace_update.pace == "slow"
+
+
+def test_board_trip_style_tradeoff_action_is_merged_into_turn_update() -> None:
+    update = apply_board_action_updates(
+        TripTurnUpdate(),
+        board_action={
+            "action_id": "action_trip_style_tradeoff",
+            "type": "set_trip_style_tradeoff",
+            "trip_style_tradeoff_axis": "must_sees_vs_wandering",
+            "trip_style_tradeoff_value": "wandering",
+        },
+    )
+
+    assert len(update.requested_trip_style_tradeoff_updates) == 1
+    tradeoff_update = update.requested_trip_style_tradeoff_updates[0]
+    assert tradeoff_update.action == "set_tradeoff"
+    assert tradeoff_update.axis == "must_sees_vs_wandering"
+    assert tradeoff_update.value == "wandering"
+
+
+def test_decision_memory_records_completed_trip_style_from_chat_updates() -> None:
+    now = datetime.now(timezone.utc)
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(to_location="Kyoto"),
+        llm_update=TripTurnUpdate(
+            requested_trip_style_direction_updates=[
+                RequestedTripStyleDirectionUpdate(
+                    action="confirm",
+                    primary="culture_led",
+                    accent="classic",
+                )
+            ],
+            requested_trip_style_pace_updates=[
+                RequestedTripStylePaceUpdate(action="confirm", pace="slow")
+            ],
+            requested_trip_style_tradeoff_updates=[
+                RequestedTripStyleTradeoffUpdate(
+                    action="confirm",
+                    axis="must_sees_vs_wandering",
+                    value="wandering",
+                )
+            ],
+        ),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Trip character is set.",
+        turn_id="turn_trip_style",
+        user_message="Make it culture-led, classic, slow, and wandering.",
+        now=now,
+        planning_mode="advanced",
+        advanced_step="anchor_flow",
+        advanced_anchor="trip_style",
+    )
+
+    decision_memory = {
+        record.key: record for record in conversation.memory.decision_memory
+    }
+
+    assert decision_memory["trip_style_direction"].source == "user_explicit"
+    assert decision_memory["trip_style_direction"].status == "confirmed"
+    assert "Culture-led" in decision_memory["trip_style_direction"].value_summary
+    assert decision_memory["trip_style_pace"].value_summary == "Slow"
+    assert decision_memory["trip_style_pace"].status == "confirmed"
+    assert decision_memory["trip_style_tradeoffs"].status == "confirmed"
+
+
+def test_decision_memory_records_confirmed_flights_from_board_action() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        from_location="London",
+        to_location="Kyoto",
+        start_date=date(2027, 4, 1),
+        end_date=date(2027, 4, 6),
+    )
+    configuration.travelers.adults = 2
+    board_action = {
+        "action_id": "action_confirm_flights",
+        "type": "confirm_flight_selection",
+    }
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Flights are selected as working planning choices.",
+        turn_id="turn_flights",
+        user_message="",
+        now=now,
+        board_action=board_action,
+        planning_mode="advanced",
+        advanced_step="anchor_flow",
+        advanced_anchor="flight",
+    )
+
+    selected_flights = next(
+        record
+        for record in conversation.memory.decision_memory
+        if record.key == "selected_flights"
+    )
+
+    assert conversation.flight_planning.selection_status == "completed"
+    assert selected_flights.source == "board_action"
+    assert selected_flights.status == "confirmed"
+    assert selected_flights.confidence == "high"
+
+
+def test_board_advanced_finalization_action_is_merged_into_turn_update() -> None:
+    update = apply_board_action_updates(
+        TripTurnUpdate(),
+        board_action={
+            "action_id": "action_finalize_advanced",
+            "type": "finalize_advanced_plan",
+        },
+    )
+
+    assert update.requested_advanced_finalization is True
+    assert update.planner_intent == "none"
 
 
 def test_trip_style_direction_reorders_activity_candidates() -> None:
@@ -486,6 +706,185 @@ def test_trip_style_pace_changes_activity_schedule_density() -> None:
     assert scheduled_stop_count_for_pace("slow") == 1
     assert scheduled_stop_count_for_pace("balanced") == 2
     assert scheduled_stop_count_for_pace("full") == 3
+
+
+def test_trip_style_tradeoff_recommendations_are_adaptive() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        activity_styles=["culture"],
+        selected_modules={
+            "flights": False,
+            "weather": True,
+            "activities": True,
+            "hotels": True,
+        },
+    )
+    current = TripConversationState.model_validate(
+        {
+            "trip_style_planning": {
+                "substep": "tradeoffs",
+                "selected_primary_direction": "culture_led",
+                "selected_accent": "local",
+                "selection_status": "selected",
+                "selected_pace": "full",
+                "pace_status": "completed",
+            },
+            "stay_planning": {
+                "selected_hotel_id": "hotel_gion_house",
+                "selected_hotel_name": "Gion House Hotel",
+                "selected_stay_direction": "Central base for Kyoto",
+            },
+        }
+    )
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_tradeoffs",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        brief_confirmed=True,
+        advanced_step="anchor_flow",
+        advanced_anchor="trip_style",
+    )
+
+    axes = {
+        card.axis for card in conversation.trip_style_planning.recommended_tradeoff_cards
+    }
+    assert "must_sees_vs_wandering" in axes
+    assert "convenience_vs_atmosphere" in axes
+    assert "early_starts_vs_evening_energy" in axes or "polished_vs_hidden_gems" in axes
+    assert len(axes) == 3
+
+
+def test_trip_style_tradeoff_confirmation_completes_branch() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(to_location="Kyoto")
+    current = TripConversationState.model_validate(
+        {
+            "trip_style_planning": {
+                "substep": "tradeoffs",
+                "selected_primary_direction": "culture_led",
+                "selection_status": "selected",
+                "selected_pace": "balanced",
+                "pace_status": "completed",
+                "recommended_tradeoff_cards": [],
+            }
+        }
+    )
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            requested_trip_style_tradeoff_updates=[
+                RequestedTripStyleTradeoffUpdate(
+                    action="set_tradeoff",
+                    axis="must_sees_vs_wandering",
+                    value="must_sees",
+                ),
+                RequestedTripStyleTradeoffUpdate(action="confirm"),
+            ]
+        ),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_tradeoff_confirm",
+        user_message="Prioritize must-sees and lock these in.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        brief_confirmed=True,
+        advanced_step="anchor_flow",
+        advanced_anchor="trip_style",
+    )
+
+    assert conversation.trip_style_planning.substep == "completed"
+    assert conversation.trip_style_planning.selection_status == "completed"
+    assert conversation.trip_style_planning.tradeoff_status == "completed"
+    assert any(
+        decision.axis == "must_sees_vs_wandering"
+        and decision.selected_value == "must_sees"
+        for decision in conversation.trip_style_planning.selected_tradeoffs
+    )
+
+
+def test_trip_style_tradeoffs_change_activity_ranking() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 22, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 24, tzinfo=timezone.utc).date(),
+        selected_modules={
+            "flights": False,
+            "weather": True,
+            "activities": True,
+            "hotels": False,
+        },
+    )
+    module_outputs = TripModuleOutputs(
+        activities=[
+            ActivityDetail(
+                id="activity_iconic_temple",
+                title="Iconic heritage temple morning",
+                location_label="Higashiyama, Kyoto",
+                category="entertainment.museum",
+            ),
+            ActivityDetail(
+                id="activity_local_walk",
+                title="Local neighborhood market walk",
+                location_label="Kyoto neighborhood lanes",
+                category="commercial.marketplace",
+            ),
+        ]
+    )
+
+    def leading_candidate_for_tradeoff(value: str) -> str:
+        current = TripConversationState.model_validate(
+            {
+                "trip_style_planning": {
+                    "substep": "completed",
+                    "selected_primary_direction": "balanced",
+                    "selection_status": "completed",
+                    "selected_pace": "balanced",
+                    "pace_status": "completed",
+                    "tradeoff_status": "completed",
+                    "selected_tradeoffs": [
+                        {
+                            "axis": "must_sees_vs_wandering",
+                            "selected_value": value,
+                        }
+                    ],
+                }
+            }
+        )
+        conversation = build_conversation_state(
+            current=current,
+            previous_configuration=configuration,
+            next_configuration=configuration,
+            llm_update=TripTurnUpdate(),
+            module_outputs=module_outputs,
+            assistant_response="",
+            turn_id=f"turn_{value}",
+            user_message="",
+            now=now,
+            planning_mode="advanced",
+            planning_mode_status="selected",
+            brief_confirmed=True,
+            advanced_step="anchor_flow",
+            advanced_anchor="activities",
+        )
+        return conversation.activity_planning.recommended_candidates[0].id
+
+    assert leading_candidate_for_tradeoff("must_sees") == "activity_iconic_temple"
+    assert leading_candidate_for_tradeoff("wandering") == "activity_local_walk"
 
 
 def test_trip_style_pace_preserves_fixed_events_and_manual_activity_edits(monkeypatch) -> None:
@@ -1761,6 +2160,580 @@ def test_fixed_time_event_keeps_locked_slot_when_chat_requests_move(monkeypatch)
     )
 
 
+def test_advanced_flight_workspace_uses_provider_cards_and_board_actions() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        from_location="London",
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 29, tzinfo=timezone.utc).date(),
+        trip_length="6 nights",
+    )
+    configuration.travelers.adults = 2
+    module_outputs = TripModuleOutputs(
+        flights=[
+            FlightDetail(
+                id="tp_outbound",
+                direction="outbound",
+                carrier="Working Air",
+                departure_airport="LHR",
+                arrival_airport="KIX",
+                departure_time=datetime(2027, 3, 23, 9, 10, tzinfo=timezone.utc),
+                arrival_time=datetime(2027, 3, 24, 7, 30, tzinfo=timezone.utc),
+                duration_text="13h 20m",
+            ),
+            FlightDetail(
+                id="tp_return",
+                direction="return",
+                carrier="Working Air",
+                departure_airport="KIX",
+                arrival_airport="LHR",
+                departure_time=datetime(2027, 3, 29, 12, 0, tzinfo=timezone.utc),
+                arrival_time=datetime(2027, 3, 29, 18, 5, tzinfo=timezone.utc),
+                duration_text="14h 5m",
+            ),
+        ]
+    )
+
+    seeded = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_seed_flights",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="flight",
+    )
+    selected = build_conversation_state(
+        current=seeded,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_select_flights",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="flight",
+        board_action={
+            "action_id": "action_select_outbound",
+            "type": "select_outbound_flight",
+            "flight_option_id": "tp_outbound",
+        },
+    )
+    completed = build_conversation_state(
+        current=selected,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            requested_flight_updates=[
+                RequestedFlightUpdate(
+                    action="select_return",
+                    flight_option_id="tp_return",
+                ),
+                RequestedFlightUpdate(action="confirm"),
+            ]
+        ),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_confirm_flights",
+        user_message="Use that return and lock these flights in.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="flight",
+    )
+
+    assert seeded.flight_planning.results_status == "ready"
+    assert seeded.flight_planning.outbound_options[0].source_kind == "provider"
+    assert selected.flight_planning.selected_outbound_flight_id == "tp_outbound"
+    assert completed.flight_planning.selected_return_flight_id == "tp_return"
+    assert completed.flight_planning.selection_status == "completed"
+    assert completed.suggestion_board.mode == "advanced_anchor_choice"
+    assert "flight" in {
+        card.id for card in completed.suggestion_board.advanced_anchor_cards if card.status == "completed"
+    }
+
+
+def test_advanced_flight_strategy_ranks_richer_inventory_details() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        from_location="London",
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 29, tzinfo=timezone.utc).date(),
+        trip_length="6 nights",
+    )
+    configuration.travelers.adults = 2
+    module_outputs = TripModuleOutputs(
+        flights=[
+            FlightDetail(
+                id="outbound_direct_expensive",
+                direction="outbound",
+                carrier="Direct Air",
+                departure_airport="LHR",
+                arrival_airport="KIX",
+                departure_time=datetime(2027, 3, 23, 8, 0, tzinfo=timezone.utc),
+                arrival_time=datetime(2027, 3, 23, 16, 0, tzinfo=timezone.utc),
+                duration_text="12h",
+                price_text="Live fare snapshot: GBP 900",
+                stop_count=0,
+            ),
+            FlightDetail(
+                id="outbound_value",
+                direction="outbound",
+                carrier="Value Air",
+                departure_airport="LHR",
+                arrival_airport="KIX",
+                departure_time=datetime(2027, 3, 23, 7, 0, tzinfo=timezone.utc),
+                arrival_time=datetime(2027, 3, 23, 22, 0, tzinfo=timezone.utc),
+                duration_text="16h",
+                price_text="Cached fare snapshot: GBP 520",
+                stop_count=1,
+            ),
+            FlightDetail(
+                id="return_direct",
+                direction="return",
+                carrier="Direct Air",
+                departure_airport="KIX",
+                arrival_airport="LHR",
+                departure_time=datetime(2027, 3, 29, 14, 0, tzinfo=timezone.utc),
+                duration_text="13h",
+                price_text="Live fare snapshot: GBP 900",
+                stop_count=0,
+            ),
+            FlightDetail(
+                id="return_value",
+                direction="return",
+                carrier="Value Air",
+                departure_airport="KIX",
+                arrival_airport="LHR",
+                departure_time=datetime(2027, 3, 29, 7, 0, tzinfo=timezone.utc),
+                duration_text="17h",
+                price_text="Cached fare snapshot: GBP 520",
+                stop_count=1,
+            ),
+        ]
+    )
+
+    smooth = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            requested_flight_updates=[
+                RequestedFlightUpdate(action="select_strategy", strategy="smoothest_route"),
+                RequestedFlightUpdate(action="confirm"),
+            ]
+        ),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_smooth_flights",
+        user_message="Use the smoothest flights.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="flight",
+    )
+    value = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            requested_flight_updates=[
+                RequestedFlightUpdate(action="select_strategy", strategy="best_value"),
+                RequestedFlightUpdate(action="confirm"),
+            ]
+        ),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_value_flights",
+        user_message="Use the better value flights.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="flight",
+    )
+
+    assert smooth.flight_planning.selected_outbound_flight_id == "outbound_direct_expensive"
+    assert smooth.flight_planning.selected_return_flight_id == "return_direct"
+    assert value.flight_planning.selected_outbound_flight_id == "outbound_value"
+    assert value.flight_planning.selected_return_flight_id == "return_value"
+    assert value.flight_planning.selected_outbound_flight.price_text == (
+        "Cached fare snapshot: GBP 520"
+    )
+
+
+def test_advanced_flight_workspace_blocks_missing_route_details() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 29, tzinfo=timezone.utc).date(),
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_blocked_flights",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="flight",
+    )
+
+    assert conversation.flight_planning.results_status == "blocked"
+    assert "departure point" in conversation.flight_planning.missing_requirements
+    assert "traveler count" in conversation.flight_planning.missing_requirements
+    assert conversation.suggestion_board.mode == "advanced_flights_workspace"
+
+
+def test_advanced_flight_workspace_uses_placeholders_when_inventory_is_empty() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        from_location="London",
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 29, tzinfo=timezone.utc).date(),
+    )
+    configuration.travelers.adults = 2
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            requested_flight_updates=[
+                RequestedFlightUpdate(action="keep_open"),
+            ]
+        ),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_placeholder_flights",
+        user_message="Keep flights flexible.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="flight",
+    )
+
+    assert conversation.flight_planning.results_status == "placeholder"
+    assert conversation.flight_planning.outbound_options
+    assert conversation.flight_planning.return_options
+    assert all(
+        option.source_kind == "placeholder"
+        for option in [
+            *conversation.flight_planning.outbound_options,
+            *conversation.flight_planning.return_options,
+        ]
+    )
+    assert conversation.flight_planning.selection_status == "kept_open"
+    assert conversation.suggestion_board.mode == "advanced_anchor_choice"
+
+
+def test_late_selected_arrival_softens_day_one_activity_schedule(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "event_late_jazz",
+                "kind": "event",
+                "title": "Late jazz set",
+                "location_label": "Kyoto",
+                "summary": "Fixed evening event",
+                "start_at": datetime(2027, 3, 23, 20, 0, tzinfo=timezone.utc),
+                "end_at": datetime(2027, 3, 23, 22, 0, tzinfo=timezone.utc),
+            }
+        ],
+    )
+    configuration = TripConfiguration(
+        from_location="London",
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 25, tzinfo=timezone.utc).date(),
+    )
+    configuration.travelers.adults = 2
+    module_outputs = TripModuleOutputs(
+        flights=[
+            FlightDetail(
+                id="late_outbound",
+                direction="outbound",
+                carrier="Working Air",
+                departure_airport="LHR",
+                arrival_airport="KIX",
+                departure_time=datetime(2027, 3, 23, 8, 0, tzinfo=timezone.utc),
+                arrival_time=datetime(2027, 3, 23, 22, 30, tzinfo=timezone.utc),
+                duration_text="14h 30m",
+            ),
+            FlightDetail(
+                id="normal_return",
+                direction="return",
+                carrier="Working Air",
+                departure_airport="KIX",
+                arrival_airport="LHR",
+                departure_time=datetime(2027, 3, 25, 18, 0, tzinfo=timezone.utc),
+            ),
+        ],
+        activities=[
+            ActivityDetail(
+                id="activity_market",
+                title="Nishiki Market tasting walk",
+                category="commercial.marketplace",
+                time_label="Morning",
+            ),
+            ActivityDetail(
+                id="activity_garden",
+                title="Philosopher's Path garden walk",
+                category="leisure.park",
+                time_label="Afternoon",
+            ),
+        ],
+    )
+    current = TripConversationState.model_validate(
+        {
+            "planning_mode": "advanced",
+            "planning_mode_status": "selected",
+            "advanced_step": "anchor_flow",
+            "advanced_anchor": "activities",
+            "flight_planning": {
+                "strategy_cards": [],
+                "outbound_options": [],
+                "return_options": [],
+                "selected_strategy": "best_timing",
+                "selected_outbound_flight_id": "late_outbound",
+                "selected_return_flight_id": "normal_return",
+                "selection_status": "completed",
+                "results_status": "ready",
+                "missing_requirements": [],
+                "workspace_touched": True,
+            },
+        }
+    )
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_late_arrival_activities",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    day_one_auto_blocks = [
+        block
+        for block in conversation.activity_planning.timeline_blocks
+        if block.day_index == 1 and block.type == "activity" and not block.manual_override
+    ]
+
+    assert day_one_auto_blocks == []
+    assert any(
+        block.candidate_id == "event_late_jazz" and block.fixed_time
+        for block in conversation.activity_planning.timeline_blocks
+    )
+    assert conversation.flight_planning.arrival_day_impact_summary is not None
+    assert any(
+        "very late arrival" in note.lower()
+        for note in conversation.activity_planning.schedule_notes
+    )
+    assert any(
+        "selected flight timing" in note.lower()
+        for note in conversation.activity_planning.schedule_notes
+    )
+
+
+def test_early_selected_return_softens_final_day_activity_schedule(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(conversation_state, "enrich_events_from_ticketmaster", lambda configuration: [])
+    configuration = TripConfiguration(
+        from_location="London",
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 25, tzinfo=timezone.utc).date(),
+    )
+    configuration.travelers.adults = 2
+    module_outputs = TripModuleOutputs(
+        flights=[
+            FlightDetail(
+                id="normal_outbound",
+                direction="outbound",
+                carrier="Working Air",
+                departure_airport="LHR",
+                arrival_airport="KIX",
+                departure_time=datetime(2027, 3, 23, 8, 0, tzinfo=timezone.utc),
+                arrival_time=datetime(2027, 3, 23, 10, 30, tzinfo=timezone.utc),
+            ),
+            FlightDetail(
+                id="early_return",
+                direction="return",
+                carrier="Working Air",
+                departure_airport="KIX",
+                arrival_airport="LHR",
+                departure_time=datetime(2027, 3, 25, 9, 0, tzinfo=timezone.utc),
+            ),
+        ],
+        activities=[
+            ActivityDetail(
+                id="activity_market",
+                title="Nishiki Market tasting walk",
+                category="commercial.marketplace",
+                time_label="Morning",
+            ),
+            ActivityDetail(
+                id="activity_garden",
+                title="Philosopher's Path garden walk",
+                category="leisure.park",
+                time_label="Afternoon",
+            ),
+            ActivityDetail(
+                id="activity_gallery",
+                title="Small gallery wander",
+                category="entertainment.culture",
+                time_label="Afternoon",
+            ),
+        ],
+    )
+    current = TripConversationState.model_validate(
+        {
+            "planning_mode": "advanced",
+            "planning_mode_status": "selected",
+            "advanced_step": "anchor_flow",
+            "advanced_anchor": "activities",
+            "flight_planning": {
+                "strategy_cards": [],
+                "outbound_options": [],
+                "return_options": [],
+                "selected_strategy": "best_timing",
+                "selected_outbound_flight_id": "normal_outbound",
+                "selected_return_flight_id": "early_return",
+                "selection_status": "completed",
+                "results_status": "ready",
+                "missing_requirements": [],
+                "workspace_touched": True,
+            },
+        }
+    )
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_early_return_activities",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    final_day_auto_blocks = [
+        block
+        for block in conversation.activity_planning.timeline_blocks
+        if block.day_index == 3 and block.type == "activity" and not block.manual_override
+    ]
+
+    assert final_day_auto_blocks == []
+    assert conversation.flight_planning.departure_day_impact_summary is not None
+    assert any(
+        "early return" in note.lower()
+        for note in conversation.activity_planning.schedule_notes
+    )
+
+
+def test_keep_flexible_flights_do_not_constrain_activity_schedule(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(conversation_state, "enrich_events_from_ticketmaster", lambda configuration: [])
+    configuration = TripConfiguration(
+        from_location="London",
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 24, tzinfo=timezone.utc).date(),
+    )
+    configuration.travelers.adults = 2
+    module_outputs = TripModuleOutputs(
+        activities=[
+            ActivityDetail(
+                id="activity_market",
+                title="Nishiki Market tasting walk",
+                category="commercial.marketplace",
+                time_label="Morning",
+            )
+        ]
+    )
+    current = TripConversationState.model_validate(
+        {
+            "planning_mode": "advanced",
+            "planning_mode_status": "selected",
+            "advanced_step": "anchor_flow",
+            "advanced_anchor": "activities",
+            "flight_planning": {
+                "strategy_cards": [],
+                "outbound_options": [],
+                "return_options": [],
+                "selected_strategy": "keep_flexible",
+                "selection_status": "kept_open",
+                "results_status": "placeholder",
+                "missing_requirements": [],
+                "workspace_touched": True,
+            },
+        }
+    )
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_flexible_flights_activities",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert any(
+        block.candidate_id == "activity_market" and block.day_index == 1
+        for block in conversation.activity_planning.timeline_blocks
+    )
+    assert conversation.flight_planning.arrival_day_impact_summary is None
+    assert not any("arrival" in note.lower() for note in conversation.activity_planning.schedule_notes)
+
+
 def test_activity_workspace_builds_timed_day_plan_with_transfers(monkeypatch) -> None:
     now = datetime.now(timezone.utc)
     monkeypatch.setattr(
@@ -2574,3 +3547,350 @@ def test_event_candidate_can_lead_the_ranked_workspace(monkeypatch) -> None:
     )
     assert conversation.activity_planning.completion_status == "in_progress"
     assert conversation.activity_planning.completion_summary is None
+
+
+def test_weather_pass_marks_unavailable_forecast_honestly(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda _configuration: [],
+    )
+    configuration = TripConfiguration(
+        to_location="Lisbon",
+        start_date=date(2026, 5, 1),
+        end_date=date(2026, 5, 3),
+        weather_preference="warm",
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(
+            activities=[ActivityDetail(id="activity_1", title="Riverside garden walk")]
+        ),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert conversation.weather_planning.results_status == "unavailable"
+    assert "not available" in (conversation.weather_planning.workspace_summary or "")
+    assert conversation.weather_planning.activity_influence_notes == [
+        "Using the warm weather preference softly until live forecast data appears."
+    ]
+
+
+def test_rainy_weather_nudges_indoor_activity_above_outdoor(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda _configuration: [],
+    )
+    configuration = TripConfiguration(
+        to_location="Lisbon",
+        start_date=date(2026, 5, 1),
+        end_date=date(2026, 5, 2),
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(
+            weather=[
+                WeatherDetail(
+                    id="weather_1",
+                    day_label="Day 1",
+                    forecast_date=date(2026, 5, 1),
+                    summary="Rain likely during part of the day.",
+                    condition_tags=["rain"],
+                    temperature_band="mild",
+                    weather_risk_level="medium",
+                    high_c=18,
+                    low_c=12,
+                )
+            ],
+            activities=[
+                ActivityDetail(
+                    id="outdoor_garden",
+                    title="Open-air garden viewpoint",
+                    notes=["Outdoor garden walk with viewpoints."],
+                ),
+                ActivityDetail(
+                    id="indoor_museum",
+                    title="Museum and food market afternoon",
+                    notes=["Covered museum galleries and indoor food market."],
+                ),
+            ],
+        ),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert conversation.weather_planning.results_status == "ready"
+    assert conversation.activity_planning.visible_candidates[0].id == "indoor_museum"
+    assert any(
+        "rain risk" in note.lower()
+        for note in conversation.activity_planning.schedule_notes
+    )
+
+
+def test_advanced_review_state_summarizes_selected_and_flexible_planning() -> None:
+    configuration = TripConfiguration.model_validate(
+        {
+            "to_location": "Kyoto",
+            "selected_modules": {
+                "flights": True,
+                "hotels": True,
+                "activities": True,
+                "weather": True,
+            },
+        }
+    )
+    review = conversation_state.merge_advanced_review_planning_state(
+        configuration=configuration,
+        flight_planning=TripConversationState.model_validate(
+            {
+                "flight_planning": {
+                    "selection_status": "completed",
+                    "completion_summary": "Working flights arrive late on Day 1 and leave before lunch.",
+                    "arrival_day_impact_summary": "Late arrival is softening Day 1.",
+                    "timing_review_notes": ["Early return keeps the final morning light."],
+                }
+            }
+        ).flight_planning,
+        stay_planning=TripConversationState.model_validate(
+            {
+                "stay_planning": {
+                    "selected_hotel_id": "hotel_gion",
+                    "selected_hotel_name": "Gion House",
+                    "hotel_selection_status": "selected",
+                    "hotel_selection_rationale": "Gion House keeps evenings walkable.",
+                    "hotel_compatibility_status": "strained",
+                    "hotel_compatibility_notes": [
+                        "The stay is a little far from the morning market route."
+                    ],
+                }
+            }
+        ).stay_planning,
+        trip_style_planning=TripConversationState.model_validate(
+            {
+                "trip_style_planning": {
+                    "substep": "completed",
+                    "selection_status": "completed",
+                    "selected_primary_direction": "culture_led",
+                    "selected_pace": "slow",
+                    "completion_summary": "Culture-led, slower days are the current trip character.",
+                }
+            }
+        ).trip_style_planning,
+        activity_planning=TripConversationState.model_validate(
+            {
+                "activity_planning": {
+                    "completion_status": "completed",
+                    "completion_summary": "Temples, markets, and one evening performance are planned.",
+                    "reserved_candidate_ids": ["activity_extra_market"],
+                    "schedule_notes": [
+                        "Slow pace is keeping extra ideas in reserve instead of filling every daypart."
+                    ],
+                }
+            }
+        ).activity_planning,
+        weather_planning=TripConversationState.model_validate(
+            {
+                "weather_planning": {
+                    "results_status": "ready",
+                    "workspace_summary": "Live forecast is available for the travel dates.",
+                    "day_impact_summaries": ["Day 2 has rain risk, so indoor ideas are stronger."],
+                    "activity_influence_notes": ["Rain risk is lifting museums and covered markets."],
+                }
+            }
+        ).weather_planning,
+    )
+
+    sections = {section.id: section for section in review.section_cards}
+
+    assert review.readiness_status == "needs_review"
+    assert sections["flight"].title == "Working flights"
+    assert sections["stay"].status == "needs_review"
+    assert sections["trip_style"].summary.startswith("Culture-led")
+    assert sections["activities"].notes[-1] == "1 idea saved for later."
+    assert sections["weather"].revision_anchor is None
+    assert any("Rain risk" in note for note in review.review_notes)
+
+
+def test_advanced_review_uses_decision_memory_for_source_confidence_notes() -> None:
+    base = TripConversationState.model_validate(
+        {
+            "flight_planning": {
+                "selection_status": "completed",
+                "completion_summary": "Evening outbound and morning return selected.",
+            }
+        }
+    )
+    review = conversation_state.merge_advanced_review_planning_state(
+        configuration=TripConfiguration(
+            to_location="Kyoto",
+            selected_modules={
+                "flights": True,
+                "weather": False,
+                "activities": False,
+                "hotels": False,
+            },
+        ),
+        stay_planning=base.stay_planning,
+        trip_style_planning=base.trip_style_planning,
+        activity_planning=base.activity_planning,
+        flight_planning=base.flight_planning,
+        weather_planning=base.weather_planning,
+        decision_memory=[
+            PlannerDecisionMemoryRecord(
+                key="selected_flights",
+                value_summary="Evening outbound and morning return selected.",
+                source="assistant_inferred",
+                confidence="low",
+                status="confirmed",
+                related_anchor="flight",
+            )
+        ],
+    )
+
+    sections = {section.id: section for section in review.section_cards}
+
+    assert review.readiness_status == "needs_review"
+    assert review.decision_signals[0].source_label == "Inferred from context"
+    assert review.decision_signals[0].confidence_label == "Low confidence"
+    assert sections["flight"].status == "needs_review"
+    assert any("limited signal" in note for note in review.review_notes)
+
+
+def test_planner_conflicts_detect_slow_pace_dense_activity_days() -> None:
+    conversation = TripConversationState.model_validate(
+        {
+            "trip_style_planning": {
+                "selected_pace": "slow",
+            },
+            "activity_planning": {
+                "completion_status": "completed",
+                "day_plans": [
+                    {
+                        "id": "day_1",
+                        "day_index": 1,
+                        "day_label": "Day 1",
+                        "blocks": [
+                            {"id": "b1", "type": "activity", "title": "Temple", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "b2", "type": "activity", "title": "Market", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "b3", "type": "event", "title": "Dinner", "day_index": 1, "day_label": "Day 1"},
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+
+    conflicts = conversation_state.build_planner_conflicts(
+        configuration=TripConfiguration(to_location="Kyoto"),
+        conversation=conversation,
+    )
+
+    assert conflicts[0].category == "schedule_density"
+    assert conflicts[0].revision_target == "activities"
+    assert "slow pace" in conflicts[0].summary
+
+
+def test_planner_conflicts_detect_food_led_trip_without_food_anchor() -> None:
+    conversation = TripConversationState.model_validate(
+        {
+            "trip_style_planning": {
+                "selected_primary_direction": "food_led",
+            },
+            "activity_planning": {
+                "completion_status": "completed",
+                "visible_candidates": [
+                    {
+                        "id": "temple",
+                        "title": "Temple morning",
+                        "summary": "A heritage temple visit.",
+                        "disposition": "essential",
+                    }
+                ],
+            },
+        }
+    )
+
+    conflicts = conversation_state.build_planner_conflicts(
+        configuration=TripConfiguration(to_location="Kyoto"),
+        conversation=conversation,
+    )
+
+    assert conflicts[0].category == "style_pace"
+    assert conflicts[0].revision_target == "activities"
+    assert "food-led" in conflicts[0].summary
+
+
+def test_advanced_review_includes_planner_conflict_notes() -> None:
+    base = TripConversationState.model_validate(
+        {
+            "trip_style_planning": {
+                "selected_pace": "slow",
+                "substep": "completed",
+            },
+            "activity_planning": {
+                "completion_status": "completed",
+                "completion_summary": "A full first day is planned.",
+                "day_plans": [
+                    {
+                        "id": "day_1",
+                        "day_index": 1,
+                        "day_label": "Day 1",
+                        "blocks": [
+                            {"id": "b1", "type": "activity", "title": "Temple", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "b2", "type": "activity", "title": "Market", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "b3", "type": "event", "title": "Dinner", "day_index": 1, "day_label": "Day 1"},
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+    conflicts = conversation_state.build_planner_conflicts(
+        configuration=TripConfiguration(to_location="Kyoto"),
+        conversation=base,
+    )
+
+    review = conversation_state.merge_advanced_review_planning_state(
+        configuration=TripConfiguration(
+            to_location="Kyoto",
+            selected_modules={
+                "flights": False,
+                "weather": False,
+                "activities": True,
+                "hotels": False,
+            },
+        ),
+        stay_planning=base.stay_planning,
+        trip_style_planning=base.trip_style_planning,
+        activity_planning=base.activity_planning,
+        flight_planning=base.flight_planning,
+        weather_planning=base.weather_planning,
+        planner_conflicts=conflicts,
+    )
+
+    assert review.readiness_status == "needs_review"
+    assert any("slow pace" in note for note in review.review_notes)

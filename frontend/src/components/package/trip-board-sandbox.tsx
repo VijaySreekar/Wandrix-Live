@@ -408,6 +408,7 @@ function buildSandboxWorkspace(
             decision_cards: [],
             last_turn_summary: "The route and timing are stable, but the stay area still needs a clearer hotel direction.",
             active_goals: ["Narrow the hotel area", "Keep the family pace relaxed"],
+            planner_conflicts: [],
             suggestion_board: {
               mode: "helper",
               cards: [],
@@ -432,6 +433,7 @@ function buildSandboxWorkspace(
             },
             memory: {
               field_memory: {},
+              decision_memory: [],
               mentioned_options: [],
               rejected_options: [],
               decision_history: [],
@@ -534,6 +536,7 @@ function buildSandboxWorkspace(
             ],
             last_turn_summary: "Lisbon is the front-runner, but the departure point still needs to be locked.",
             active_goals: ["Confirm the origin", "Tighten the spring timing"],
+            planner_conflicts: [],
             suggestion_board: {
               mode: "decision_cards",
               title: "Next planning decisions",
@@ -552,6 +555,7 @@ function buildSandboxWorkspace(
             },
             memory: {
               field_memory: {},
+              decision_memory: [],
               mentioned_options: [],
               rejected_options: [],
               decision_history: [],
@@ -835,6 +839,7 @@ function buildSandboxWorkspace(
             decision_cards: [],
             last_turn_summary: "The Kyoto trip is coherent enough to review as a full planner draft.",
             active_goals: ["Review the flow", "Tighten any remaining choices"],
+            planner_conflicts: [],
             suggestion_board: {
               mode: "helper",
               cards: [],
@@ -850,6 +855,7 @@ function buildSandboxWorkspace(
             },
             memory: {
               field_memory: {},
+              decision_memory: [],
               mentioned_options: [],
               rejected_options: [],
               decision_history: [],

@@ -13,40 +13,27 @@ import type {
 } from "@/types/trip-draft";
 import { cn } from "@/lib/utils";
 
-export function FlightCard({ flight }: { flight: FlightDetail | undefined }) {
+export function FlightCard({
+  flight,
+  returnFlight,
+}: {
+  flight: FlightDetail | null | undefined;
+  returnFlight?: FlightDetail | null;
+}) {
   return (
     <section className="rounded-xl bg-[color:var(--accent)] px-5 py-5 text-white">
       <p className="font-label text-[10px] uppercase tracking-[0.16em] text-white/68">
-        Outbound flight
+        Working flights
       </p>
       {flight ? (
         <>
-          <div className="mt-5 flex items-end justify-between gap-4">
-            <AirportCode
-              code={flight.departure_airport}
-              time={formatFlightTime(flight.departure_time)}
-            />
-            <div className="flex flex-1 flex-col items-center px-3">
-              <Plane className="h-4 w-4 text-white/74" />
-              <div className="mt-2 h-px w-full border-t border-dashed border-white/34" />
-              <p className="mt-2 text-[10px] uppercase tracking-[0.16em] text-white/66">
-                {flight.duration_text || "Flight time"}
-              </p>
+          <FlightRouteRow flight={flight} label="Outbound" />
+          {returnFlight ? (
+            <div className="mt-4 border-t border-white/18 pt-4">
+              <FlightRouteRow flight={returnFlight} label="Return" compact />
             </div>
-            <AirportCode
-              code={flight.arrival_airport}
-              align="right"
-              time={formatFlightTime(flight.arrival_time)}
-            />
-          </div>
-          <div className="mt-5 rounded-lg bg-white/12 px-4 py-3 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <span>{flight.carrier}</span>
-              <span className="font-semibold">
-                {flight.flight_number || "TBD"}
-              </span>
-            </div>
-          </div>
+          ) : null}
+          <FlightFactPanel flight={flight} returnFlight={returnFlight} />
         </>
       ) : (
         <p className="mt-4 text-sm leading-7 text-white/78">
@@ -58,7 +45,104 @@ export function FlightCard({ flight }: { flight: FlightDetail | undefined }) {
   );
 }
 
-export function WeatherCard({ forecasts }: { forecasts: WeatherDetail[] }) {
+function FlightRouteRow({
+  flight,
+  label,
+  compact = false,
+}: {
+  flight: FlightDetail;
+  label: string;
+  compact?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/60">
+        {label}
+      </p>
+      <div className={cn("mt-3 flex items-end justify-between gap-4", compact && "mt-2")}>
+        <AirportCode
+          code={flight.departure_airport}
+          time={formatFlightTime(flight.departure_time)}
+        />
+        <div className="flex flex-1 flex-col items-center px-3">
+          <Plane className="h-4 w-4 text-white/74" />
+          <div className="mt-2 h-px w-full border-t border-dashed border-white/34" />
+          <p className="mt-2 text-[10px] uppercase tracking-[0.16em] text-white/66">
+            {flight.duration_text || "Flight time"}
+          </p>
+        </div>
+        <AirportCode
+          code={flight.arrival_airport}
+          align="right"
+          time={formatFlightTime(flight.arrival_time)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function FlightFactPanel({
+  flight,
+  returnFlight,
+}: {
+  flight: FlightDetail;
+  returnFlight?: FlightDetail | null;
+}) {
+  const facts = [
+    flight.carrier,
+    flight.flight_number,
+    formatFlightStopLabel(flight.stop_count),
+    flight.price_text,
+    flight.timing_quality,
+  ].filter(Boolean);
+  const returnFacts = returnFlight
+    ? [
+        formatFlightStopLabel(returnFlight.stop_count),
+        returnFlight.price_text,
+        returnFlight.timing_quality,
+      ].filter(Boolean)
+    : [];
+
+  return (
+    <div className="mt-5 rounded-lg bg-white/12 px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        {facts.map((fact) => (
+          <span
+            key={fact}
+            className="rounded-md bg-white/12 px-2.5 py-1 text-xs font-semibold text-white/84"
+          >
+            {fact}
+          </span>
+        ))}
+      </div>
+      {flight.layover_summary ? (
+        <p className="mt-2 text-xs leading-5 text-white/72">{flight.layover_summary}</p>
+      ) : null}
+      {returnFacts.length ? (
+        <p className="mt-2 text-xs leading-5 text-white/72">
+          Return: {returnFacts.join(" · ")}
+        </p>
+      ) : null}
+      {flight.inventory_notice ? (
+        <p className="mt-2 text-xs leading-5 text-white/64">
+          {flight.inventory_notice}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function WeatherCard({
+  forecasts,
+  status,
+  summary,
+  influenceNotes,
+}: {
+  forecasts: WeatherDetail[];
+  status?: "ready" | "unavailable" | "not_requested" | null;
+  summary?: string | null;
+  influenceNotes?: string[];
+}) {
   const displayForecasts =
     forecasts.length > 0
       ? forecasts
@@ -91,9 +175,14 @@ export function WeatherCard({ forecasts }: { forecasts: WeatherDetail[] }) {
 
   return (
     <section className="rounded-xl border border-shell-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent)_10%,white),color-mix(in_srgb,var(--accent2)_10%,white))] px-5 py-5">
-      <p className="font-label text-[10px] uppercase tracking-[0.16em] text-foreground/50">
-        Forecast
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-label text-[10px] uppercase tracking-[0.16em] text-foreground/50">
+          Forecast
+        </p>
+        <span className="rounded-full bg-background/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/50">
+          {formatWeatherStatus(status, forecasts.length)}
+        </span>
+      </div>
       <div className="mt-4 flex items-center gap-4">
         <CloudSun className="h-12 w-12 text-[color:var(--accent)]" />
         <div>
@@ -101,10 +190,15 @@ export function WeatherCard({ forecasts }: { forecasts: WeatherDetail[] }) {
             {forecasts[0] ? formatPrimaryTemperature(forecasts[0]) : "—"}
           </p>
           <p className="mt-1 text-sm text-foreground/60">
-            {forecasts[0]?.summary || "Weather will appear when dates are locked."}
+            {forecasts[0]?.summary ||
+              summary ||
+              "Weather will appear when dates are locked."}
           </p>
         </div>
       </div>
+      {summary && forecasts.length > 0 ? (
+        <p className="mt-4 text-xs leading-5 text-foreground/58">{summary}</p>
+      ) : null}
       <div className="mt-5 grid grid-cols-3 gap-3 rounded-lg bg-white/55 px-4 py-3">
         {displayForecasts.map((forecast) => (
           <div key={forecast.id} className="text-center">
@@ -115,9 +209,23 @@ export function WeatherCard({ forecasts }: { forecasts: WeatherDetail[] }) {
             <p className="mt-2 text-xs font-semibold text-foreground">
               {formatTemperatureBand(forecast.high_c, forecast.low_c)}
             </p>
+            {forecast.temperature_band ? (
+              <p className="mt-1 text-[10px] capitalize text-foreground/45">
+                {forecast.temperature_band}
+              </p>
+            ) : null}
           </div>
         ))}
       </div>
+      {influenceNotes?.length ? (
+        <div className="mt-4 space-y-2">
+          {influenceNotes.slice(0, 2).map((note) => (
+            <p key={note} className="text-xs leading-5 text-foreground/58">
+              {note}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -366,6 +474,22 @@ function formatTemperatureBand(high: number | null, low: number | null) {
   return `${Math.round(high ?? low ?? 0)}°`;
 }
 
+function formatWeatherStatus(
+  status: "ready" | "unavailable" | "not_requested" | null | undefined,
+  forecastCount: number,
+) {
+  if (status === "ready" || forecastCount > 0) {
+    return "Live";
+  }
+  if (status === "unavailable") {
+    return "Pending";
+  }
+  if (status === "not_requested") {
+    return "Off";
+  }
+  return "Open";
+}
+
 function formatPrimaryTemperature(forecast: WeatherDetail) {
   if (forecast.high_c == null && forecast.low_c == null) {
     return "—";
@@ -426,4 +550,17 @@ function formatFlightTime(value: string | Date | null | undefined) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(parsed);
+}
+
+function formatFlightStopLabel(value: number | null | undefined) {
+  if (value == null) {
+    return null;
+  }
+  if (value === 0) {
+    return "Direct";
+  }
+  if (value === 1) {
+    return "1 stop";
+  }
+  return `${value} stops`;
 }

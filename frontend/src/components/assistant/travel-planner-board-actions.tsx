@@ -55,6 +55,8 @@ export function TravelPlannerBoardActions({
       country_or_region: pendingBoardAction.country_or_region,
       suggestion_id: pendingBoardAction.suggestion_id,
       date_option_id: pendingBoardAction.date_option_id,
+      flight_strategy: pendingBoardAction.flight_strategy,
+      flight_option_id: pendingBoardAction.flight_option_id,
       stay_option_id: pendingBoardAction.stay_option_id,
       stay_segment_id: pendingBoardAction.stay_segment_id,
       stay_hotel_id: pendingBoardAction.stay_hotel_id,
@@ -71,6 +73,8 @@ export function TravelPlannerBoardActions({
       trip_style_direction_accent:
         pendingBoardAction.trip_style_direction_accent,
       trip_style_pace: pendingBoardAction.trip_style_pace,
+      trip_style_tradeoff_axis: pendingBoardAction.trip_style_tradeoff_axis,
+      trip_style_tradeoff_value: pendingBoardAction.trip_style_tradeoff_value,
       stay_hotel_max_nightly_rate:
         pendingBoardAction.stay_hotel_max_nightly_rate,
       stay_hotel_area_filter: pendingBoardAction.stay_hotel_area_filter,
@@ -165,6 +169,29 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
     return `In Advanced Planning, start by shaping ${anchorLabel} first.`;
   }
 
+  if (action.type === "select_flight_strategy") {
+    const strategy = action.flight_strategy
+      ? action.flight_strategy.replace(/_/g, " ")
+      : "that flight strategy";
+    return `Use ${strategy} as the working flight strategy.`;
+  }
+
+  if (action.type === "select_outbound_flight") {
+    return "Use this outbound flight as the working planning option.";
+  }
+
+  if (action.type === "select_return_flight") {
+    return "Use this return flight as the working planning option.";
+  }
+
+  if (action.type === "confirm_flight_selection") {
+    return "Confirm these working flights for Advanced Planning.";
+  }
+
+  if (action.type === "keep_flights_open") {
+    return "Keep flights flexible for now.";
+  }
+
   if (action.type === "select_trip_style_direction_primary") {
     const primary = action.trip_style_direction_primary
       ? action.trip_style_direction_primary.replace(/_/g, " ")
@@ -200,6 +227,21 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
 
   if (action.type === "keep_current_trip_style_pace") {
     return "Keep the current trip pace anyway.";
+  }
+
+  if (action.type === "set_trip_style_tradeoff") {
+    const value = action.trip_style_tradeoff_value
+      ? action.trip_style_tradeoff_value.replace(/_/g, " ")
+      : "that tie-breaker";
+    return `Set the Trip Style tie-breaker to ${value}.`;
+  }
+
+  if (action.type === "confirm_trip_style_tradeoffs") {
+    return "Use these Trip Style tie-breakers and shape activities around them.";
+  }
+
+  if (action.type === "keep_current_trip_style_tradeoffs") {
+    return "Keep the current Trip Style tie-breakers anyway.";
   }
 
   if (action.type === "select_date_option") {
@@ -299,8 +341,19 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
     return "Reset the hotel workspace filters to the default view.";
   }
 
+  if (action.type === "revise_advanced_review_section") {
+    const anchor = action.advanced_anchor
+      ? action.advanced_anchor.replace(/_/g, " ")
+      : "that part of the trip";
+    return `Review ${anchor} again before finalizing the trip.`;
+  }
+
   if (action.type === "finalize_quick_plan") {
     return "Finalize this quick plan from the board.";
+  }
+
+  if (action.type === "finalize_advanced_plan") {
+    return "Finalize this reviewed Advanced plan from the board.";
   }
 
   if (action.type === "reopen_plan") {

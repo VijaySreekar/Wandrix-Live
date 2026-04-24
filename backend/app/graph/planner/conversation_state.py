@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+import re
 from uuid import uuid4
 
 from app.graph.planner.date_resolution import build_advanced_date_options
@@ -19,8 +20,10 @@ from app.services.providers.movement import estimate_travel_duration_minutes
 from app.graph.planner.turn_models import (
     ConversationOptionCandidate,
     RequestedActivityScheduleEdit,
+    RequestedFlightUpdate,
     RequestedTripStyleDirectionUpdate,
     RequestedTripStylePaceUpdate,
+    RequestedTripStyleTradeoffUpdate,
     TripOpenQuestionUpdate,
     TripTurnUpdate,
 )
@@ -31,20 +34,40 @@ from app.schemas.trip_conversation import (
     ConversationFieldMemory,
     ConversationFieldSource,
     ConversationOptionMemory,
+    PlannerDecisionConfidence,
+    PlannerDecisionMemoryKey,
+    PlannerDecisionMemoryRecord,
+    PlannerDecisionSource,
+    PlannerDecisionStatus,
+    PlannerConflictRecord,
     AdvancedActivityCandidateCard,
     AdvancedActivityDayPlan,
     AdvancedActivityPlacementPreference,
     AdvancedActivityPlanningState,
     AdvancedActivityTimelineBlock,
     AdvancedDateResolutionState,
+    AdvancedFlightOptionCard,
+    AdvancedFlightPlanningState,
+    AdvancedFlightStrategyCard,
+    AdvancedReviewDecisionSignal,
+    AdvancedReviewPlanningState,
+    AdvancedReviewSectionCard,
+    AdvancedWeatherPlanningState,
     AdvancedStayPlanningSegment,
     AdvancedStayPlanningState,
     PlannerTripDirectionAccent,
     PlannerTripDirectionPrimary,
+    PlannerFlightStrategy,
     PlannerTripPace,
+    PlannerTripStyleTradeoffAxis,
+    PlannerTripStyleTradeoffChoice,
     PlannerTripStyleSelectionStatus,
+    TripStyleTradeoffCard,
+    TripStyleTradeoffDecision,
+    TripStyleTradeoffOption,
     TripStylePlanningState,
     PlannerConfirmationStatus,
+    PlannerAdvancedReviewReadinessStatus,
     PlannerAdvancedStep,
     PlannerAdvancedAnchor,
     PlannerFinalizedVia,
@@ -60,7 +83,8 @@ from app.schemas.trip_conversation import (
     TripFieldKey,
 )
 from app.schemas.trip_draft import TripDraftStatus
-from app.schemas.trip_planning import ActivityDetail, TripConfiguration, TripModuleOutputs
+from app.schemas.trip_planning import ActivityDetail, FlightDetail, TripConfiguration, TripModuleOutputs
+from app.schemas.trip_planning import WeatherDetail
 
 
 @dataclass(frozen=True)
@@ -77,6 +101,23 @@ class _ActivityReviewSignals:
     lead_event_title: str | None = None
     lead_event_location_label: str | None = None
     strong_candidate_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _FlightTimingConstraints:
+    arrival_day_index: int | None = None
+    arrival_time: datetime | None = None
+    departure_day_index: int | None = None
+    departure_time: datetime | None = None
+    arrival_note: str | None = None
+    departure_note: str | None = None
+
+
+@dataclass(frozen=True)
+class _WeatherPlanningContext:
+    weather_by_day: dict[int, WeatherDetail]
+    day_notes: tuple[str, ...] = ()
+    activity_notes: tuple[str, ...] = ()
 
 
 def compute_missing_fields(configuration: TripConfiguration) -> list[str]:
@@ -120,6 +161,7 @@ def build_conversation_state(
     finalized_at: datetime | None = None,
     finalized_via: PlannerFinalizedVia | None = None,
     record_memory: bool = True,
+    provider_activation: dict | None = None,
 ) -> TripConversationState:
     conversation = current.model_copy(deep=True)
     missing_fields = compute_missing_fields_with_context(
@@ -149,6 +191,9 @@ def build_conversation_state(
         llm_update,
         next_configuration,
         missing_fields,
+        reliability_question_fields=_provider_reliability_question_fields(
+            provider_activation
+        ),
     )
     conversation.decision_cards = merge_decision_cards(
         current.decision_cards,
@@ -172,6 +217,21 @@ def build_conversation_state(
         advanced_step=advanced_step,
         board_action=board_action or {},
     )
+    conversation.flight_planning = merge_flight_planning_state(
+        current=current.flight_planning,
+        configuration=next_configuration,
+        module_outputs=module_outputs,
+        llm_update=llm_update,
+        planning_mode=planning_mode,
+        advanced_step=advanced_step,
+        advanced_anchor=advanced_anchor,
+        board_action=board_action or {},
+    )
+    conversation.weather_planning = merge_weather_planning_state(
+        current=current.weather_planning,
+        configuration=next_configuration,
+        module_outputs=module_outputs,
+    )
     conversation.trip_style_planning = merge_trip_style_planning_state(
         current=current.trip_style_planning,
         configuration=next_configuration,
@@ -180,6 +240,7 @@ def build_conversation_state(
         advanced_step=advanced_step,
         advanced_anchor=advanced_anchor,
         board_action=board_action or {},
+        stay_planning=current.stay_planning,
     )
     conversation.stay_planning = merge_stay_planning_state(
         current=current.stay_planning,
@@ -202,6 +263,8 @@ def build_conversation_state(
         board_action=board_action or {},
         stay_planning=conversation.stay_planning,
         trip_style_planning=conversation.trip_style_planning,
+        flight_planning=conversation.flight_planning,
+        weather_planning=conversation.weather_planning,
     )
     conversation.stay_planning = _apply_activity_review_to_stay_planning(
         current=conversation.stay_planning,
@@ -216,18 +279,6 @@ def build_conversation_state(
     conversation.activity_planning = _finalize_activity_completion_state(
         current=conversation.activity_planning,
         stay_planning=conversation.stay_planning,
-    )
-    conversation.suggestion_board = build_suggestion_board_state(
-        current=conversation,
-        configuration=next_configuration,
-        phase=phase,
-        llm_update=llm_update,
-        resolved_location_context=resolved_location_context,
-        board_action=board_action or {},
-        brief_confirmed=brief_confirmed,
-        advanced_step=advanced_step,
-        advanced_anchor=advanced_anchor,
-        planning_mode_choice_required=planning_mode_choice_required,
     )
     if record_memory:
         conversation.memory = merge_conversation_memory(
@@ -245,9 +296,56 @@ def build_conversation_state(
             planning_mode=planning_mode,
             planning_mode_status=planning_mode_status,
             advanced_anchor=advanced_anchor,
+            confirmation_status=confirmation_status,
             open_questions=conversation.open_questions,
             active_goals=conversation.active_goals,
             last_turn_summary=conversation.last_turn_summary,
+        )
+        conversation.memory = merge_planner_decision_memory(
+            current=conversation.memory,
+            configuration=next_configuration,
+            conversation=conversation,
+            llm_update=llm_update,
+            board_action=board_action or {},
+            turn_id=turn_id,
+            now=now,
+        )
+    conversation.planner_conflicts = build_planner_conflicts(
+        configuration=next_configuration,
+        conversation=conversation,
+        provider_activation=provider_activation,
+    )
+    conversation.advanced_review_planning = merge_advanced_review_planning_state(
+        configuration=next_configuration,
+        stay_planning=conversation.stay_planning,
+        trip_style_planning=conversation.trip_style_planning,
+        activity_planning=conversation.activity_planning,
+        flight_planning=conversation.flight_planning,
+        weather_planning=conversation.weather_planning,
+        decision_memory=conversation.memory.decision_memory,
+        planner_conflicts=conversation.planner_conflicts,
+    )
+    conversation.suggestion_board = build_suggestion_board_state(
+        current=conversation,
+        configuration=next_configuration,
+        phase=phase,
+        llm_update=llm_update,
+        resolved_location_context=resolved_location_context,
+        board_action=board_action or {},
+        brief_confirmed=brief_confirmed,
+        advanced_step=advanced_step,
+        advanced_anchor=advanced_anchor,
+        planning_mode_choice_required=planning_mode_choice_required,
+    )
+    if record_memory:
+        conversation.memory = merge_planner_decision_memory(
+            current=conversation.memory,
+            configuration=next_configuration,
+            conversation=conversation,
+            llm_update=llm_update,
+            board_action=board_action or {},
+            turn_id=turn_id,
+            now=now,
         )
 
     return conversation
@@ -353,6 +451,7 @@ def merge_open_questions(
     llm_update: TripTurnUpdate,
     configuration: TripConfiguration,
     missing_fields: list[str],
+    reliability_question_fields: set[TripFieldKey] | None = None,
 ) -> list[ConversationQuestion]:
     active_questions: list[ConversationQuestion] = []
     answered_or_dismissed: list[ConversationQuestion] = []
@@ -363,7 +462,12 @@ def merge_open_questions(
         if question.status == "dismissed":
             answered_or_dismissed.append(question)
             continue
-        if _question_is_still_relevant(question, configuration, missing_fields):
+        if _question_is_still_relevant(
+            question,
+            configuration,
+            missing_fields,
+            reliability_question_fields=reliability_question_fields,
+        ):
             normalized_field = _normalize_question_field_for_missing_state(
                 question.field,
                 configuration,
@@ -405,6 +509,7 @@ def merge_open_questions(
             candidate=candidate,
             configuration=configuration,
             missing_fields=missing_fields,
+            reliability_question_fields=reliability_question_fields,
         )
         if question is None:
             continue
@@ -433,6 +538,28 @@ def merge_open_questions(
 
     active_questions.sort(key=_open_question_sort_key)
     return [*active_questions[:3], *answered_or_dismissed[-3:]]
+
+
+def _provider_reliability_question_fields(
+    provider_activation: dict | None,
+) -> set[TripFieldKey]:
+    if not provider_activation:
+        return set()
+    fields: set[TripFieldKey] = set()
+    for blocker in provider_activation.get("reliability_blockers") or []:
+        field = blocker.get("field")
+        if field in {
+            "selected_modules",
+            "to_location",
+            "from_location",
+            "start_date",
+            "end_date",
+            "travel_window",
+            "trip_length",
+            "adults",
+        }:
+            fields.add(field)
+    return fields
 
 
 def merge_decision_cards(
@@ -500,6 +627,7 @@ def merge_conversation_memory(
     planning_mode: PlannerPlanningMode | None,
     planning_mode_status: PlannerPlanningModeStatus,
     advanced_anchor: PlannerAdvancedAnchor | None,
+    confirmation_status: PlannerConfirmationStatus,
     open_questions: list[ConversationQuestion],
     active_goals: list[str],
     last_turn_summary: str | None,
@@ -587,6 +715,7 @@ def merge_conversation_memory(
         planning_mode=planning_mode,
         planning_mode_status=planning_mode_status,
         advanced_anchor=advanced_anchor,
+        confirmation_status=confirmation_status,
     )
     memory.turn_summaries = _merge_turn_summaries(
         current=memory.turn_summaries,
@@ -615,6 +744,524 @@ def merge_conversation_memory(
                 now,
             )
     return memory
+
+
+def merge_planner_decision_memory(
+    *,
+    current: TripConversationMemory,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
+    board_action: dict,
+    turn_id: str,
+    now: datetime,
+) -> TripConversationMemory:
+    memory = current.model_copy(deep=True)
+    records: list[PlannerDecisionMemoryRecord] = []
+
+    records.extend(
+        _build_core_decision_memory_records(
+            configuration=configuration,
+            memory=memory,
+            now=now,
+        )
+    )
+    records.extend(
+        _build_advanced_decision_memory_records(
+            conversation=conversation,
+            llm_update=llm_update,
+            board_action=board_action,
+            now=now,
+        )
+    )
+
+    for record in records:
+        memory.decision_memory = _upsert_decision_memory_record(
+            current=memory.decision_memory,
+            record=record,
+        )
+
+    return memory
+
+
+def _build_core_decision_memory_records(
+    *,
+    configuration: TripConfiguration,
+    memory: TripConversationMemory,
+    now: datetime,
+) -> list[PlannerDecisionMemoryRecord]:
+    records: list[PlannerDecisionMemoryRecord] = []
+    field_groups: list[tuple[PlannerDecisionMemoryKey, list[TripFieldKey], str]] = [
+        ("destination", ["to_location"], "Destination"),
+        ("origin", ["from_location", "from_location_flexible"], "Origin"),
+        ("date_window", ["start_date", "end_date", "travel_window", "trip_length"], "Timing"),
+        ("travelers", ["adults", "children", "travelers_flexible"], "Travelers"),
+        ("budget", ["budget_posture", "budget_gbp"], "Budget"),
+        ("module_scope", ["selected_modules"], "Planning scope"),
+    ]
+    for key, fields, label in field_groups:
+        value_summary = _decision_value_summary_for_fields(configuration, fields)
+        if value_summary is None:
+            continue
+        field_memories = [
+            memory.field_memory[field]
+            for field in fields
+            if field in memory.field_memory
+        ]
+        source = _strongest_decision_source(
+            [_decision_source_from_field_memory(item) for item in field_memories]
+        )
+        confidence = _strongest_decision_confidence(
+            [
+                _decision_confidence_from_field_memory(item)
+                for item in field_memories
+            ]
+        )
+        status: PlannerDecisionStatus = (
+            "confirmed"
+            if field_memories
+            and all(_is_confirmed_field_source(item.source) for item in field_memories)
+            else "working"
+        )
+        records.append(
+            PlannerDecisionMemoryRecord(
+                key=key,
+                value_summary=value_summary,
+                source=source,
+                confidence=confidence,
+                status=status,
+                rationale=f"{label} is tracked from the current trip brief.",
+                updated_at=now,
+            )
+        )
+    return records
+
+
+def _build_advanced_decision_memory_records(
+    *,
+    conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
+    board_action: dict,
+    now: datetime,
+) -> list[PlannerDecisionMemoryRecord]:
+    records: list[PlannerDecisionMemoryRecord] = []
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    action_type = action.type if action else None
+
+    trip_style = conversation.trip_style_planning
+    trip_style_source = _advanced_source_for_turn(
+        action_type=action_type,
+        action_prefixes=("select_trip_style_", "confirm_trip_style_", "keep_current_trip_style_"),
+        has_chat_update=bool(
+            llm_update.requested_trip_style_direction_updates
+            or llm_update.requested_trip_style_pace_updates
+            or llm_update.requested_trip_style_tradeoff_updates
+        ),
+    )
+    if trip_style.selected_primary_direction:
+        accent = (
+            f" with {_trip_direction_accent_label(trip_style.selected_accent).lower()} accent"
+            if trip_style.selected_accent
+            else ""
+        )
+        direction_summary = _sentence_case(
+            f"{_trip_direction_primary_label(trip_style.selected_primary_direction)}{accent}"
+        )
+        records.append(
+            PlannerDecisionMemoryRecord(
+                key="trip_style_direction",
+                value_summary=direction_summary,
+                source=trip_style_source,
+                confidence="high" if trip_style.selection_status == "completed" else "medium",
+                status="confirmed" if trip_style.selection_status == "completed" else "working",
+                rationale=trip_style.selection_rationale,
+                related_anchor="trip_style",
+                updated_at=now,
+            )
+        )
+    if trip_style.selected_pace:
+        records.append(
+            PlannerDecisionMemoryRecord(
+                key="trip_style_pace",
+                value_summary=_trip_pace_label(trip_style.selected_pace),
+                source=trip_style_source,
+                confidence="high" if trip_style.pace_status == "completed" else "medium",
+                status="confirmed" if trip_style.pace_status == "completed" else "working",
+                rationale=trip_style.pace_rationale,
+                related_anchor="trip_style",
+                updated_at=now,
+            )
+        )
+    if trip_style.selected_tradeoffs:
+        tradeoff_summary = (
+            _format_tradeoff_completion_line(trip_style.selected_tradeoffs)
+            .lstrip(", ")
+            .strip()
+            or "Balanced trip style tradeoffs"
+        )
+        records.append(
+            PlannerDecisionMemoryRecord(
+                key="trip_style_tradeoffs",
+                value_summary=_sentence_case(tradeoff_summary),
+                source=trip_style_source,
+                confidence="high" if trip_style.tradeoff_status == "completed" else "medium",
+                status="confirmed" if trip_style.tradeoff_status == "completed" else "working",
+                rationale=trip_style.tradeoff_rationale,
+                related_anchor="trip_style",
+                updated_at=now,
+            )
+        )
+
+    flight = conversation.flight_planning
+    flight_source = _advanced_source_for_turn(
+        action_type=action_type,
+        action_prefixes=("select_flight_", "confirm_flight_", "keep_flights_open"),
+        has_chat_update=bool(llm_update.requested_flight_updates),
+    )
+    if flight.selection_status in {"selected", "completed", "kept_open"}:
+        records.append(
+            PlannerDecisionMemoryRecord(
+                key="selected_flights",
+                value_summary=flight.selection_summary
+                or flight.completion_summary
+                or _flight_selection_memory_summary(flight),
+                source=flight_source,
+                confidence="high" if flight.selection_status == "completed" else "medium",
+                status="confirmed"
+                if flight.selection_status == "completed"
+                else "working",
+                rationale="Flight choices are planning selections, not bookings.",
+                related_anchor="flight",
+                updated_at=now,
+            )
+        )
+
+    stay = conversation.stay_planning
+    stay_source = _advanced_source_for_turn(
+        action_type=action_type,
+        action_prefixes=("select_stay_", "keep_current_stay_", "keep_current_hotel_"),
+        has_chat_update=bool(
+            llm_update.requested_stay_option_title
+            or llm_update.requested_stay_hotel_name
+            or llm_update.requested_review_resolutions
+        ),
+    )
+    selected_stay_summary = stay.selected_hotel_name or stay.selected_stay_direction
+    if selected_stay_summary:
+        needs_review = (
+            stay.selection_status == "needs_review"
+            or stay.hotel_selection_status == "needs_review"
+        )
+        records.append(
+            PlannerDecisionMemoryRecord(
+                key="selected_stay",
+                value_summary=selected_stay_summary,
+                source=stay_source,
+                confidence="high" if not needs_review else "medium",
+                status="needs_review" if needs_review else "confirmed",
+                rationale=stay.hotel_selection_rationale or stay.selection_rationale,
+                related_anchor="stay",
+                updated_at=now,
+            )
+        )
+
+    activity = conversation.activity_planning
+    activity_source = _advanced_source_for_turn(
+        action_type=action_type,
+        action_prefixes=(
+            "set_activity_",
+            "move_activity_",
+            "pin_activity_",
+            "send_activity_",
+            "restore_activity_",
+            "rebuild_activity_",
+        ),
+        has_chat_update=bool(
+            llm_update.requested_activity_decisions
+            or llm_update.requested_activity_schedule_edits
+        ),
+    )
+    if (
+        activity.completion_status == "completed"
+        or activity.essential_ids
+        or activity.day_plans
+    ):
+        records.append(
+            PlannerDecisionMemoryRecord(
+                key="selected_activities",
+                value_summary=activity.completion_summary
+                or activity.schedule_summary
+                or "Activities are being shaped as working planning choices.",
+                source=activity_source,
+                confidence="high" if activity.completion_status == "completed" else "medium",
+                status="confirmed"
+                if activity.completion_status == "completed"
+                else "working",
+                rationale=activity.schedule_summary,
+                related_anchor="activities",
+                updated_at=now,
+            )
+        )
+
+    weather = conversation.weather_planning
+    if weather.results_status != "not_requested" or weather.workspace_summary:
+        records.append(
+            PlannerDecisionMemoryRecord(
+                key="weather_context",
+                value_summary=weather.workspace_summary
+                or _weather_memory_summary(weather.results_status),
+                source="provider" if weather.results_status == "ready" else "system",
+                confidence="high" if weather.results_status == "ready" else "low",
+                status="working",
+                rationale="Weather is a supporting planning signal, not a hard constraint.",
+                updated_at=now,
+            )
+        )
+
+    review = conversation.advanced_review_planning
+    if review.workspace_summary or review.section_cards:
+        records.append(
+            PlannerDecisionMemoryRecord(
+                key="advanced_review",
+                value_summary=review.workspace_summary
+                or review.completed_summary
+                or "Advanced review is available.",
+                source="system",
+                confidence="high" if review.readiness_status == "ready" else "medium",
+                status="needs_review"
+                if review.readiness_status == "needs_review"
+                else "working"
+                if review.readiness_status == "flexible"
+                else "confirmed",
+                rationale=review.open_summary,
+                updated_at=now,
+            )
+        )
+
+    return records
+
+
+def _upsert_decision_memory_record(
+    *,
+    current: list[PlannerDecisionMemoryRecord],
+    record: PlannerDecisionMemoryRecord,
+) -> list[PlannerDecisionMemoryRecord]:
+    merged: list[PlannerDecisionMemoryRecord] = []
+    replaced = False
+    for existing in current:
+        if existing.key != record.key:
+            merged.append(existing)
+            continue
+        replaced = True
+        merged.append(_merge_decision_memory_record(existing=existing, incoming=record))
+    if not replaced:
+        merged.append(record)
+    return merged[-24:]
+
+
+def _merge_decision_memory_record(
+    *,
+    existing: PlannerDecisionMemoryRecord,
+    incoming: PlannerDecisionMemoryRecord,
+) -> PlannerDecisionMemoryRecord:
+    if (
+        existing.value_summary == incoming.value_summary
+        and _decision_source_priority(existing.source)
+        > _decision_source_priority(incoming.source)
+    ):
+        return existing.model_copy(
+            update={
+                "confidence": _stronger_decision_confidence(
+                    existing.confidence,
+                    incoming.confidence,
+                ),
+                "status": _stronger_decision_status(
+                    existing.status,
+                    incoming.status,
+                ),
+                "rationale": incoming.rationale or existing.rationale,
+                "updated_at": incoming.updated_at,
+            }
+        )
+    if (
+        existing.status == "confirmed"
+        and incoming.status != "confirmed"
+        and _decision_source_priority(existing.source)
+        > _decision_source_priority(incoming.source)
+    ):
+        return existing.model_copy(
+            update={
+                "rationale": incoming.rationale or existing.rationale,
+                "updated_at": incoming.updated_at,
+            }
+        )
+    return incoming
+
+
+def _decision_value_summary_for_fields(
+    configuration: TripConfiguration,
+    fields: list[TripFieldKey],
+) -> str | None:
+    parts: list[str] = []
+    if "to_location" in fields and configuration.to_location:
+        return configuration.to_location
+    if "from_location" in fields:
+        if configuration.from_location:
+            parts.append(configuration.from_location)
+        if configuration.from_location_flexible:
+            parts.append("origin flexible")
+        return ", ".join(parts) or None
+    if "start_date" in fields or "travel_window" in fields:
+        if configuration.start_date and configuration.end_date:
+            return f"{configuration.start_date.isoformat()} to {configuration.end_date.isoformat()}"
+        if configuration.travel_window and configuration.trip_length:
+            return f"{configuration.travel_window}, {configuration.trip_length}"
+        return configuration.travel_window or configuration.trip_length
+    if "adults" in fields:
+        traveler_parts = []
+        if configuration.travelers.adults is not None:
+            traveler_parts.append(f"{configuration.travelers.adults} adults")
+        if configuration.travelers.children:
+            traveler_parts.append(f"{configuration.travelers.children} children")
+        if configuration.travelers_flexible:
+            traveler_parts.append("traveler count flexible")
+        return ", ".join(traveler_parts) or None
+    if "budget_posture" in fields:
+        if configuration.budget_posture:
+            parts.append(str(configuration.budget_posture))
+        if configuration.budget_gbp:
+            parts.append(f"GBP {configuration.budget_gbp:g}")
+        return ", ".join(parts) or None
+    if "selected_modules" in fields:
+        enabled = [
+            name
+            for name, enabled in configuration.selected_modules.model_dump().items()
+            if enabled
+        ]
+        return ", ".join(enabled) if enabled else None
+    return None
+
+
+def _decision_source_from_field_memory(
+    memory: ConversationFieldMemory,
+) -> PlannerDecisionSource:
+    if memory.source == "board_action":
+        return "board_action"
+    if memory.source == "user_explicit":
+        return "user_explicit"
+    if memory.source == "profile_default":
+        return "profile_default"
+    return "assistant_inferred"
+
+
+def _decision_confidence_from_field_memory(
+    memory: ConversationFieldMemory,
+) -> PlannerDecisionConfidence:
+    return _effective_confidence_level(memory) or "medium"
+
+
+def _advanced_source_for_turn(
+    *,
+    action_type: str | None,
+    action_prefixes: tuple[str, ...],
+    has_chat_update: bool,
+) -> PlannerDecisionSource:
+    if action_type and any(action_type.startswith(prefix) for prefix in action_prefixes):
+        return "board_action"
+    if has_chat_update:
+        return "user_explicit"
+    return "system"
+
+
+def _strongest_decision_source(
+    sources: list[PlannerDecisionSource],
+) -> PlannerDecisionSource:
+    if not sources:
+        return "system"
+    return max(sources, key=_decision_source_priority)
+
+
+def _strongest_decision_confidence(
+    confidences: list[PlannerDecisionConfidence],
+) -> PlannerDecisionConfidence:
+    if not confidences:
+        return "medium"
+    return max(confidences, key=_decision_confidence_priority)
+
+
+def _stronger_decision_confidence(
+    existing: PlannerDecisionConfidence,
+    incoming: PlannerDecisionConfidence,
+) -> PlannerDecisionConfidence:
+    return (
+        existing
+        if _decision_confidence_priority(existing)
+        >= _decision_confidence_priority(incoming)
+        else incoming
+    )
+
+
+def _stronger_decision_status(
+    existing: PlannerDecisionStatus,
+    incoming: PlannerDecisionStatus,
+) -> PlannerDecisionStatus:
+    return (
+        existing
+        if _decision_status_priority(existing) >= _decision_status_priority(incoming)
+        else incoming
+    )
+
+
+def _decision_source_priority(source: PlannerDecisionSource) -> int:
+    return {
+        "system": 0,
+        "profile_default": 1,
+        "assistant_inferred": 2,
+        "provider": 3,
+        "user_explicit": 4,
+        "board_action": 5,
+    }[source]
+
+
+def _decision_confidence_priority(confidence: PlannerDecisionConfidence) -> int:
+    return {"low": 0, "medium": 1, "high": 2}[confidence]
+
+
+def _decision_status_priority(status: PlannerDecisionStatus) -> int:
+    return {
+        "superseded": 0,
+        "working": 1,
+        "needs_review": 2,
+        "confirmed": 3,
+    }[status]
+
+
+def _flight_selection_memory_summary(
+    flight_planning: AdvancedFlightPlanningState,
+) -> str:
+    if flight_planning.selection_status == "kept_open":
+        return "Flights are intentionally kept flexible."
+    if (
+        flight_planning.selected_outbound_flight_id
+        and flight_planning.selected_return_flight_id
+    ):
+        return "Working outbound and return flights are selected."
+    return "Flight options are being shaped."
+
+
+def _weather_memory_summary(status: str) -> str:
+    if status == "ready":
+        return "Live forecast context is available."
+    if status == "unavailable":
+        return "Live forecast context is unavailable."
+    return "Weather context has not been requested."
+
+
+def _sentence_case(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        return cleaned
+    return cleaned[0].upper() + cleaned[1:]
 
 
 def detect_confirmed_field_corrections(
@@ -1684,6 +2331,60 @@ def _candidate_has_outdoors_signal(text: str) -> bool:
     )
 
 
+def _candidate_has_indoor_weather_signal(text: str) -> bool:
+    return any(
+        token in text
+        for token in [
+            "museum",
+            "gallery",
+            "theatre",
+            "theater",
+            "performance",
+            "indoor",
+            "covered",
+            "market",
+            "food",
+            "restaurant",
+            "tasting",
+            "workshop",
+            "shopping",
+        ]
+    )
+
+
+def _candidate_has_outdoor_weather_signal(text: str) -> bool:
+    return any(
+        token in text
+        for token in [
+            "outdoor",
+            "outdoors",
+            "park",
+            "garden",
+            "viewpoint",
+            "trail",
+            "hike",
+            "walking",
+            "walk",
+            "market",
+            "festival",
+            "day trip",
+            "beach",
+            "river",
+        ]
+    )
+
+
+def _candidate_has_exposed_outdoor_weather_signal(text: str) -> bool:
+    return any(
+        token in text
+        for token in ["hike", "trail", "viewpoint", "garden", "park", "beach", "walking"]
+    )
+
+
+def _weather_has_any_tag(item: WeatherDetail, tags: set[str]) -> bool:
+    return any(tag in tags for tag in item.condition_tags)
+
+
 def _primary_location_key(location_label: str | None) -> str | None:
     if not location_label or not isinstance(location_label, str):
         return None
@@ -1927,6 +2628,865 @@ def _merge_activity_placement_preferences(
     return list(preferences_by_id.values()), schedule_notes
 
 
+def merge_weather_planning_state(
+    *,
+    current: AdvancedWeatherPlanningState,
+    configuration: TripConfiguration,
+    module_outputs: TripModuleOutputs,
+) -> AdvancedWeatherPlanningState:
+    weather_planning = current.model_copy(deep=True)
+    if not configuration.selected_modules.weather:
+        weather_planning.results_status = "not_requested"
+        weather_planning.workspace_summary = "Weather is outside this trip scope for now."
+        weather_planning.day_impact_summaries = []
+        weather_planning.activity_influence_notes = []
+        return weather_planning
+
+    if not module_outputs.weather:
+        weather_planning.results_status = "unavailable"
+        weather_planning.workspace_summary = (
+            "Live forecast data is not available for these dates yet, so weather is only a light preference signal."
+            if configuration.weather_preference
+            else "Live forecast data is not available for these dates yet."
+        )
+        weather_planning.day_impact_summaries = []
+        weather_planning.activity_influence_notes = (
+            [
+                f"Using the {configuration.weather_preference} weather preference softly until live forecast data appears."
+            ]
+            if configuration.weather_preference
+            else []
+        )
+        return weather_planning
+
+    context = _build_weather_planning_context(
+        weather_items=module_outputs.weather,
+        day_specs=_build_activity_day_specs(configuration),
+    )
+    weather_planning.results_status = "ready"
+    weather_planning.day_impact_summaries = list(context.day_notes)
+    weather_planning.activity_influence_notes = list(context.activity_notes)
+    weather_planning.workspace_summary = (
+        "Live forecast signals are lightly shaping activity timing and day notes."
+        if context.activity_notes
+        else "Live forecast data is available, with no major weather pressure in the current plan."
+    )
+    return weather_planning
+
+
+def build_planner_conflicts(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    provider_activation: dict | None = None,
+) -> list[PlannerConflictRecord]:
+    conflicts: list[PlannerConflictRecord] = []
+    conflicts.extend(
+        _build_schedule_density_conflicts(
+            activity_planning=conversation.activity_planning,
+            trip_style_planning=conversation.trip_style_planning,
+        )
+    )
+    conflicts.extend(
+        _build_style_pace_conflicts(
+            activity_planning=conversation.activity_planning,
+            trip_style_planning=conversation.trip_style_planning,
+        )
+    )
+    conflicts.extend(
+        _build_logistics_conflicts(
+            activity_planning=conversation.activity_planning,
+            flight_planning=conversation.flight_planning,
+        )
+    )
+    conflicts.extend(_build_stay_fit_conflicts(conversation.stay_planning))
+    conflicts.extend(
+        _build_weather_conflicts(
+            activity_planning=conversation.activity_planning,
+            weather_planning=conversation.weather_planning,
+            configuration=configuration,
+        )
+    )
+    conflicts.extend(_build_provider_confidence_conflicts(provider_activation or {}))
+
+    deduped: dict[str, PlannerConflictRecord] = {}
+    for conflict in conflicts:
+        deduped.setdefault(conflict.id, conflict)
+    return list(deduped.values())[:8]
+
+
+def _build_schedule_density_conflicts(
+    *,
+    activity_planning: AdvancedActivityPlanningState,
+    trip_style_planning: TripStylePlanningState,
+) -> list[PlannerConflictRecord]:
+    if trip_style_planning.selected_pace != "slow":
+        return []
+    dense_days = [
+        day
+        for day in activity_planning.day_plans
+        if _flexible_activity_block_count(day.blocks) >= 3
+    ]
+    if not dense_days:
+        return []
+    day_labels = ", ".join(day.day_label for day in dense_days[:2])
+    return [
+        PlannerConflictRecord(
+            id="conflict_slow_pace_dense_days",
+            severity="important" if len(dense_days) > 1 else "warning",
+            category="schedule_density",
+            affected_areas=["Trip character", "Planned experiences"],
+            summary=f"{day_labels} may feel fuller than the slow pace you chose.",
+            evidence=[
+                "Slow pace is selected.",
+                f"{day_labels} currently uses three or more planned dayparts.",
+            ],
+            source_decision_ids=["trip_style_pace", "selected_activities"],
+            suggested_repair="Review the activities plan and move lower-priority ideas into reserve.",
+            revision_target="activities",
+        )
+    ]
+
+
+def _build_style_pace_conflicts(
+    *,
+    activity_planning: AdvancedActivityPlanningState,
+    trip_style_planning: TripStylePlanningState,
+) -> list[PlannerConflictRecord]:
+    primary = trip_style_planning.selected_primary_direction
+    if not primary or activity_planning.completion_status != "completed":
+        return []
+    haystack = _activity_text(activity_planning)
+    direction_keywords: dict[PlannerTripDirectionPrimary, tuple[str, ...]] = {
+        "food_led": ("food", "market", "dining", "restaurant", "tasting", "culinary", "izakaya"),
+        "culture_led": ("museum", "temple", "gallery", "heritage", "performance", "walk"),
+        "nightlife_led": ("bar", "night", "music", "cocktail", "club", "evening"),
+        "outdoors_led": ("park", "garden", "hike", "viewpoint", "outdoor", "trail"),
+        "balanced": (),
+    }
+    keywords = direction_keywords.get(primary, ())
+    if not keywords or any(keyword in haystack for keyword in keywords):
+        return []
+    label = _trip_direction_primary_label(primary)
+    return [
+        PlannerConflictRecord(
+            id=f"conflict_{primary}_without_matching_anchors",
+            severity="warning",
+            category="style_pace",
+            affected_areas=["Trip character", "Planned experiences"],
+            summary=f"The activities plan does not yet show a clear {label} anchor.",
+            evidence=[
+                f"{label.capitalize()} is the selected trip direction.",
+                "The current essential activities do not strongly match that direction.",
+            ],
+            source_decision_ids=["trip_style_direction", "selected_activities"],
+            suggested_repair="Review experiences and add at least one anchor that expresses the selected trip character.",
+            revision_target="activities",
+        )
+    ]
+
+
+def _build_logistics_conflicts(
+    *,
+    activity_planning: AdvancedActivityPlanningState,
+    flight_planning: AdvancedFlightPlanningState,
+) -> list[PlannerConflictRecord]:
+    conflicts: list[PlannerConflictRecord] = []
+    first_day = _day_plan_by_index(activity_planning, 1)
+    if (
+        first_day
+        and _flexible_activity_block_count(first_day.blocks) >= 2
+        and _contains_any(
+            " ".join(
+                [
+                    flight_planning.arrival_day_impact_summary or "",
+                    *flight_planning.timing_review_notes,
+                ]
+            ),
+            ("late arrival", "first day", "first night", "arrival"),
+        )
+    ):
+        conflicts.append(
+            PlannerConflictRecord(
+                id="conflict_late_arrival_heavy_day_one",
+                severity="warning",
+                category="logistics",
+                affected_areas=["Working flights", "Planned experiences"],
+                summary="The arrival day may be doing too much for the selected flight timing.",
+                evidence=[
+                    flight_planning.arrival_day_impact_summary
+                    or "The selected arrival timing affects Day 1.",
+                    f"{first_day.day_label} has multiple planned experiences.",
+                ],
+                source_decision_ids=["selected_flights", "selected_activities"],
+                suggested_repair="Review experiences and keep the arrival day lighter, or revisit flight timing.",
+                revision_target="activities",
+            )
+        )
+    final_day = _last_day_plan(activity_planning)
+    if (
+        final_day
+        and _flexible_activity_block_count(final_day.blocks) >= 2
+        and _contains_any(
+            " ".join(
+                [
+                    flight_planning.departure_day_impact_summary or "",
+                    *flight_planning.timing_review_notes,
+                ]
+            ),
+            ("early return", "departure", "final day", "final morning"),
+        )
+    ):
+        conflicts.append(
+            PlannerConflictRecord(
+                id="conflict_early_departure_heavy_final_day",
+                severity="warning",
+                category="logistics",
+                affected_areas=["Working flights", "Planned experiences"],
+                summary="The final day may be too full for the selected return timing.",
+                evidence=[
+                    flight_planning.departure_day_impact_summary
+                    or "The selected return timing affects the final day.",
+                    f"{final_day.day_label} has multiple planned experiences.",
+                ],
+                source_decision_ids=["selected_flights", "selected_activities"],
+                suggested_repair="Review experiences and keep the departure day lighter, or revisit flight timing.",
+                revision_target="activities",
+            )
+        )
+    return conflicts
+
+
+def _build_stay_fit_conflicts(
+    stay_planning: AdvancedStayPlanningState,
+) -> list[PlannerConflictRecord]:
+    conflicts: list[PlannerConflictRecord] = []
+    if stay_planning.compatibility_status in {"strained", "conflicted"}:
+        conflicts.append(
+            PlannerConflictRecord(
+                id="conflict_selected_stay_fit",
+                severity="important"
+                if stay_planning.compatibility_status == "conflicted"
+                else "warning",
+                category="stay_fit",
+                affected_areas=["Current stay", "Planned experiences"],
+                summary=stay_planning.compatibility_notes[0]
+                if stay_planning.compatibility_notes
+                else "The selected stay direction may no longer fit the current trip shape.",
+                evidence=stay_planning.compatibility_notes[:3],
+                source_decision_ids=["selected_stay", "selected_activities"],
+                suggested_repair="Review stay and decide whether the base or the trip shape should move.",
+                revision_target="stay",
+            )
+        )
+    if stay_planning.hotel_compatibility_status in {"strained", "conflicted"}:
+        conflicts.append(
+            PlannerConflictRecord(
+                id="conflict_selected_hotel_fit",
+                severity="important"
+                if stay_planning.hotel_compatibility_status == "conflicted"
+                else "warning",
+                category="stay_fit",
+                affected_areas=["Current stay", "Planned experiences"],
+                summary=stay_planning.hotel_compatibility_notes[0]
+                if stay_planning.hotel_compatibility_notes
+                else "The selected hotel may no longer fit the current trip shape.",
+                evidence=stay_planning.hotel_compatibility_notes[:3],
+                source_decision_ids=["selected_stay", "selected_activities"],
+                suggested_repair="Review stay and decide whether the hotel or the trip shape should change.",
+                revision_target="stay",
+            )
+        )
+    return conflicts
+
+
+def _build_weather_conflicts(
+    *,
+    activity_planning: AdvancedActivityPlanningState,
+    weather_planning: AdvancedWeatherPlanningState,
+    configuration: TripConfiguration,
+) -> list[PlannerConflictRecord]:
+    if not configuration.selected_modules.weather:
+        return []
+    pressure_text = " ".join(
+        [*weather_planning.activity_influence_notes, *weather_planning.day_impact_summaries]
+    )
+    if not _contains_any(pressure_text, ("rain", "storm", "heat", "hot", "cold", "snow", "fog")):
+        return []
+    if not _contains_any(_activity_text(activity_planning), ("park", "garden", "hike", "viewpoint", "outdoor", "trail", "walk")):
+        return []
+    return [
+        PlannerConflictRecord(
+            id="conflict_weather_outdoor_pressure",
+            severity="warning",
+            category="weather",
+            affected_areas=["Weather notes", "Planned experiences"],
+            summary="Weather pressure may make the outdoor-heavy parts of the plan feel less comfortable.",
+            evidence=[*weather_planning.activity_influence_notes[:2], *weather_planning.day_impact_summaries[:1]],
+            source_decision_ids=["weather_context", "selected_activities"],
+            suggested_repair="Review experiences and keep stronger covered or indoor backups for the affected day.",
+            revision_target="activities",
+        )
+    ]
+
+
+def _build_provider_confidence_conflicts(
+    provider_activation: dict,
+) -> list[PlannerConflictRecord]:
+    conflicts: list[PlannerConflictRecord] = []
+    for blocker in provider_activation.get("reliability_blockers") or []:
+        category = blocker.get("category") or "detail"
+        reason = blocker.get("reason") or "A live-planning input is not reliable enough yet."
+        conflicts.append(
+            PlannerConflictRecord(
+                id=f"conflict_provider_confidence_{category}",
+                severity="warning",
+                category="provider_confidence",
+                affected_areas=["Live planning"],
+                summary=f"Live provider checks are waiting because {reason}.",
+                evidence=[
+                    evidence
+                    for evidence in [
+                        f"Source: {blocker.get('source')}" if blocker.get("source") else None,
+                        f"Confidence: {blocker.get('confidence_level')}" if blocker.get("confidence_level") else None,
+                    ]
+                    if evidence
+                ],
+                source_decision_ids=[str(blocker.get("field") or category)],
+                suggested_repair=(
+                    (provider_activation.get("next_reliability_question") or {}).get("question")
+                    or "Confirm the soft trip detail before triggering live provider checks."
+                ),
+                revision_target="review",
+            )
+        )
+    return conflicts[:3]
+
+
+def _flexible_activity_block_count(
+    blocks: list[AdvancedActivityTimelineBlock],
+) -> int:
+    return len([block for block in blocks if block.type in {"activity", "event"}])
+
+
+def _day_plan_by_index(
+    activity_planning: AdvancedActivityPlanningState,
+    index: int,
+) -> AdvancedActivityDayPlan | None:
+    return next((day for day in activity_planning.day_plans if day.day_index == index), None)
+
+
+def _last_day_plan(
+    activity_planning: AdvancedActivityPlanningState,
+) -> AdvancedActivityDayPlan | None:
+    if not activity_planning.day_plans:
+        return None
+    return max(activity_planning.day_plans, key=lambda day: day.day_index)
+
+
+def _activity_text(activity_planning: AdvancedActivityPlanningState) -> str:
+    parts: list[str] = []
+    for candidate in activity_planning.visible_candidates:
+        if candidate.disposition == "pass":
+            continue
+        parts.extend(
+            [
+                candidate.title,
+                candidate.summary or "",
+                candidate.venue_name or "",
+                candidate.location_label or "",
+                " ".join(candidate.ranking_reasons),
+            ]
+        )
+    for block in activity_planning.timeline_blocks:
+        if block.type not in {"activity", "event"}:
+            continue
+        parts.extend([block.title, block.summary or "", " ".join(block.details)])
+    return " ".join(parts).lower()
+
+
+def _contains_any(value: str, keywords: tuple[str, ...]) -> bool:
+    lower = value.lower()
+    return any(keyword in lower for keyword in keywords)
+
+
+def merge_advanced_review_planning_state(
+    *,
+    configuration: TripConfiguration,
+    stay_planning: AdvancedStayPlanningState,
+    trip_style_planning: TripStylePlanningState,
+    activity_planning: AdvancedActivityPlanningState,
+    flight_planning: AdvancedFlightPlanningState,
+    weather_planning: AdvancedWeatherPlanningState,
+    decision_memory: list[PlannerDecisionMemoryRecord] | None = None,
+    planner_conflicts: list[PlannerConflictRecord] | None = None,
+) -> AdvancedReviewPlanningState:
+    decision_signals = _build_advanced_review_decision_signals(
+        decision_memory or [],
+        configuration=configuration,
+    )
+    section_cards = _build_advanced_review_section_cards(
+        configuration=configuration,
+        stay_planning=stay_planning,
+        trip_style_planning=trip_style_planning,
+        activity_planning=activity_planning,
+        flight_planning=flight_planning,
+        weather_planning=weather_planning,
+        decision_signals=decision_signals,
+    )
+    review_notes = _build_advanced_review_notes(
+        stay_planning=stay_planning,
+        activity_planning=activity_planning,
+        flight_planning=flight_planning,
+        weather_planning=weather_planning,
+        decision_signals=decision_signals,
+        planner_conflicts=planner_conflicts or [],
+    )
+    if any(card.status == "needs_review" for card in section_cards) or review_notes:
+        readiness_status = "needs_review"
+    elif any(card.status == "flexible" for card in section_cards):
+        readiness_status = "flexible"
+    else:
+        readiness_status = "ready"
+
+    completed_count = sum(1 for card in section_cards if card.status == "ready")
+    flexible_count = sum(1 for card in section_cards if card.status == "flexible")
+    needs_review_count = sum(1 for card in section_cards if card.status == "needs_review")
+    destination = configuration.to_location or "this trip"
+    return AdvancedReviewPlanningState(
+        readiness_status=readiness_status,
+        workspace_summary=_build_advanced_review_workspace_summary(
+            destination=destination,
+            readiness_status=readiness_status,
+            completed_count=completed_count,
+            flexible_count=flexible_count,
+            needs_review_count=needs_review_count,
+        ),
+        completed_summary=(
+            f"{completed_count} planning area{'s' if completed_count != 1 else ''} selected or settled."
+        ),
+        open_summary=(
+            f"{flexible_count} area{'s' if flexible_count != 1 else ''} still flexible."
+            if flexible_count
+            else "No major planning area is intentionally open."
+        ),
+        section_cards=section_cards,
+        review_notes=review_notes,
+        decision_signals=decision_signals,
+    )
+
+
+def _build_advanced_review_section_cards(
+    *,
+    configuration: TripConfiguration,
+    stay_planning: AdvancedStayPlanningState,
+    trip_style_planning: TripStylePlanningState,
+    activity_planning: AdvancedActivityPlanningState,
+    flight_planning: AdvancedFlightPlanningState,
+    weather_planning: AdvancedWeatherPlanningState,
+    decision_signals: list[AdvancedReviewDecisionSignal] | None = None,
+) -> list[AdvancedReviewSectionCard]:
+    cards: list[AdvancedReviewSectionCard] = []
+    signal_notes_by_anchor = _decision_signal_notes_by_anchor(decision_signals or [])
+    signal_status_by_anchor = _decision_signal_review_status_by_anchor(decision_signals or [])
+    if configuration.selected_modules.flights:
+        flight_summary = (
+            flight_planning.completion_summary
+            or flight_planning.selection_summary
+            or flight_planning.workspace_summary
+            or "Flights are still flexible."
+        )
+        flight_status: PlannerAdvancedReviewReadinessStatus = (
+            "ready"
+            if flight_planning.selection_status == "completed"
+            else "flexible"
+            if flight_planning.selection_status == "kept_open"
+            else "needs_review"
+        )
+        flight_status = _combine_review_status(
+            flight_status,
+            signal_status_by_anchor.get("flight"),
+        )
+        cards.append(
+            AdvancedReviewSectionCard(
+                id="flight",
+                title="Working flights",
+                status=flight_status,
+                summary=flight_summary,
+                notes=[
+                    note
+                    for note in [
+                        flight_planning.arrival_day_impact_summary,
+                        flight_planning.departure_day_impact_summary,
+                        *flight_planning.timing_review_notes,
+                        *signal_notes_by_anchor.get("flight", []),
+                    ]
+                    if note
+                ][:4],
+                revision_anchor="flight",
+                cta_label="Review flights",
+            )
+        )
+
+    if configuration.selected_modules.hotels:
+        stay_needs_review = (
+            stay_planning.selection_status == "needs_review"
+            or stay_planning.compatibility_status in {"strained", "conflicted"}
+            or stay_planning.hotel_selection_status == "needs_review"
+            or stay_planning.hotel_compatibility_status in {"strained", "conflicted"}
+        )
+        stay_status: PlannerAdvancedReviewReadinessStatus = (
+            "needs_review"
+            if stay_needs_review
+            else "ready"
+            if stay_planning.selected_hotel_id
+            else "flexible"
+        )
+        stay_status = _combine_review_status(
+            stay_status,
+            signal_status_by_anchor.get("stay"),
+        )
+        stay_summary = (
+            stay_planning.hotel_selection_rationale
+            or stay_planning.selection_rationale
+            or (
+                f"{stay_planning.selected_hotel_name} is the current stay choice."
+                if stay_planning.selected_hotel_name
+                else None
+            )
+            or "Stay is still open."
+        )
+        cards.append(
+            AdvancedReviewSectionCard(
+                id="stay",
+                title="Current stay",
+                status=stay_status,
+                summary=stay_summary,
+                notes=[
+                    *stay_planning.compatibility_notes,
+                    *stay_planning.hotel_compatibility_notes,
+                    *signal_notes_by_anchor.get("stay", []),
+                ][:4],
+                revision_anchor="stay",
+                cta_label="Review stay",
+            )
+        )
+
+    if configuration.selected_modules.activities:
+        style_bits = []
+        if trip_style_planning.selected_primary_direction:
+            style_bits.append(_trip_direction_primary_label(trip_style_planning.selected_primary_direction))
+        if trip_style_planning.selected_pace:
+            style_bits.append(f"{_trip_pace_label(trip_style_planning.selected_pace).lower()} pace")
+        trip_style_summary = (
+            trip_style_planning.completion_summary
+            or trip_style_planning.workspace_summary
+            or "Trip character is still flexible."
+        )
+        cards.append(
+            AdvancedReviewSectionCard(
+                id="trip_style",
+                title="Trip character",
+                status=_combine_review_status(
+                    "ready" if trip_style_planning.substep == "completed" else "flexible",
+                    signal_status_by_anchor.get("trip_style"),
+                ),
+                summary=trip_style_summary,
+                notes=[*style_bits, *signal_notes_by_anchor.get("trip_style", [])][:4],
+                revision_anchor="trip_style",
+                cta_label="Review style",
+            )
+        )
+
+        reserved_count = len(activity_planning.reserved_candidate_ids)
+        activity_summary = (
+            activity_planning.completion_summary
+            or activity_planning.schedule_summary
+            or activity_planning.workspace_summary
+            or "Activities are still taking shape."
+        )
+        activity_notes = [
+            *activity_planning.schedule_notes,
+            f"{reserved_count} idea{'s' if reserved_count != 1 else ''} saved for later."
+            if reserved_count
+            else None,
+        ]
+        cards.append(
+            AdvancedReviewSectionCard(
+                id="activities",
+                title="Planned experiences",
+                status=_combine_review_status(
+                    "ready"
+                    if activity_planning.completion_status == "completed"
+                    else "flexible",
+                    signal_status_by_anchor.get("activities"),
+                ),
+                summary=activity_summary,
+                notes=[
+                    note
+                    for note in [
+                        *activity_notes,
+                        *signal_notes_by_anchor.get("activities", []),
+                    ]
+                    if note
+                ][:4],
+                revision_anchor="activities",
+                cta_label="Review experiences",
+            )
+        )
+
+    if configuration.selected_modules.weather:
+        cards.append(
+            AdvancedReviewSectionCard(
+                id="weather",
+                title="Weather notes",
+                status=_combine_review_status(
+                    "ready"
+                    if weather_planning.results_status == "ready"
+                    else "flexible",
+                    signal_status_by_anchor.get(None),
+                ),
+                summary=(
+                    weather_planning.workspace_summary
+                    or "Weather is only a light planning signal right now."
+                ),
+                notes=[
+                    *weather_planning.day_impact_summaries[:2],
+                    *weather_planning.activity_influence_notes[:2],
+                    *signal_notes_by_anchor.get(None, []),
+                ][:4],
+                revision_anchor=None,
+                cta_label=None,
+            )
+        )
+    return cards
+
+
+def _build_advanced_review_notes(
+    *,
+    stay_planning: AdvancedStayPlanningState,
+    activity_planning: AdvancedActivityPlanningState,
+    flight_planning: AdvancedFlightPlanningState,
+    weather_planning: AdvancedWeatherPlanningState,
+    decision_signals: list[AdvancedReviewDecisionSignal] | None = None,
+    planner_conflicts: list[PlannerConflictRecord] | None = None,
+) -> list[str]:
+    notes: list[str] = []
+    notes.extend(stay_planning.compatibility_notes[:2])
+    notes.extend(stay_planning.hotel_compatibility_notes[:2])
+    notes.extend(flight_planning.timing_review_notes[:2])
+    notes.extend(activity_planning.schedule_notes[:2])
+    notes.extend(weather_planning.activity_influence_notes[:2])
+    notes.extend(
+        signal.note
+        for signal in (decision_signals or [])
+        if signal.note
+        and (signal.status == "needs_review" or signal.confidence == "low")
+    )
+    notes.extend(conflict.summary for conflict in (planner_conflicts or []))
+    return list(dict.fromkeys(note for note in notes if note))[:6]
+
+
+def _build_advanced_review_decision_signals(
+    decision_memory: list[PlannerDecisionMemoryRecord],
+    *,
+    configuration: TripConfiguration,
+) -> list[AdvancedReviewDecisionSignal]:
+    visible_records = [
+        record
+        for record in decision_memory
+        if _advanced_review_should_show_decision_signal(
+            record=record,
+            configuration=configuration,
+        )
+    ]
+    visible_records.sort(key=_advanced_review_decision_sort_key)
+    signals: list[AdvancedReviewDecisionSignal] = []
+    for record in visible_records[:8]:
+        signals.append(
+            AdvancedReviewDecisionSignal(
+                id=record.key,
+                title=_advanced_review_decision_title(record.key),
+                value_summary=record.value_summary,
+                source=record.source,
+                source_label=_advanced_review_source_label(record.source),
+                confidence=record.confidence,
+                confidence_label=_advanced_review_confidence_label(record.confidence),
+                status=record.status,
+                note=_advanced_review_decision_note(record),
+                related_anchor=record.related_anchor,
+            )
+        )
+    return signals
+
+
+def _advanced_review_should_show_decision_signal(
+    *,
+    record: PlannerDecisionMemoryRecord,
+    configuration: TripConfiguration,
+) -> bool:
+    if record.key in {"origin", "budget", "advanced_review"}:
+        return False
+    if record.key == "selected_flights":
+        return configuration.selected_modules.flights
+    if record.key == "selected_stay":
+        return configuration.selected_modules.hotels
+    if record.key in {
+        "trip_style_direction",
+        "trip_style_pace",
+        "trip_style_tradeoffs",
+        "selected_activities",
+    }:
+        return configuration.selected_modules.activities
+    if record.key == "weather_context":
+        return configuration.selected_modules.weather
+    return record.key in {"destination", "date_window", "travelers", "module_scope"}
+
+
+def _advanced_review_decision_sort_key(record: PlannerDecisionMemoryRecord) -> int:
+    order: dict[PlannerDecisionMemoryKey, int] = {
+        "destination": 0,
+        "date_window": 1,
+        "travelers": 2,
+        "module_scope": 3,
+        "trip_style_direction": 4,
+        "trip_style_pace": 5,
+        "trip_style_tradeoffs": 6,
+        "selected_flights": 7,
+        "selected_stay": 8,
+        "selected_activities": 9,
+        "weather_context": 10,
+        "advanced_review": 11,
+        "origin": 12,
+        "budget": 13,
+    }
+    return order.get(record.key, 99)
+
+
+def _advanced_review_decision_title(key: PlannerDecisionMemoryKey) -> str:
+    return {
+        "destination": "Destination",
+        "origin": "Origin",
+        "date_window": "Dates",
+        "travelers": "Travelers",
+        "budget": "Budget",
+        "module_scope": "Planning scope",
+        "trip_style_direction": "Direction",
+        "trip_style_pace": "Pace",
+        "trip_style_tradeoffs": "Tradeoffs",
+        "selected_flights": "Working flights",
+        "selected_stay": "Current stay",
+        "selected_activities": "Planned experiences",
+        "weather_context": "Weather signal",
+        "advanced_review": "Review",
+    }[key]
+
+
+def _advanced_review_source_label(source: PlannerDecisionSource) -> str:
+    return {
+        "user_explicit": "Chosen in chat",
+        "board_action": "Chosen on the board",
+        "assistant_inferred": "Inferred from context",
+        "profile_default": "From profile",
+        "provider": "From live provider data",
+        "system": "Planner state",
+    }[source]
+
+
+def _advanced_review_confidence_label(confidence: PlannerDecisionConfidence) -> str:
+    return {
+        "high": "High confidence",
+        "medium": "Medium confidence",
+        "low": "Low confidence",
+    }[confidence]
+
+
+def _advanced_review_decision_note(
+    record: PlannerDecisionMemoryRecord,
+) -> str | None:
+    if record.status == "needs_review":
+        return f"{_advanced_review_decision_title(record.key)} is saved, but worth checking before finalizing."
+    if record.confidence == "low":
+        return f"{_advanced_review_decision_title(record.key)} is based on a limited signal, so Wandrix is treating it lightly."
+    if record.source == "profile_default":
+        return f"{_advanced_review_decision_title(record.key)} came from profile defaults; confirm it if this trip should differ."
+    if record.source == "assistant_inferred" and record.confidence != "high":
+        return f"{_advanced_review_decision_title(record.key)} was inferred from context rather than directly chosen."
+    if record.status == "working":
+        return f"{_advanced_review_decision_title(record.key)} is still a working planning choice."
+    return None
+
+
+def _decision_signal_notes_by_anchor(
+    signals: list[AdvancedReviewDecisionSignal],
+) -> dict[PlannerAdvancedAnchor | None, list[str]]:
+    grouped: dict[PlannerAdvancedAnchor | None, list[str]] = {}
+    for signal in signals:
+        if not signal.note or not _decision_signal_note_is_actionable(signal):
+            continue
+        grouped.setdefault(signal.related_anchor, []).append(signal.note)
+    return grouped
+
+
+def _decision_signal_review_status_by_anchor(
+    signals: list[AdvancedReviewDecisionSignal],
+) -> dict[PlannerAdvancedAnchor | None, PlannerAdvancedReviewReadinessStatus]:
+    grouped: dict[PlannerAdvancedAnchor | None, PlannerAdvancedReviewReadinessStatus] = {}
+    for signal in signals:
+        status = _decision_signal_review_status(signal)
+        if status is None:
+            continue
+        grouped[signal.related_anchor] = _combine_review_status(
+            grouped.get(signal.related_anchor),
+            status,
+        )
+    return grouped
+
+
+def _decision_signal_review_status(
+    signal: AdvancedReviewDecisionSignal,
+) -> PlannerAdvancedReviewReadinessStatus | None:
+    if signal.status == "needs_review" or signal.confidence == "low":
+        return "needs_review"
+    return None
+
+
+def _decision_signal_note_is_actionable(signal: AdvancedReviewDecisionSignal) -> bool:
+    return signal.status == "needs_review" or signal.confidence == "low"
+
+
+def _combine_review_status(
+    current: PlannerAdvancedReviewReadinessStatus | None,
+    incoming: PlannerAdvancedReviewReadinessStatus | None,
+) -> PlannerAdvancedReviewReadinessStatus:
+    if current == "needs_review" or incoming == "needs_review":
+        return "needs_review"
+    if current == "flexible" or incoming == "flexible":
+        return "flexible"
+    return "ready"
+
+
+def _build_advanced_review_workspace_summary(
+    *,
+    destination: str,
+    readiness_status: str,
+    completed_count: int,
+    flexible_count: int,
+    needs_review_count: int,
+) -> str:
+    if readiness_status == "needs_review":
+        return (
+            f"{destination} is ready for a human check, with {needs_review_count} area"
+            f"{'s' if needs_review_count != 1 else ''} worth reviewing before finalizing."
+        )
+    if readiness_status == "ready":
+        return f"{destination} has a coherent reviewed plan across the selected planning areas."
+    return (
+        f"{destination} has {completed_count} settled area{'s' if completed_count != 1 else ''} "
+        f"and {flexible_count} area{'s' if flexible_count != 1 else ''} still intentionally flexible."
+    )
+
+
 def merge_activity_planning_state(
     *,
     current: AdvancedActivityPlanningState,
@@ -1939,11 +3499,15 @@ def merge_activity_planning_state(
     board_action: dict,
     stay_planning: AdvancedStayPlanningState,
     trip_style_planning: TripStylePlanningState,
+    flight_planning: AdvancedFlightPlanningState,
+    weather_planning: AdvancedWeatherPlanningState,
 ) -> AdvancedActivityPlanningState:
     activity_planning = current.model_copy(deep=True)
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
 
     if planning_mode != "advanced":
+        return activity_planning
+    if advanced_step == "review":
         return activity_planning
 
     is_active_workspace = (
@@ -1966,6 +3530,7 @@ def merge_activity_planning_state(
         previous_candidates=previous_candidates,
         stay_planning=stay_planning,
         trip_style_planning=trip_style_planning,
+        weather_planning=weather_planning,
     )
     if is_active_workspace:
         candidates = _apply_activity_board_action(
@@ -2018,6 +3583,9 @@ def merge_activity_planning_state(
         configuration=configuration,
         stay_planning=stay_planning,
         trip_style_planning=trip_style_planning,
+        flight_planning=flight_planning,
+        weather_planning=weather_planning,
+        weather_items=module_outputs.weather,
         placement_preferences=activity_planning.placement_preferences,
     )
     schedule_notes = [*preference_notes, *schedule_notes][:4]
@@ -2031,9 +3599,13 @@ def merge_activity_planning_state(
             "select_trip_style_pace",
             "confirm_trip_style_pace",
             "keep_current_trip_style_pace",
+            "set_trip_style_tradeoff",
+            "confirm_trip_style_tradeoffs",
+            "keep_current_trip_style_tradeoffs",
         })
         or llm_update.requested_trip_style_direction_updates
         or llm_update.requested_trip_style_pace_updates
+        or llm_update.requested_trip_style_tradeoff_updates
     ):
         direction_note = _build_trip_style_activity_note(
             trip_style_planning=trip_style_planning
@@ -2046,6 +3618,11 @@ def merge_activity_planning_state(
     )
     if pace_note:
         schedule_notes = [pace_note, *schedule_notes][:4]
+    tradeoff_note = _build_trip_style_tradeoff_activity_note(
+        trip_style_planning=trip_style_planning
+    )
+    if tradeoff_note:
+        schedule_notes = [tradeoff_note, *schedule_notes][:4]
 
     activity_planning.recommended_candidates = candidates
     activity_planning.visible_candidates = visible_candidates
@@ -2082,6 +3659,7 @@ def merge_activity_planning_state(
         or llm_update.requested_activity_schedule_edits
         or llm_update.requested_trip_style_direction_updates
         or llm_update.requested_trip_style_pace_updates
+        or llm_update.requested_trip_style_tradeoff_updates
         or llm_update.requested_stay_option_title
         or llm_update.requested_review_resolutions
     )
@@ -2187,6 +3765,7 @@ def _build_ranked_activity_candidates(
     previous_candidates: dict[str, AdvancedActivityCandidateCard],
     stay_planning: AdvancedStayPlanningState,
     trip_style_planning: TripStylePlanningState,
+    weather_planning: AdvancedWeatherPlanningState,
 ) -> list[AdvancedActivityCandidateCard]:
     scored_candidates: list[tuple[float, AdvancedActivityCandidateCard]] = []
 
@@ -2202,6 +3781,9 @@ def _build_ranked_activity_candidates(
             configuration=configuration,
             stay_planning=stay_planning,
             trip_style_planning=trip_style_planning,
+            weather_items=module_outputs.weather
+            if weather_planning.results_status == "ready"
+            else [],
         )
         scored_candidates.append((score, candidate))
 
@@ -2220,6 +3802,9 @@ def _build_ranked_activity_candidates(
             configuration=configuration,
             stay_planning=stay_planning,
             trip_style_planning=trip_style_planning,
+            weather_items=module_outputs.weather
+            if weather_planning.results_status == "ready"
+            else [],
         )
         scored_candidates.append((score, candidate))
 
@@ -2361,6 +3946,7 @@ def _score_activity_candidate(
     configuration: TripConfiguration,
     stay_planning: AdvancedStayPlanningState,
     trip_style_planning: TripStylePlanningState,
+    weather_items: list[WeatherDetail],
 ) -> float:
     score = 0.0
     text = " ".join(
@@ -2387,6 +3973,12 @@ def _score_activity_candidate(
             primary=trip_style_planning.selected_primary_direction,
             accent=trip_style_planning.selected_accent,
         )
+        score += _score_candidate_against_trip_tradeoffs(
+            candidate=candidate,
+            text=text,
+            stay_planning=stay_planning,
+            trip_style_planning=trip_style_planning,
+        )
 
     custom_style = (configuration.custom_style or "").strip().lower()
     if custom_style:
@@ -2402,6 +3994,11 @@ def _score_activity_candidate(
         if any(token in weather_text for token in ["cool", "rain", "indoor"]):
             if any(token in text for token in ["museum", "gallery", "theatre", "indoor"]):
                 score += 1.0
+    score += _score_candidate_against_weather_signals(
+        candidate=candidate,
+        text=text,
+        weather_items=weather_items,
+    )
 
     if candidate.kind == "event":
         score += 3.0
@@ -2502,6 +4099,16 @@ def _build_activity_ranking_reasons(
             f"Keeps a {_trip_direction_accent_label(trip_style_planning.selected_accent)} accent in view."
         )
 
+    tradeoff_reason = _build_activity_tradeoff_reason(
+        trip_style_planning=trip_style_planning,
+        title=title,
+        category=category,
+        start_at=start_at,
+        location_label=location_label,
+    )
+    if tradeoff_reason:
+        reasons.append(tradeoff_reason)
+
     if configuration.custom_style and any(
         token in title.lower()
         for token in configuration.custom_style.lower().split()
@@ -2556,6 +4163,92 @@ def _score_candidate_against_trip_direction(
     return score
 
 
+def _score_candidate_against_trip_tradeoffs(
+    *,
+    candidate: AdvancedActivityCandidateCard,
+    text: str,
+    stay_planning: AdvancedStayPlanningState,
+    trip_style_planning: TripStylePlanningState,
+) -> float:
+    score = 0.0
+    for decision in trip_style_planning.selected_tradeoffs:
+        value = decision.selected_value
+        if value == "must_sees" and any(
+            token in text
+            for token in ["iconic", "classic", "must-see", "must see", "heritage", "temple", "museum", "signature"]
+        ):
+            score += 4.0
+        elif value == "wandering" and any(
+            token in text
+            for token in ["walk", "market", "neighborhood", "neighbourhood", "alley", "district", "local"]
+        ):
+            score += 4.0
+        elif value == "convenience":
+            score += max(
+                _score_candidate_against_stay_context(
+                    candidate=candidate,
+                    stay_planning=stay_planning,
+                ),
+                0.0,
+            ) * 0.5
+        elif value == "atmosphere" and any(
+            token in text
+            for token in ["gion", "old town", "lantern", "historic", "neighborhood", "neighbourhood", "river", "market"]
+        ):
+            score += 1.5
+        elif value == "early_starts":
+            if _resolve_activity_slot_key(candidate.time_label, candidate.start_at.hour if candidate.start_at else None) == "morning":
+                score += 1.5
+            elif candidate.kind == "event" and candidate.start_at and candidate.start_at.hour >= 18:
+                score -= 0.75
+        elif value == "evening_energy":
+            if candidate.kind == "event":
+                score += 1.25
+            if _resolve_activity_slot_key(candidate.time_label, candidate.start_at.hour if candidate.start_at else None) == "evening":
+                score += 1.5
+        elif value == "polished" and any(
+            token in text
+            for token in ["design", "chef", "refined", "premium", "reservation", "gallery", "boutique"]
+        ):
+            score += 1.5
+        elif value == "hidden_gems" and any(
+            token in text
+            for token in ["hidden", "local", "neighborhood", "neighbourhood", "alley", "small", "independent"]
+        ):
+            score += 1.5
+    return score
+
+
+def _build_activity_tradeoff_reason(
+    *,
+    trip_style_planning: TripStylePlanningState,
+    title: str,
+    category: str | None,
+    start_at: object,
+    location_label: str | None,
+) -> str | None:
+    text = " ".join(
+        part.lower()
+        for part in [title, category or "", location_label or ""]
+        if part
+    )
+    for decision in trip_style_planning.selected_tradeoffs:
+        value = decision.selected_value
+        if value == "must_sees" and any(token in text for token in ["temple", "museum", "heritage", "classic", "iconic"]):
+            return "Matches the must-see tie-breaker."
+        if value == "wandering" and any(token in text for token in ["walk", "market", "district", "local"]):
+            return "Matches the wandering tie-breaker."
+        if value == "evening_energy" and isinstance(start_at, datetime) and start_at.hour >= 17:
+            return "Matches the evening-energy tie-breaker."
+        if value == "early_starts" and "morning" in text:
+            return "Matches the early-start tie-breaker."
+        if value == "polished" and any(token in text for token in ["design", "chef", "gallery", "premium"]):
+            return "Matches the polished tie-breaker."
+        if value == "hidden_gems" and any(token in text for token in ["hidden", "local", "neighborhood", "neighbourhood"]):
+            return "Matches the hidden-gems tie-breaker."
+    return None
+
+
 def _build_trip_style_activity_note(
     *,
     trip_style_planning: TripStylePlanningState,
@@ -2587,6 +4280,15 @@ def _build_trip_style_pace_activity_note(
     if trip_style_planning.selected_pace == "full":
         return "Full pace is using more dayparts while still keeping fixed events locked."
     return "Balanced pace is aiming for two main flexible moments most days before saving overflow ideas for later."
+
+
+def _build_trip_style_tradeoff_activity_note(
+    *,
+    trip_style_planning: TripStylePlanningState,
+) -> str | None:
+    if trip_style_planning.tradeoff_status != "completed" or not trip_style_planning.selected_tradeoffs:
+        return None
+    return "Trip style tradeoffs are breaking close calls in the activity ranking while preserving existing picks, reserves, manual edits, and fixed events."
 
 
 def _build_activity_candidate_summary(
@@ -2801,6 +4503,39 @@ def _score_candidate_against_stay_context(
     return 0.0
 
 
+def _score_candidate_against_weather_signals(
+    *,
+    candidate: AdvancedActivityCandidateCard,
+    text: str,
+    weather_items: list[WeatherDetail],
+) -> float:
+    if not weather_items:
+        return 0.0
+
+    score = 0.0
+    has_wet_or_risky_day = any(
+        _weather_has_any_tag(item, {"rain", "heavy_rain", "storm", "snow", "fog"})
+        or item.weather_risk_level in {"medium", "high"}
+        for item in weather_items
+    )
+    has_clear_mild_day = any(
+        _weather_has_any_tag(item, {"clear", "mild"})
+        and item.weather_risk_level == "low"
+        for item in weather_items
+    )
+    has_hot_day = any(item.temperature_band == "hot" for item in weather_items)
+
+    if has_wet_or_risky_day and _candidate_has_indoor_weather_signal(text):
+        score += 1.25
+    if has_clear_mild_day and _candidate_has_outdoor_weather_signal(text):
+        score += 0.9
+    if has_hot_day and _candidate_has_exposed_outdoor_weather_signal(text):
+        score -= 0.5
+    if candidate.kind == "event" and has_wet_or_risky_day:
+        score += 0.35
+    return score
+
+
 def _selected_stay_context_label(
     stay_planning: AdvancedStayPlanningState,
 ) -> str | None:
@@ -2813,6 +4548,9 @@ def _build_activity_schedule(
     configuration: TripConfiguration,
     stay_planning: AdvancedStayPlanningState,
     trip_style_planning: TripStylePlanningState,
+    flight_planning: AdvancedFlightPlanningState,
+    weather_planning: AdvancedWeatherPlanningState,
+    weather_items: list[WeatherDetail],
     placement_preferences: list[AdvancedActivityPlacementPreference],
 ) -> tuple[
     list[AdvancedActivityDayPlan],
@@ -2836,11 +4574,22 @@ def _build_activity_schedule(
         if trip_style_planning.pace_status == "completed"
         else "balanced"
     )
+    flight_constraints = _build_flight_timing_constraints(
+        flight_planning=flight_planning,
+        day_specs=day_specs,
+    )
+    weather_context = _build_weather_planning_context(
+        weather_items=weather_items if weather_planning.results_status == "ready" else [],
+        day_specs=day_specs,
+    )
     scheduled_slots: dict[int, dict[str, AdvancedActivityTimelineBlock]] = {
         day_index: {} for day_index, _, _ in day_specs
     }
     unscheduled_candidate_ids: list[str] = []
-    schedule_notes: list[str] = []
+    schedule_notes: list[str] = [
+        note for note in [flight_constraints.arrival_note, flight_constraints.departure_note] if note
+    ]
+    schedule_notes.extend([*weather_context.activity_notes, *weather_context.day_notes[:2]])
     preference_map = {
         preference.candidate_id: preference for preference in placement_preferences
     }
@@ -2875,6 +4624,15 @@ def _build_activity_schedule(
             _append_schedule_note(
                 schedule_notes,
                 f"{candidate.title} keeps its fixed event time, so I kept that slot locked and adjusted the rest around it.",
+            )
+        if _flight_timing_conflicts_with_candidate_time(
+            candidate=candidate,
+            day_index=day_index,
+            constraints=flight_constraints,
+        ):
+            _append_schedule_note(
+                schedule_notes,
+                f"{candidate.title} stays visible even though the selected flight timing may make that moment tight.",
             )
         if day_index is None or slot_key in scheduled_slots[day_index]:
             unscheduled_candidate_ids.append(candidate.id)
@@ -2924,6 +4682,8 @@ def _build_activity_schedule(
             day_specs=day_specs,
             scheduled_slots=scheduled_slots,
             stay_planning=stay_planning,
+            flight_constraints=flight_constraints,
+            weather_context=weather_context,
         )
         _append_schedule_note(schedule_notes, placement_note)
         if placement is None:
@@ -2962,6 +4722,8 @@ def _build_activity_schedule(
             scheduled_slots=scheduled_slots,
             stay_planning=stay_planning,
             pace=pace,
+            flight_constraints=flight_constraints,
+            weather_context=weather_context,
         )
         if placement is None:
             unscheduled_candidate_ids.append(candidate.id)
@@ -3070,6 +4832,8 @@ def _select_preferred_activity_slot_for_candidate(
     day_specs: list[tuple[int, str, date | None]],
     scheduled_slots: dict[int, dict[str, AdvancedActivityTimelineBlock]],
     stay_planning: AdvancedStayPlanningState,
+    flight_constraints: _FlightTimingConstraints,
+    weather_context: _WeatherPlanningContext,
 ) -> tuple[tuple[int, str] | None, str | None]:
     slot_order: tuple[PlannerActivityDaypart, ...] = ("morning", "afternoon", "evening")
     best_choice: tuple[float, int, str] | None = None
@@ -3098,6 +4862,12 @@ def _select_preferred_activity_slot_for_candidate(
             score += _score_candidate_against_stay_context(
                 candidate=candidate,
                 stay_planning=stay_planning,
+            )
+            score += _score_activity_slot_against_weather(
+                candidate=candidate,
+                day_index=day_index,
+                slot_key=slot_key,
+                weather_context=weather_context,
             )
             anchor_blocks = list(occupied_slots.values())
             if anchor_blocks:
@@ -3137,6 +4907,23 @@ def _select_preferred_activity_slot_for_candidate(
             (chosen_day_index, chosen_daypart),
             f"{candidate.title} stayed in the same day flow, but I softened the requested timing a little to keep the draft balanced.",
         )
+    if _flight_timing_conflicts_with_slot(
+        day_index=chosen_day_index,
+        slot_key=chosen_daypart,
+        constraints=flight_constraints,
+    ):
+        return (
+            (chosen_day_index, chosen_daypart),
+            f"{candidate.title} is manually placed near selected flight timing, so I preserved it and flagged the pressure instead of silently moving it.",
+        )
+    weather_note = _weather_pressure_note_for_slot(
+        candidate=candidate,
+        day_index=chosen_day_index,
+        slot_key=chosen_daypart,
+        weather_context=weather_context,
+    )
+    if weather_note:
+        return (chosen_day_index, chosen_daypart), weather_note
     return (chosen_day_index, chosen_daypart), None
 
 
@@ -3181,6 +4968,88 @@ def _build_activity_day_specs(
     ]
 
 
+def _build_weather_planning_context(
+    *,
+    weather_items: list[WeatherDetail],
+    day_specs: list[tuple[int, str, date | None]],
+) -> _WeatherPlanningContext:
+    weather_by_day: dict[int, WeatherDetail] = {}
+    for fallback_index, item in enumerate(weather_items, start=1):
+        matched_day = _day_index_for_weather(item=item, day_specs=day_specs)
+        weather_by_day[matched_day or fallback_index] = item
+
+    day_notes: list[str] = []
+    activity_notes: list[str] = []
+    for day_index in sorted(weather_by_day):
+        item = weather_by_day[day_index]
+        note = _build_weather_day_impact_summary(day_index=day_index, item=item)
+        if note:
+            day_notes.append(note)
+
+    if any(
+        _weather_has_any_tag(item, {"rain", "heavy_rain", "storm", "snow", "fog"})
+        for item in weather_items
+    ):
+        activity_notes.append(
+            "Wet or low-visibility forecast signals are nudging indoor and covered ideas upward."
+        )
+    if any(item.temperature_band == "hot" for item in weather_items):
+        activity_notes.append(
+            "Hot weather is making exposed outdoor stops better as morning or evening moments."
+        )
+    if any(
+        _weather_has_any_tag(item, {"clear", "mild"})
+        and item.weather_risk_level == "low"
+        for item in weather_items
+    ):
+        activity_notes.append(
+            "Clear or mild forecast windows are helping open-air ideas stay prominent."
+        )
+
+    return _WeatherPlanningContext(
+        weather_by_day=weather_by_day,
+        day_notes=tuple(day_notes[:7]),
+        activity_notes=tuple(activity_notes[:4]),
+    )
+
+
+def _day_index_for_weather(
+    *,
+    item: WeatherDetail,
+    day_specs: list[tuple[int, str, date | None]],
+) -> int | None:
+    if item.forecast_date is not None:
+        for day_index, _, day_date in day_specs:
+            if day_date == item.forecast_date:
+                return day_index
+    normalized_label = item.day_label.strip().lower()
+    if normalized_label.startswith("day "):
+        try:
+            return int(normalized_label.removeprefix("day ").strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _build_weather_day_impact_summary(
+    *,
+    day_index: int,
+    item: WeatherDetail,
+) -> str | None:
+    label = item.day_label or f"Day {day_index}"
+    if _weather_has_any_tag(item, {"storm", "heavy_rain"}):
+        return f"{label}: stronger rain or storm risk favors indoor anchors and lighter outdoor exposure."
+    if _weather_has_any_tag(item, {"rain"}):
+        return f"{label}: rain risk is nudging covered, food, museum, and performance ideas upward."
+    if _weather_has_any_tag(item, {"snow", "fog"}):
+        return f"{label}: low-visibility or winter conditions call for lower-friction plans."
+    if item.temperature_band == "hot":
+        return f"{label}: hot weather makes outdoor stops easier earlier or later in the day."
+    if _weather_has_any_tag(item, {"clear", "mild"}) and item.weather_risk_level == "low":
+        return f"{label}: clear or mild weather is a good window for open-air plans."
+    return None
+
+
 def _resolve_candidate_day_index(
     *,
     candidate: AdvancedActivityCandidateCard,
@@ -3204,6 +5073,8 @@ def _select_activity_slot_for_candidate(
     scheduled_slots: dict[int, dict[str, AdvancedActivityTimelineBlock]],
     stay_planning: AdvancedStayPlanningState,
     pace: PlannerTripPace,
+    flight_constraints: _FlightTimingConstraints,
+    weather_context: _WeatherPlanningContext,
 ) -> tuple[int, str] | None:
     slot_order = ("morning", "afternoon", "evening")
     preferred_slot = _resolve_activity_slot_key(candidate.time_label)
@@ -3220,6 +5091,14 @@ def _select_activity_slot_for_candidate(
         for slot_key in slot_order:
             if slot_key in occupied_slots:
                 continue
+            if not _flight_timing_allows_auto_slot(
+                candidate=candidate,
+                day_index=day_index,
+                slot_key=slot_key,
+                occupied_slots=occupied_slots,
+                constraints=flight_constraints,
+            ):
+                continue
             score = 0.0
             if preferred_slot == slot_key:
                 score += 3.0
@@ -3229,6 +5108,12 @@ def _select_activity_slot_for_candidate(
             score += _score_candidate_against_stay_context(
                 candidate=candidate,
                 stay_planning=stay_planning,
+            )
+            score += _score_activity_slot_against_weather(
+                candidate=candidate,
+                day_index=day_index,
+                slot_key=slot_key,
+                weather_context=weather_context,
             )
             anchor_blocks = list(occupied_slots.values())
             if anchor_blocks:
@@ -3260,6 +5145,212 @@ def _pace_allows_flexible_candidate(
     if candidate.disposition == "essential":
         return occupied_count < 2
     return occupied_count < 1
+
+
+def _build_flight_timing_constraints(
+    *,
+    flight_planning: AdvancedFlightPlanningState,
+    day_specs: list[tuple[int, str, date | None]],
+) -> _FlightTimingConstraints:
+    if flight_planning.selection_status != "completed":
+        return _FlightTimingConstraints()
+
+    outbound = flight_planning.selected_outbound_flight
+    returning = flight_planning.selected_return_flight
+    arrival_time = outbound.arrival_time if outbound else None
+    departure_time = returning.departure_time if returning else None
+    arrival_day_index = _day_index_for_datetime(arrival_time, day_specs)
+    departure_day_index = _day_index_for_datetime(departure_time, day_specs)
+    arrival_note = _build_arrival_activity_constraint_note(
+        arrival_day_index=arrival_day_index,
+        arrival_time=arrival_time,
+    )
+    departure_note = _build_departure_activity_constraint_note(
+        departure_day_index=departure_day_index,
+        departure_time=departure_time,
+    )
+    return _FlightTimingConstraints(
+        arrival_day_index=arrival_day_index,
+        arrival_time=arrival_time,
+        departure_day_index=departure_day_index,
+        departure_time=departure_time,
+        arrival_note=arrival_note,
+        departure_note=departure_note,
+    )
+
+
+def _day_index_for_datetime(
+    value: datetime | None,
+    day_specs: list[tuple[int, str, date | None]],
+) -> int | None:
+    if value is None:
+        return None
+    value_date = value.date()
+    for day_index, _, day_date in day_specs:
+        if day_date == value_date:
+            return day_index
+    return None
+
+
+def _build_arrival_activity_constraint_note(
+    *,
+    arrival_day_index: int | None,
+    arrival_time: datetime | None,
+) -> str | None:
+    if arrival_day_index is None or arrival_time is None:
+        return None
+    if arrival_time.hour >= 21:
+        return "Very late arrival is keeping Day 1 mostly open except fixed events and manual choices."
+    if arrival_time.hour >= 17:
+        return "Late arrival is keeping Day 1 light and saving lower-priority flexible ideas for later."
+    if arrival_time.hour >= 12:
+        return "Afternoon arrival is preventing the planner from overfilling the first morning."
+    return None
+
+
+def _build_departure_activity_constraint_note(
+    *,
+    departure_day_index: int | None,
+    departure_time: datetime | None,
+) -> str | None:
+    if departure_day_index is None or departure_time is None:
+        return None
+    if departure_time.hour <= 11:
+        return "Early return flight is keeping the final day clear except fixed events and manual choices."
+    if departure_time.hour <= 15:
+        return "Midday return flight is keeping final-day flexible plans very light."
+    return None
+
+
+def _flight_timing_allows_auto_slot(
+    *,
+    candidate: AdvancedActivityCandidateCard,
+    day_index: int,
+    slot_key: str,
+    occupied_slots: dict[str, AdvancedActivityTimelineBlock],
+    constraints: _FlightTimingConstraints,
+) -> bool:
+    if constraints.arrival_day_index == day_index and constraints.arrival_time is not None:
+        arrival_hour = constraints.arrival_time.hour
+        if arrival_hour >= 21:
+            return False
+        if arrival_hour >= 17:
+            return candidate.disposition == "essential" and slot_key == "evening"
+        if arrival_hour >= 12:
+            if slot_key == "morning":
+                return False
+            return len(occupied_slots) == 0 or candidate.disposition == "essential"
+
+    if constraints.departure_day_index == day_index and constraints.departure_time is not None:
+        departure_hour = constraints.departure_time.hour
+        if departure_hour <= 11:
+            return False
+        if departure_hour <= 15:
+            return candidate.disposition == "essential" and slot_key == "morning"
+
+    return True
+
+
+def _flight_timing_conflicts_with_slot(
+    *,
+    day_index: int,
+    slot_key: str,
+    constraints: _FlightTimingConstraints,
+) -> bool:
+    if constraints.arrival_day_index == day_index and constraints.arrival_time:
+        if constraints.arrival_time.hour >= 21:
+            return True
+        if constraints.arrival_time.hour >= 17 and slot_key in {"morning", "afternoon"}:
+            return True
+        if constraints.arrival_time.hour >= 12 and slot_key == "morning":
+            return True
+    if constraints.departure_day_index == day_index and constraints.departure_time:
+        if constraints.departure_time.hour <= 11:
+            return True
+        if constraints.departure_time.hour <= 15 and slot_key in {"afternoon", "evening"}:
+            return True
+    return False
+
+
+def _flight_timing_conflicts_with_candidate_time(
+    *,
+    candidate: AdvancedActivityCandidateCard,
+    day_index: int | None,
+    constraints: _FlightTimingConstraints,
+) -> bool:
+    if day_index is None or candidate.start_at is None:
+        return False
+    if (
+        constraints.arrival_day_index == day_index
+        and constraints.arrival_time is not None
+        and candidate.start_at < constraints.arrival_time + timedelta(minutes=90)
+    ):
+        return True
+    if (
+        constraints.departure_day_index == day_index
+        and constraints.departure_time is not None
+        and candidate.start_at > constraints.departure_time - timedelta(hours=3)
+    ):
+        return True
+    return False
+
+
+def _score_activity_slot_against_weather(
+    *,
+    candidate: AdvancedActivityCandidateCard,
+    day_index: int,
+    slot_key: str,
+    weather_context: _WeatherPlanningContext,
+) -> float:
+    weather = weather_context.weather_by_day.get(day_index)
+    if weather is None:
+        return 0.0
+
+    text = " ".join(
+        part.lower()
+        for part in [candidate.title, candidate.summary or "", candidate.location_label or ""]
+        if part
+    )
+    score = 0.0
+    if _weather_has_any_tag(weather, {"rain", "heavy_rain", "storm", "snow", "fog"}):
+        if _candidate_has_indoor_weather_signal(text):
+            score += 1.5
+        if _candidate_has_exposed_outdoor_weather_signal(text):
+            score -= 1.25
+    if _weather_has_any_tag(weather, {"clear", "mild"}) and weather.weather_risk_level == "low":
+        if _candidate_has_outdoor_weather_signal(text):
+            score += 1.0
+    if weather.temperature_band == "hot":
+        if _candidate_has_exposed_outdoor_weather_signal(text):
+            score += 0.75 if slot_key in {"morning", "evening"} else -1.25
+    if weather.temperature_band == "cold" and _candidate_has_exposed_outdoor_weather_signal(text):
+        score -= 0.75
+    return score
+
+
+def _weather_pressure_note_for_slot(
+    *,
+    candidate: AdvancedActivityCandidateCard,
+    day_index: int,
+    slot_key: str,
+    weather_context: _WeatherPlanningContext,
+) -> str | None:
+    weather = weather_context.weather_by_day.get(day_index)
+    if weather is None:
+        return None
+
+    text = " ".join(
+        part.lower()
+        for part in [candidate.title, candidate.summary or "", candidate.location_label or ""]
+        if part
+    )
+    if _weather_has_any_tag(weather, {"rain", "heavy_rain", "storm"}):
+        if _candidate_has_exposed_outdoor_weather_signal(text):
+            return f"{candidate.title} is manually placed on a wet-weather day, so I preserved it and flagged the forecast pressure."
+    if weather.temperature_band == "hot" and slot_key == "afternoon":
+        if _candidate_has_exposed_outdoor_weather_signal(text):
+            return f"{candidate.title} stays in the afternoon, but heat makes that slot worth reviewing."
+    return None
 
 
 def _estimate_candidate_anchor_minutes(
@@ -3467,6 +5558,784 @@ def _extract_coordinates_from_block_details(
         except ValueError:
             return None, None
     return None, None
+
+
+def merge_flight_planning_state(
+    *,
+    current: AdvancedFlightPlanningState,
+    configuration: TripConfiguration,
+    module_outputs: TripModuleOutputs,
+    llm_update: TripTurnUpdate,
+    planning_mode: PlannerPlanningMode | None,
+    advanced_step: PlannerAdvancedStep | None,
+    advanced_anchor: PlannerAdvancedAnchor | None,
+    board_action: dict,
+) -> AdvancedFlightPlanningState:
+    flight_planning = current.model_copy(deep=True)
+
+    if planning_mode != "advanced":
+        return flight_planning
+
+    is_active_workspace = (
+        advanced_step == "anchor_flow" and advanced_anchor == "flight"
+    )
+    is_seeded = bool(
+        flight_planning.workspace_touched
+        or flight_planning.selection_status != "none"
+        or flight_planning.selected_strategy
+        or flight_planning.selected_outbound_flight_id
+        or flight_planning.selected_return_flight_id
+    )
+    if not is_active_workspace and not is_seeded:
+        return flight_planning
+
+    flight_planning.strategy_cards = _build_flight_strategy_cards(configuration)
+    flight_planning.missing_requirements = _flight_missing_requirements(configuration)
+    if flight_planning.missing_requirements:
+        flight_planning.results_status = "blocked"
+        flight_planning.outbound_options = []
+        flight_planning.return_options = []
+    else:
+        provider_cards = _build_provider_flight_option_cards(module_outputs.flights)
+        outbound_options = [
+            card for card in provider_cards if card.direction == "outbound"
+        ]
+        return_options = [card for card in provider_cards if card.direction == "return"]
+        if not outbound_options:
+            outbound_options = _build_placeholder_flight_options(
+                configuration=configuration,
+                direction="outbound",
+            )
+        if not return_options:
+            return_options = _build_placeholder_flight_options(
+                configuration=configuration,
+                direction="return",
+            )
+        flight_planning.outbound_options = outbound_options[:6]
+        flight_planning.return_options = return_options[:6]
+        flight_planning.results_status = (
+            "ready"
+            if any(card.source_kind == "provider" for card in [*outbound_options, *return_options])
+            else "placeholder"
+        )
+        _apply_flight_strategy_recommendations(
+            flight_planning.strategy_cards,
+            _recommend_flight_strategy(
+                configuration=configuration,
+                options=[*outbound_options, *return_options],
+            ),
+        )
+        strategy_for_options = (
+            flight_planning.selected_strategy
+            or _recommend_flight_strategy(
+                configuration=configuration,
+                options=[*outbound_options, *return_options],
+            )
+        )
+        flight_planning.outbound_options = _rank_flight_options(
+            options=flight_planning.outbound_options,
+            strategy=strategy_for_options,
+            direction="outbound",
+        )
+        flight_planning.return_options = _rank_flight_options(
+            options=flight_planning.return_options,
+            strategy=strategy_for_options,
+            direction="return",
+        )
+
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    updates: list[RequestedFlightUpdate] = []
+    if action is not None:
+        mapped_update = _map_flight_board_action(action)
+        if mapped_update is not None:
+            updates.append(mapped_update)
+    updates.extend(llm_update.requested_flight_updates)
+
+    for update in updates:
+        if update.action == "select_strategy" and update.strategy is not None:
+            flight_planning.selected_strategy = update.strategy
+            flight_planning.selection_status = "selected"
+            if update.strategy == "keep_flexible":
+                flight_planning.selected_outbound_flight_id = None
+                flight_planning.selected_return_flight_id = None
+        elif update.action == "select_outbound" and update.flight_option_id:
+            if _flight_option_exists(
+                flight_planning.outbound_options,
+                update.flight_option_id,
+            ):
+                flight_planning.selected_outbound_flight_id = update.flight_option_id
+                if flight_planning.selection_status in {"none", "completed", "kept_open"}:
+                    flight_planning.selection_status = "selected"
+                if flight_planning.selected_strategy == "keep_flexible":
+                    flight_planning.selected_strategy = None
+        elif update.action == "select_return" and update.flight_option_id:
+            if _flight_option_exists(
+                flight_planning.return_options,
+                update.flight_option_id,
+            ):
+                flight_planning.selected_return_flight_id = update.flight_option_id
+                if flight_planning.selection_status in {"none", "completed", "kept_open"}:
+                    flight_planning.selection_status = "selected"
+                if flight_planning.selected_strategy == "keep_flexible":
+                    flight_planning.selected_strategy = None
+        elif update.action == "keep_open":
+            flight_planning.selected_strategy = "keep_flexible"
+            flight_planning.selected_outbound_flight_id = None
+            flight_planning.selected_return_flight_id = None
+            flight_planning.selection_status = "kept_open"
+        elif update.action == "confirm":
+            if update.strategy is not None:
+                flight_planning.selected_strategy = update.strategy
+            if flight_planning.selected_strategy == "keep_flexible":
+                flight_planning.selected_outbound_flight_id = None
+                flight_planning.selected_return_flight_id = None
+                flight_planning.selection_status = "kept_open"
+            elif flight_planning.missing_requirements:
+                flight_planning.selection_status = "none"
+            else:
+                flight_planning.selected_strategy = (
+                    flight_planning.selected_strategy or "best_timing"
+                )
+                flight_planning.selected_outbound_flight_id = (
+                    flight_planning.selected_outbound_flight_id
+                    or _recommended_flight_option_id(
+                        flight_planning.outbound_options,
+                        strategy=flight_planning.selected_strategy,
+                        direction="outbound",
+                    )
+                )
+                flight_planning.selected_return_flight_id = (
+                    flight_planning.selected_return_flight_id
+                    or _recommended_flight_option_id(
+                        flight_planning.return_options,
+                        strategy=flight_planning.selected_strategy,
+                        direction="return",
+                    )
+                )
+                if (
+                    flight_planning.selected_outbound_flight_id
+                    and flight_planning.selected_return_flight_id
+                ):
+                    flight_planning.selection_status = "completed"
+
+    flight_planning.workspace_touched = bool(
+        flight_planning.workspace_touched or is_active_workspace or updates
+    )
+    if not flight_planning.missing_requirements:
+        strategy_for_options = (
+            flight_planning.selected_strategy
+            or _recommend_flight_strategy(
+                configuration=configuration,
+                options=[*flight_planning.outbound_options, *flight_planning.return_options],
+            )
+        )
+        if strategy_for_options != "keep_flexible":
+            flight_planning.outbound_options = _rank_flight_options(
+                options=flight_planning.outbound_options,
+                strategy=strategy_for_options,
+                direction="outbound",
+            )
+            flight_planning.return_options = _rank_flight_options(
+                options=flight_planning.return_options,
+                strategy=strategy_for_options,
+                direction="return",
+            )
+    flight_planning.selected_outbound_flight_id = _preserve_known_flight_selection(
+        flight_planning.outbound_options,
+        flight_planning.selected_outbound_flight_id,
+    )
+    flight_planning.selected_return_flight_id = _preserve_known_flight_selection(
+        flight_planning.return_options,
+        flight_planning.selected_return_flight_id,
+    )
+    flight_planning.selected_outbound_flight = _resolve_selected_flight_option(
+        flight_planning.outbound_options,
+        flight_planning.selected_outbound_flight_id,
+        completed=flight_planning.selection_status == "completed",
+    )
+    flight_planning.selected_return_flight = _resolve_selected_flight_option(
+        flight_planning.return_options,
+        flight_planning.selected_return_flight_id,
+        completed=flight_planning.selection_status == "completed",
+    )
+    if (
+        flight_planning.selection_status == "completed"
+        and (
+            not flight_planning.selected_outbound_flight_id
+            or not flight_planning.selected_return_flight_id
+        )
+    ):
+        flight_planning.selection_status = "selected"
+        flight_planning.selected_outbound_flight = None
+        flight_planning.selected_return_flight = None
+
+    flight_planning.workspace_summary = _build_flight_workspace_summary(
+        configuration=configuration,
+        flight_planning=flight_planning,
+    )
+    flight_planning.selection_summary = _build_flight_selection_summary(
+        flight_planning=flight_planning,
+    )
+    flight_planning.arrival_day_impact_summary = _build_flight_arrival_impact_summary(
+        flight_planning=flight_planning,
+        configuration=configuration,
+    )
+    flight_planning.departure_day_impact_summary = _build_flight_departure_impact_summary(
+        flight_planning=flight_planning,
+        configuration=configuration,
+    )
+    flight_planning.timing_review_notes = _build_flight_timing_review_notes(
+        flight_planning=flight_planning,
+    )
+    flight_planning.downstream_notes = _build_flight_downstream_notes(
+        flight_planning=flight_planning,
+    )
+    flight_planning.completion_summary = _build_flight_completion_summary(
+        flight_planning=flight_planning,
+    )
+    return flight_planning
+
+
+def _map_flight_board_action(
+    action: ConversationBoardAction,
+) -> RequestedFlightUpdate | None:
+    action_map = {
+        "select_flight_strategy": "select_strategy",
+        "select_outbound_flight": "select_outbound",
+        "select_return_flight": "select_return",
+        "confirm_flight_selection": "confirm",
+        "keep_flights_open": "keep_open",
+    }
+    mapped_action = action_map.get(action.type)
+    if mapped_action is None:
+        return None
+    return RequestedFlightUpdate(
+        action=mapped_action,
+        strategy=action.flight_strategy,
+        flight_option_id=action.flight_option_id,
+    )
+
+
+def _build_flight_strategy_cards(
+    configuration: TripConfiguration,
+) -> list[AdvancedFlightStrategyCard]:
+    recommended_strategy = _recommend_flight_strategy(configuration=configuration)
+    cards = [
+        AdvancedFlightStrategyCard(
+            id="smoothest_route",
+            title="Smoothest route",
+            description="Prefer lower-friction routing so the rest of the trip can build around simpler travel days.",
+            bullets=[
+                "Fewer awkward connections",
+                "Lower arrival-day risk",
+                "Good when comfort matters more than squeezing price",
+            ],
+            recommended=recommended_strategy == "smoothest_route",
+        ),
+        AdvancedFlightStrategyCard(
+            id="best_timing",
+            title="Best timing",
+            description="Protect arrival and final-day shape by favoring flight times that leave the trip easier to use.",
+            bullets=[
+                "Better arrival and departure rhythm",
+                "Helps activities stay realistic",
+                "Good for short or time-sensitive trips",
+            ],
+            recommended=recommended_strategy == "best_timing",
+        ),
+        AdvancedFlightStrategyCard(
+            id="best_value",
+            title="Best value",
+            description="Use the strongest fare-shaped option while keeping the trip plan practical enough to revise.",
+            bullets=[
+                "Keeps cost sensitivity visible",
+                "Works well while inventory is still changing",
+                "May accept less ideal timing",
+            ],
+            recommended=recommended_strategy == "best_value",
+        ),
+        AdvancedFlightStrategyCard(
+            id="keep_flexible",
+            title="Keep flexible",
+            description="Leave exact flights open for now while Wandrix plans around a softer route assumption.",
+            bullets=[
+                "Useful when flight inventory feels thin",
+                "Keeps the branch complete without treating a schedule as final",
+                "Can be revisited before final output",
+            ],
+            recommended=False,
+        ),
+    ]
+    return cards
+
+
+def _recommend_flight_strategy(
+    configuration: TripConfiguration,
+    options: list[AdvancedFlightOptionCard] | None = None,
+) -> PlannerFlightStrategy:
+    if options:
+        if any(option.price_text for option in options):
+            return "best_value"
+        if any(
+            option.stop_count == 0
+            or (option.stop_count is not None and option.stop_count <= 1)
+            for option in options
+        ):
+            return "smoothest_route"
+        if any(option.timing_quality for option in options):
+            return "best_timing"
+    trip_length_text = (configuration.trip_length or "").lower()
+    budget = configuration.budget_posture
+    if budget == "budget":
+        return "best_value"
+    if any(signal in trip_length_text for signal in ["weekend", "2 day", "3 day", "short"]):
+        return "best_timing"
+    return "smoothest_route"
+
+
+def _apply_flight_strategy_recommendations(
+    cards: list[AdvancedFlightStrategyCard],
+    recommended_strategy: PlannerFlightStrategy,
+) -> None:
+    for index, card in enumerate(cards):
+        cards[index] = card.model_copy(update={"recommended": card.id == recommended_strategy})
+
+
+def _flight_missing_requirements(configuration: TripConfiguration) -> list[str]:
+    missing: list[str] = []
+    if not configuration.from_location and not configuration.from_location_flexible:
+        missing.append("departure point")
+    if not configuration.to_location:
+        missing.append("destination")
+    if not configuration.start_date:
+        missing.append("departure date")
+    if not configuration.end_date:
+        missing.append("return date")
+    if not configuration.travelers.adults and not configuration.travelers_flexible:
+        missing.append("traveler count")
+    return missing[:5]
+
+
+def _build_provider_flight_option_cards(
+    flights: list[FlightDetail],
+) -> list[AdvancedFlightOptionCard]:
+    cards: list[AdvancedFlightOptionCard] = []
+    direction_counts = {"outbound": 0, "return": 0}
+    for flight in flights:
+        direction_counts[flight.direction] += 1
+        index = direction_counts[flight.direction]
+        cards.append(
+            AdvancedFlightOptionCard(
+                id=flight.id,
+                direction=flight.direction,
+                carrier=flight.carrier,
+                flight_number=flight.flight_number,
+                departure_airport=flight.departure_airport,
+                arrival_airport=flight.arrival_airport,
+                departure_time=flight.departure_time,
+                arrival_time=flight.arrival_time,
+                duration_text=flight.duration_text,
+                price_text=flight.price_text,
+                stop_count=flight.stop_count,
+                layover_summary=flight.layover_summary,
+                legs=flight.legs,
+                timing_quality=flight.timing_quality,
+                inventory_notice=flight.inventory_notice,
+                summary=_build_provider_flight_summary(flight),
+                tradeoffs=_build_provider_flight_tradeoffs(flight),
+                source_kind="provider",
+                recommended=index == 1,
+            )
+        )
+    return cards
+
+
+def _build_provider_flight_summary(flight: FlightDetail) -> str:
+    route = f"{flight.departure_airport} to {flight.arrival_airport}"
+    time_label = _format_flight_card_time(flight.departure_time)
+    direction = "Outbound" if flight.direction == "outbound" else "Return"
+    stop_label = _flight_stop_label(flight.stop_count)
+    rich_detail = ", ".join(
+        detail for detail in [stop_label, flight.duration_text, flight.price_text] if detail
+    )
+    if time_label:
+        suffix = f" with {rich_detail}" if rich_detail else ""
+        return f"{direction} working option from {route}, departing around {time_label}{suffix}."
+    suffix = f" with {rich_detail}" if rich_detail else ""
+    return f"{direction} working option from {route}{suffix}; exact timing is still being firmed up."
+
+
+def _build_provider_flight_tradeoffs(flight: FlightDetail) -> list[str]:
+    tradeoffs: list[str] = []
+    stop_label = _flight_stop_label(flight.stop_count)
+    if stop_label:
+        tradeoffs.append(stop_label.capitalize() + ".")
+    if flight.duration_text:
+        tradeoffs.append(f"Approximate journey time: {flight.duration_text}.")
+    if flight.layover_summary:
+        tradeoffs.append(flight.layover_summary + ".")
+    if flight.timing_quality:
+        tradeoffs.append(flight.timing_quality + ".")
+    if flight.arrival_time:
+        arrival_hour = flight.arrival_time.hour
+        if arrival_hour >= 21:
+            tradeoffs.append("Late arrival may make the first night lighter.")
+        elif arrival_hour <= 12:
+            tradeoffs.append("Earlier arrival leaves more usable first-day room.")
+    if flight.price_text and len(tradeoffs) < 4:
+        tradeoffs.append(flight.price_text + ".")
+    if not tradeoffs:
+        tradeoffs.append("Inventory detail is partial, so this remains a planning-grade option.")
+    return tradeoffs[:4]
+
+
+def _build_placeholder_flight_options(
+    *,
+    configuration: TripConfiguration,
+    direction: str,
+) -> list[AdvancedFlightOptionCard]:
+    route = (
+        (configuration.from_location or "Origin", configuration.to_location or "Destination")
+        if direction == "outbound"
+        else (configuration.to_location or "Destination", configuration.from_location or "Origin")
+    )
+    prefix = "outbound" if direction == "outbound" else "return"
+    strategy_payload = [
+        (
+            "smoothest_route",
+            "Smooth routing placeholder",
+            "A lower-friction working route shape while exact flight inventory is weak.",
+            ["Planning-grade option while exact inventory is unavailable."],
+        ),
+        (
+            "best_timing",
+            "Timing-first placeholder",
+            "A working flight shape that protects usable arrival and departure-day time.",
+            ["Planning-grade option while exact inventory is unavailable."],
+        ),
+        (
+            "best_value",
+            "Value placeholder",
+            "A flexible value-led assumption while fares need a stronger refresh.",
+            ["Planning-grade option while exact inventory is unavailable."],
+        ),
+    ]
+    return [
+        AdvancedFlightOptionCard(
+            id=f"placeholder_{prefix}_{strategy}",
+            direction=direction,  # type: ignore[arg-type]
+            carrier="Working option",
+            flight_number=None,
+            departure_airport=_flight_airport_label(route[0]),
+            arrival_airport=_flight_airport_label(route[1]),
+            departure_time=None,
+            arrival_time=None,
+            duration_text=None,
+            price_text=None,
+            stop_count=None,
+            layover_summary=None,
+            legs=[],
+            timing_quality=None,
+            inventory_notice="Planning-grade option while exact inventory is unavailable.",
+            summary=summary,
+            tradeoffs=tradeoffs,
+            source_kind="placeholder",
+            recommended=strategy == "best_timing",
+        )
+        for strategy, _title, summary, tradeoffs in strategy_payload
+    ]
+
+
+def _flight_option_exists(options: list[AdvancedFlightOptionCard], option_id: str) -> bool:
+    return any(option.id == option_id for option in options)
+
+
+def _recommended_flight_option_id(
+    options: list[AdvancedFlightOptionCard],
+    *,
+    strategy: PlannerFlightStrategy | None = None,
+    direction: str | None = None,
+) -> str | None:
+    if strategy and strategy != "keep_flexible" and direction:
+        ranked = _rank_flight_options(options=options, strategy=strategy, direction=direction)
+        recommended = next((option for option in ranked if option.recommended), None)
+        return recommended.id if recommended else ranked[0].id if ranked else None
+    recommended = next((option for option in options if option.recommended), None)
+    return recommended.id if recommended else options[0].id if options else None
+
+
+def _rank_flight_options(
+    *,
+    options: list[AdvancedFlightOptionCard],
+    strategy: PlannerFlightStrategy | None,
+    direction: str,
+) -> list[AdvancedFlightOptionCard]:
+    if not options:
+        return []
+    active_strategy = strategy if strategy != "keep_flexible" else None
+    active_strategy = active_strategy or "best_timing"
+    ranked = sorted(
+        options,
+        key=lambda option: _flight_option_strategy_score(
+            option=option,
+            strategy=active_strategy,
+            direction=direction,
+        ),
+    )
+    recommended_id = ranked[0].id if ranked else None
+    return [
+        option.model_copy(update={"recommended": option.id == recommended_id})
+        for option in ranked
+    ]
+
+
+def _flight_option_strategy_score(
+    *,
+    option: AdvancedFlightOptionCard,
+    strategy: PlannerFlightStrategy,
+    direction: str,
+) -> tuple[float, float, float, str]:
+    stop_count = option.stop_count if option.stop_count is not None else 3
+    duration_minutes = _parse_duration_text_minutes(option.duration_text)
+    duration_score = duration_minutes if duration_minutes is not None else 9999.0
+    timing_score = _flight_timing_score(option=option, direction=direction)
+    price_score = _parse_price_text_value(option.price_text)
+    price_score = price_score if price_score is not None else 999999.0
+    source_penalty = 0.0 if option.source_kind == "provider" else 100.0
+    if strategy == "smoothest_route":
+        return (source_penalty, float(stop_count), duration_score, option.id)
+    if strategy == "best_value":
+        return (source_penalty, price_score, float(stop_count), option.id)
+    return (source_penalty, timing_score, float(stop_count), option.id)
+
+
+def _flight_timing_score(
+    *,
+    option: AdvancedFlightOptionCard,
+    direction: str,
+) -> float:
+    if direction == "outbound" and option.arrival_time is not None:
+        hour = option.arrival_time.hour
+        if 10 <= hour <= 16:
+            return 0.0
+        if 8 <= hour < 10 or 16 < hour <= 18:
+            return 1.0
+        if 18 < hour <= 21:
+            return 3.0
+        return 5.0
+    if direction == "return" and option.departure_time is not None:
+        hour = option.departure_time.hour
+        if 13 <= hour <= 19:
+            return 0.0
+        if 10 <= hour < 13 or 19 < hour <= 22:
+            return 1.0
+        if 6 <= hour < 10:
+            return 3.0
+        return 5.0
+    return 4.0
+
+
+def _parse_duration_text_minutes(value: str | None) -> float | None:
+    if not value:
+        return None
+    hours_match = re.search(r"(\d+(?:\.\d+)?)\s*h", value)
+    minutes_match = re.search(r"(\d+(?:\.\d+)?)\s*m", value)
+    total = 0.0
+    if hours_match:
+        total += float(hours_match.group(1)) * 60
+    if minutes_match:
+        total += float(minutes_match.group(1))
+    return total if total > 0 else None
+
+
+def _parse_price_text_value(value: str | None) -> float | None:
+    if not value:
+        return None
+    match = re.search(r"(\d+(?:[,.]\d+)?)", value)
+    if not match:
+        return None
+    return float(match.group(1).replace(",", ""))
+
+
+def _flight_stop_label(stop_count: int | None) -> str | None:
+    if stop_count is None:
+        return None
+    if stop_count == 0:
+        return "direct"
+    if stop_count == 1:
+        return "1 stop"
+    return f"{stop_count} stops"
+
+
+def _preserve_known_flight_selection(
+    options: list[AdvancedFlightOptionCard],
+    selected_id: str | None,
+) -> str | None:
+    if selected_id is None:
+        return None
+    return selected_id if _flight_option_exists(options, selected_id) else None
+
+
+def _resolve_selected_flight_option(
+    options: list[AdvancedFlightOptionCard],
+    selected_id: str | None,
+    *,
+    completed: bool,
+) -> AdvancedFlightOptionCard | None:
+    if not completed or selected_id is None:
+        return None
+    return next((option for option in options if option.id == selected_id), None)
+
+
+def _build_flight_workspace_summary(
+    *,
+    configuration: TripConfiguration,
+    flight_planning: AdvancedFlightPlanningState,
+) -> str:
+    if flight_planning.missing_requirements:
+        missing = ", ".join(flight_planning.missing_requirements)
+        return f"Flight planning needs {missing} before Wandrix can shape working outbound and return choices."
+    route = (
+        f"{configuration.from_location} to {configuration.to_location}"
+        if configuration.from_location and configuration.to_location
+        else "the working route"
+    )
+    if flight_planning.results_status == "placeholder":
+        return f"Exact inventory is thin, so Wandrix is showing neutral working flight shapes for {route} instead of treating any schedule as final."
+    return f"Wandrix has enough route context to choose working outbound and return flights for {route}."
+
+
+def _build_flight_selection_summary(
+    *,
+    flight_planning: AdvancedFlightPlanningState,
+) -> str | None:
+    if flight_planning.selection_status == "kept_open":
+        return "Flights are intentionally kept flexible for now; Wandrix will avoid treating any exact schedule as locked."
+    outbound = next(
+        (
+            option
+            for option in flight_planning.outbound_options
+            if option.id == flight_planning.selected_outbound_flight_id
+        ),
+        None,
+    )
+    returning = next(
+        (
+            option
+            for option in flight_planning.return_options
+            if option.id == flight_planning.selected_return_flight_id
+        ),
+        None,
+    )
+    if outbound and returning:
+        return f"Working flights: outbound {outbound.departure_airport} to {outbound.arrival_airport}, return {returning.departure_airport} to {returning.arrival_airport}."
+    if outbound:
+        return f"Outbound is selected; choose a return option or keep flights flexible."
+    if returning:
+        return f"Return is selected; choose an outbound option or keep flights flexible."
+    return None
+
+
+def _build_flight_downstream_notes(
+    *,
+    flight_planning: AdvancedFlightPlanningState,
+) -> list[str]:
+    if flight_planning.selection_status == "kept_open":
+        return [
+            "Activities and stay can still move freely because no exact flight time is locked yet."
+        ]
+    notes: list[str] = [
+        note
+        for note in [
+            flight_planning.arrival_day_impact_summary,
+            flight_planning.departure_day_impact_summary,
+            *flight_planning.timing_review_notes,
+        ]
+        if note
+    ]
+    if flight_planning.results_status == "placeholder":
+        notes.append("These are planning placeholders, so later live inventory can replace them without treating the schedule as final.")
+    if not notes and flight_planning.selection_status in {"selected", "completed"}:
+        notes.append("Selected flights are stored as working planning inputs, not final schedules.")
+    return notes[:4]
+
+
+def _build_flight_arrival_impact_summary(
+    *,
+    flight_planning: AdvancedFlightPlanningState,
+    configuration: TripConfiguration,
+) -> str | None:
+    if flight_planning.selection_status != "completed":
+        return None
+    outbound = flight_planning.selected_outbound_flight
+    if outbound is None or outbound.arrival_time is None:
+        return None
+    if configuration.start_date and outbound.arrival_time.date() != configuration.start_date:
+        return None
+    if outbound.arrival_time.hour >= 21:
+        return "Very late arrival is keeping Day 1 mostly open except fixed events and manual activity choices."
+    if outbound.arrival_time.hour >= 17:
+        return "Late arrival is softening Day 1 and moving lower-priority flexible ideas to reserve first."
+    if outbound.arrival_time.hour >= 12:
+        return "Afternoon arrival is keeping the first morning open instead of overfilling Day 1."
+    return None
+
+
+def _build_flight_departure_impact_summary(
+    *,
+    flight_planning: AdvancedFlightPlanningState,
+    configuration: TripConfiguration,
+) -> str | None:
+    if flight_planning.selection_status != "completed":
+        return None
+    returning = flight_planning.selected_return_flight
+    if returning is None or returning.departure_time is None:
+        return None
+    if configuration.end_date and returning.departure_time.date() != configuration.end_date:
+        return None
+    if returning.departure_time.hour <= 11:
+        return "Early return is keeping the final day clear except fixed events and manual activity choices."
+    if returning.departure_time.hour <= 15:
+        return "Midday return is keeping final-day flexible planning light."
+    return None
+
+
+def _build_flight_timing_review_notes(
+    *,
+    flight_planning: AdvancedFlightPlanningState,
+) -> list[str]:
+    if flight_planning.selection_status != "completed":
+        return []
+    notes: list[str] = []
+    outbound = flight_planning.selected_outbound_flight
+    returning = flight_planning.selected_return_flight
+    if outbound and outbound.arrival_time and outbound.arrival_time.hour >= 22:
+        notes.append("Activities may need a quick review if Day 1 already has manually placed evening plans.")
+    if returning and returning.departure_time and returning.departure_time.hour <= 10:
+        notes.append("Stay and activities may need review if the final morning depends on extra travel time.")
+    return notes[:4]
+
+
+def _build_flight_completion_summary(
+    *,
+    flight_planning: AdvancedFlightPlanningState,
+) -> str | None:
+    if flight_planning.selection_status == "completed":
+        return "Flights now have a working outbound and return shape for downstream planning."
+    if flight_planning.selection_status == "kept_open":
+        return "Flights are intentionally kept flexible while the rest of the trip keeps moving."
+    return None
+
+
+def _format_flight_card_time(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.strftime("%H:%M")
+
+
+def _flight_airport_label(value: str) -> str:
+    stripped = value.strip() or "TBD"
+    return stripped[:40]
 
 
 def merge_stay_planning_state(
@@ -3794,6 +6663,7 @@ def merge_trip_style_planning_state(
     advanced_step: PlannerAdvancedStep | None,
     advanced_anchor: PlannerAdvancedAnchor | None,
     board_action: dict,
+    stay_planning: AdvancedStayPlanningState,
 ) -> TripStylePlanningState:
     trip_style_planning = current.model_copy(deep=True)
 
@@ -3833,18 +6703,30 @@ def merge_trip_style_planning_state(
             trip_style_planning.selected_primary_direction = update.primary
             trip_style_planning.selection_status = "selected"
             if trip_style_planning.substep == "completed":
-                trip_style_planning.substep = "pace"
+                trip_style_planning.substep = (
+                    "tradeoffs"
+                    if trip_style_planning.pace_status == "completed"
+                    else "pace"
+                )
         elif update.action == "select_accent" and update.accent is not None:
             trip_style_planning.selected_accent = update.accent
             trip_style_planning.selection_status = "selected"
             if trip_style_planning.substep == "completed":
-                trip_style_planning.substep = "pace"
+                trip_style_planning.substep = (
+                    "tradeoffs"
+                    if trip_style_planning.pace_status == "completed"
+                    else "pace"
+                )
         elif update.action == "clear_accent":
             trip_style_planning.selected_accent = None
             if trip_style_planning.selected_primary_direction:
                 trip_style_planning.selection_status = "selected"
             if trip_style_planning.substep == "completed":
-                trip_style_planning.substep = "pace"
+                trip_style_planning.substep = (
+                    "tradeoffs"
+                    if trip_style_planning.pace_status == "completed"
+                    else "pace"
+                )
         elif update.action in {"confirm", "keep_current"}:
             if update.primary is not None:
                 trip_style_planning.selected_primary_direction = update.primary
@@ -3856,9 +6738,12 @@ def merge_trip_style_planning_state(
                     if trip_style_planning.recommended_primary_directions
                     else "balanced"
                 )
-            if trip_style_planning.pace_status == "completed":
+            if trip_style_planning.tradeoff_status == "completed":
                 trip_style_planning.selection_status = "completed"
                 trip_style_planning.substep = "completed"
+            elif trip_style_planning.pace_status == "completed":
+                trip_style_planning.selection_status = "selected"
+                trip_style_planning.substep = "tradeoffs"
             else:
                 trip_style_planning.selection_status = "selected"
                 trip_style_planning.substep = "pace"
@@ -3896,12 +6781,78 @@ def merge_trip_style_planning_state(
                     if trip_style_planning.recommended_primary_directions
                     else "balanced"
                 )
-            trip_style_planning.selection_status = "completed"
+            trip_style_planning.selection_status = "selected"
             trip_style_planning.pace_status = "completed"
+            trip_style_planning.substep = (
+                "completed"
+                if trip_style_planning.tradeoff_status == "completed"
+                else "tradeoffs"
+            )
+
+    trip_style_planning.recommended_tradeoff_cards = _recommend_trip_style_tradeoff_cards(
+        configuration=configuration,
+        trip_style_planning=trip_style_planning,
+        stay_planning=stay_planning,
+    )
+    trip_style_planning.selected_tradeoffs = _ensure_trip_style_tradeoff_defaults(
+        selected_tradeoffs=trip_style_planning.selected_tradeoffs,
+        recommended_tradeoff_cards=trip_style_planning.recommended_tradeoff_cards,
+    )
+
+    tradeoff_updates: list[RequestedTripStyleTradeoffUpdate] = []
+    if action is not None:
+        mapped_tradeoff_update = _map_trip_style_tradeoff_board_action(action)
+        if mapped_tradeoff_update is not None:
+            tradeoff_updates.append(mapped_tradeoff_update)
+    tradeoff_updates.extend(llm_update.requested_trip_style_tradeoff_updates)
+
+    for update in tradeoff_updates:
+        if (
+            update.action == "set_tradeoff"
+            and update.axis is not None
+            and update.value is not None
+        ):
+            trip_style_planning.selected_tradeoffs = _set_trip_style_tradeoff_decision(
+                selected_tradeoffs=trip_style_planning.selected_tradeoffs,
+                axis=update.axis,
+                value=update.value,
+            )
+            trip_style_planning.tradeoff_status = "selected"
+            if trip_style_planning.pace_status == "completed":
+                trip_style_planning.substep = "tradeoffs"
+        elif update.action in {"confirm", "keep_current"}:
+            if update.axis is not None and update.value is not None:
+                trip_style_planning.selected_tradeoffs = _set_trip_style_tradeoff_decision(
+                    selected_tradeoffs=trip_style_planning.selected_tradeoffs,
+                    axis=update.axis,
+                    value=update.value,
+                )
+            trip_style_planning.selected_tradeoffs = _ensure_trip_style_tradeoff_defaults(
+                selected_tradeoffs=trip_style_planning.selected_tradeoffs,
+                recommended_tradeoff_cards=trip_style_planning.recommended_tradeoff_cards,
+            )
+            if trip_style_planning.selected_pace is None:
+                trip_style_planning.selected_pace = (
+                    trip_style_planning.recommended_paces[0]
+                    if trip_style_planning.recommended_paces
+                    else "balanced"
+                )
+            trip_style_planning.pace_status = "completed"
+            if trip_style_planning.selected_primary_direction is None:
+                trip_style_planning.selected_primary_direction = (
+                    trip_style_planning.recommended_primary_directions[0]
+                    if trip_style_planning.recommended_primary_directions
+                    else "balanced"
+                )
+            trip_style_planning.selection_status = "completed"
+            trip_style_planning.tradeoff_status = "completed"
             trip_style_planning.substep = "completed"
 
     trip_style_planning.workspace_touched = bool(
-        trip_style_planning.workspace_touched or updates or pace_updates
+        trip_style_planning.workspace_touched
+        or updates
+        or pace_updates
+        or tradeoff_updates
     )
     trip_style_planning.workspace_summary = _build_trip_style_workspace_summary(
         trip_style_planning=trip_style_planning,
@@ -3922,6 +6873,14 @@ def merge_trip_style_planning_state(
     )
     trip_style_planning.pace_downstream_influence_summary = (
         _build_trip_style_pace_downstream_influence_summary(
+            trip_style_planning=trip_style_planning
+        )
+    )
+    trip_style_planning.tradeoff_rationale = _build_trip_style_tradeoff_rationale(
+        trip_style_planning=trip_style_planning
+    )
+    trip_style_planning.tradeoff_downstream_influence_summary = (
+        _build_trip_style_tradeoff_downstream_influence_summary(
             trip_style_planning=trip_style_planning
         )
     )
@@ -3968,6 +6927,24 @@ def _map_trip_style_pace_board_action(
     return RequestedTripStylePaceUpdate(
         action=mapped_action,
         pace=action.trip_style_pace,
+    )
+
+
+def _map_trip_style_tradeoff_board_action(
+    action: ConversationBoardAction,
+) -> RequestedTripStyleTradeoffUpdate | None:
+    action_map = {
+        "set_trip_style_tradeoff": "set_tradeoff",
+        "confirm_trip_style_tradeoffs": "confirm",
+        "keep_current_trip_style_tradeoffs": "keep_current",
+    }
+    mapped_action = action_map.get(action.type)
+    if mapped_action is None:
+        return None
+    return RequestedTripStyleTradeoffUpdate(
+        action=mapped_action,
+        axis=action.trip_style_tradeoff_axis,
+        value=action.trip_style_tradeoff_value,
     )
 
 
@@ -4100,6 +7077,209 @@ def _recommend_trip_style_paces(
     return sorted_paces[:3]
 
 
+def _recommend_trip_style_tradeoff_cards(
+    *,
+    configuration: TripConfiguration,
+    trip_style_planning: TripStylePlanningState,
+    stay_planning: AdvancedStayPlanningState,
+) -> list[TripStyleTradeoffCard]:
+    scores: dict[PlannerTripStyleTradeoffAxis, float] = {
+        "must_sees_vs_wandering": 0.5,
+        "convenience_vs_atmosphere": 0.25,
+        "early_starts_vs_evening_energy": 0.25,
+        "polished_vs_hidden_gems": 0.25,
+    }
+    primary = trip_style_planning.selected_primary_direction
+    accent = trip_style_planning.selected_accent
+    pace = trip_style_planning.selected_pace
+    activity_styles = set(configuration.activity_styles)
+    custom_style = (configuration.custom_style or "").lower()
+
+    if primary == "culture_led" or accent == "classic" or "culture" in activity_styles:
+        scores["must_sees_vs_wandering"] += 3.0
+    if stay_planning.selected_hotel_id or stay_planning.selected_stay_direction:
+        scores["convenience_vs_atmosphere"] += 3.0
+    if primary == "nightlife_led" or pace == "full" or "nightlife" in activity_styles:
+        scores["early_starts_vs_evening_energy"] += 3.0
+    if accent in {"local", "polished"}:
+        scores["polished_vs_hidden_gems"] += 3.0
+    if any(token in custom_style for token in ["must-see", "must see", "iconic", "classic"]):
+        scores["must_sees_vs_wandering"] += 1.5
+    if any(token in custom_style for token in ["easy", "convenient", "low transfer", "central"]):
+        scores["convenience_vs_atmosphere"] += 1.5
+    if any(token in custom_style for token in ["late", "night", "evening", "bar", "jazz"]):
+        scores["early_starts_vs_evening_energy"] += 1.5
+    if any(token in custom_style for token in ["hidden", "local", "neighborhood", "neighbourhood", "polished", "refined"]):
+        scores["polished_vs_hidden_gems"] += 1.5
+
+    ranked_axes = sorted(scores, key=lambda axis: scores[axis], reverse=True)
+    return [
+        _build_trip_style_tradeoff_card(
+            axis=axis,
+            recommended_value=_recommend_tradeoff_value_for_axis(
+                axis=axis,
+                trip_style_planning=trip_style_planning,
+                stay_planning=stay_planning,
+                custom_style=custom_style,
+            ),
+        )
+        for axis in ranked_axes[:3]
+    ]
+
+
+def _build_trip_style_tradeoff_card(
+    *,
+    axis: PlannerTripStyleTradeoffAxis,
+    recommended_value: PlannerTripStyleTradeoffChoice,
+) -> TripStyleTradeoffCard:
+    card_copy = {
+        "must_sees_vs_wandering": (
+            "Must-sees or wandering",
+            "When two good experiences compete, decide whether iconic anchors or looser neighborhood time should win.",
+            [
+                ("must_sees", "Must-sees", "Keep signature sights and classic anchors visible when the choice is close."),
+                ("balanced", "Balanced", "Mix a few icons with enough space for discovery."),
+                ("wandering", "Wandering", "Let flexible local wandering beat checklist coverage when both could work."),
+            ],
+        ),
+        "convenience_vs_atmosphere": (
+            "Convenience or atmosphere",
+            "Decide whether Wandrix should reduce movement or allow extra travel for a stronger sense of place.",
+            [
+                ("convenience", "Convenience", "Favor lower-friction choices near the stay or natural route."),
+                ("balanced", "Balanced", "Keep movement practical without flattening the trip character."),
+                ("atmosphere", "Atmosphere", "Allow more characterful neighborhoods even when they add some movement."),
+            ],
+        ),
+        "early_starts_vs_evening_energy": (
+            "Early starts or evening energy",
+            "Set whether the plan should lean toward morning momentum or protect livelier nights.",
+            [
+                ("early_starts", "Early starts", "Favor morning anchors and cleaner starts to the day."),
+                ("balanced", "Balanced", "Avoid pushing the whole trip too early or too late."),
+                ("evening_energy", "Evening energy", "Favor evening districts, events, and lighter mornings."),
+            ],
+        ),
+        "polished_vs_hidden_gems": (
+            "Polished or hidden gems",
+            "Decide whether refined, reservation-worthy ideas or less tourist-first local picks should break ties.",
+            [
+                ("polished", "Polished", "Favor refined, design-forward, or reservation-worthy options."),
+                ("balanced", "Balanced", "Mix polished reliability with a little local texture."),
+                ("hidden_gems", "Hidden gems", "Favor less tourist-first local finds when quality is comparable."),
+            ],
+        ),
+    }
+    title, description, options = card_copy[axis]
+    return TripStyleTradeoffCard(
+        axis=axis,
+        title=title,
+        description=description,
+        options=[
+            TripStyleTradeoffOption(
+                value=value,
+                label=label,
+                description=option_description,
+                recommended=value == recommended_value,
+            )
+            for value, label, option_description in options
+        ],
+    )
+
+
+def _recommend_tradeoff_value_for_axis(
+    *,
+    axis: PlannerTripStyleTradeoffAxis,
+    trip_style_planning: TripStylePlanningState,
+    stay_planning: AdvancedStayPlanningState,
+    custom_style: str,
+) -> PlannerTripStyleTradeoffChoice:
+    primary = trip_style_planning.selected_primary_direction
+    accent = trip_style_planning.selected_accent
+    pace = trip_style_planning.selected_pace
+    if axis == "must_sees_vs_wandering":
+        if accent == "classic" or primary == "culture_led":
+            return "must_sees"
+        if accent == "local" or "wander" in custom_style:
+            return "wandering"
+        return "balanced"
+    if axis == "convenience_vs_atmosphere":
+        if stay_planning.selected_hotel_id or any(token in custom_style for token in ["easy", "convenient"]):
+            return "convenience"
+        if accent == "local":
+            return "atmosphere"
+        return "balanced"
+    if axis == "early_starts_vs_evening_energy":
+        if primary == "nightlife_led":
+            return "evening_energy"
+        if pace == "full":
+            return "early_starts"
+        return "balanced"
+    if axis == "polished_vs_hidden_gems":
+        if accent == "polished":
+            return "polished"
+        if accent == "local":
+            return "hidden_gems"
+        return "balanced"
+    return "balanced"
+
+
+def _ensure_trip_style_tradeoff_defaults(
+    *,
+    selected_tradeoffs: list[TripStyleTradeoffDecision],
+    recommended_tradeoff_cards: list[TripStyleTradeoffCard],
+) -> list[TripStyleTradeoffDecision]:
+    selected_by_axis = {decision.axis: decision for decision in selected_tradeoffs}
+    merged: list[TripStyleTradeoffDecision] = []
+    for card in recommended_tradeoff_cards:
+        existing = selected_by_axis.get(card.axis)
+        if existing and _tradeoff_value_allowed_for_axis(
+            axis=card.axis,
+            value=existing.selected_value,
+        ):
+            merged.append(existing)
+            continue
+        recommended_option = next(
+            (option for option in card.options if option.recommended),
+            card.options[1] if len(card.options) > 1 else card.options[0],
+        )
+        merged.append(
+            TripStyleTradeoffDecision(
+                axis=card.axis,
+                selected_value=recommended_option.value,
+            )
+        )
+    return merged[:4]
+
+
+def _set_trip_style_tradeoff_decision(
+    *,
+    selected_tradeoffs: list[TripStyleTradeoffDecision],
+    axis: PlannerTripStyleTradeoffAxis,
+    value: PlannerTripStyleTradeoffChoice,
+) -> list[TripStyleTradeoffDecision]:
+    if not _tradeoff_value_allowed_for_axis(axis=axis, value=value):
+        return selected_tradeoffs
+    next_decision = TripStyleTradeoffDecision(axis=axis, selected_value=value)
+    return [
+        *[decision for decision in selected_tradeoffs if decision.axis != axis],
+        next_decision,
+    ][:4]
+
+
+def _tradeoff_value_allowed_for_axis(
+    *,
+    axis: PlannerTripStyleTradeoffAxis,
+    value: PlannerTripStyleTradeoffChoice,
+) -> bool:
+    return value in {
+        "must_sees_vs_wandering": {"must_sees", "balanced", "wandering"},
+        "convenience_vs_atmosphere": {"convenience", "balanced", "atmosphere"},
+        "early_starts_vs_evening_energy": {"early_starts", "balanced", "evening_energy"},
+        "polished_vs_hidden_gems": {"polished", "balanced", "hidden_gems"},
+    }[axis]
+
+
 def _build_trip_style_workspace_summary(
     *,
     trip_style_planning: TripStylePlanningState,
@@ -4223,6 +7403,68 @@ def _build_trip_style_pace_downstream_influence_summary(
     }[pace]
 
 
+def _build_trip_style_tradeoff_rationale(
+    *,
+    trip_style_planning: TripStylePlanningState,
+) -> str | None:
+    if not trip_style_planning.selected_tradeoffs:
+        return None
+    labels = [
+        _tradeoff_choice_label(decision.selected_value).lower()
+        for decision in trip_style_planning.selected_tradeoffs[:3]
+    ]
+    if len(labels) == 1:
+        return f"The final tie-breaker is currently set toward {labels[0]}."
+    return (
+        "The final tie-breakers are currently set toward "
+        f"{', '.join(labels[:-1])}, and {labels[-1]}."
+    )
+
+
+def _build_trip_style_tradeoff_downstream_influence_summary(
+    *,
+    trip_style_planning: TripStylePlanningState,
+) -> str | None:
+    if not trip_style_planning.selected_tradeoffs:
+        return None
+    parts = [
+        _tradeoff_downstream_sentence(decision)
+        for decision in trip_style_planning.selected_tradeoffs[:3]
+        if decision.selected_value != "balanced"
+    ]
+    if not parts:
+        return "Activities will use the selected tradeoffs as balanced tie-breakers rather than hard constraints."
+    return " ".join(parts)
+
+
+def _tradeoff_downstream_sentence(decision: TripStyleTradeoffDecision) -> str:
+    return {
+        "must_sees": "Must-sees will get a boost when classic anchors and looser ideas compete.",
+        "wandering": "Wandering will boost neighborhood-scale, flexible ideas when options are close.",
+        "convenience": "Convenience will favor lower-movement choices and stronger stay proximity.",
+        "atmosphere": "Atmosphere will allow more characterful neighborhoods even with extra movement.",
+        "early_starts": "Early starts will favor morning anchors and cleaner day launches.",
+        "evening_energy": "Evening energy will boost evening districts, events, and lighter mornings.",
+        "polished": "Polished choices will boost refined and reservation-worthy ideas.",
+        "hidden_gems": "Hidden gems will boost less tourist-first local picks.",
+        "balanced": "Balanced tradeoffs will avoid over-weighting either side.",
+    }[decision.selected_value]
+
+
+def _tradeoff_choice_label(value: PlannerTripStyleTradeoffChoice) -> str:
+    return {
+        "must_sees": "Must-sees",
+        "wandering": "Wandering",
+        "convenience": "Convenience",
+        "atmosphere": "Atmosphere",
+        "early_starts": "Early starts",
+        "evening_energy": "Evening energy",
+        "polished": "Polished",
+        "hidden_gems": "Hidden gems",
+        "balanced": "Balanced",
+    }[value]
+
+
 def _build_trip_style_completion_summary(
     *,
     trip_style_planning: TripStylePlanningState,
@@ -4235,14 +7477,30 @@ def _build_trip_style_completion_summary(
         if trip_style_planning.selected_pace
         else ""
     )
+    tradeoff_line = _format_tradeoff_completion_line(trip_style_planning.selected_tradeoffs)
     accent_line = (
         f" with a {_trip_direction_accent_label(trip_style_planning.selected_accent)} accent"
         if trip_style_planning.selected_accent
         else ""
     )
     return (
-        f"The trip character is now set as {_trip_direction_primary_label(primary)}{accent_line}{pace_line}, so activities can rank and space the days around it next."
+        f"The trip character is now set as {_trip_direction_primary_label(primary)}{accent_line}{pace_line}{tradeoff_line}, so activities can rank and space the days around it next."
     )
+
+
+def _format_tradeoff_completion_line(
+    selected_tradeoffs: list[TripStyleTradeoffDecision],
+) -> str:
+    meaningful = [
+        _tradeoff_choice_label(decision.selected_value).lower()
+        for decision in selected_tradeoffs[:3]
+        if decision.selected_value != "balanced"
+    ]
+    if not meaningful:
+        return ""
+    if len(meaningful) == 1:
+        return f", with {meaningful[0]} as the main tie-breaker"
+    return f", with tradeoffs leaning {', '.join(meaningful[:-1])}, and {meaningful[-1]}"
 
 
 def _trip_pace_label(pace: PlannerTripPace | None) -> str:
@@ -4500,6 +7758,7 @@ def _merge_decision_history(
     planning_mode: PlannerPlanningMode | None,
     planning_mode_status: PlannerPlanningModeStatus,
     advanced_anchor: PlannerAdvancedAnchor | None,
+    confirmation_status: PlannerConfirmationStatus,
 ) -> list[ConversationDecisionEvent]:
     merged = list(current)
     seen = {
@@ -4882,6 +8141,20 @@ def _merge_decision_history(
                     resolved_at=now,
                 )
             )
+    if action and action.type == "finalize_advanced_plan" and confirmation_status == "finalized":
+        finalization_key = ("advanced plan finalized", ("board",))
+        if finalization_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=action.action_id,
+                    title="Advanced plan finalized",
+                    description="The user finalized the reviewed Advanced plan from the board and saved the brochure-ready trip.",
+                    options=["board"],
+                    selected_option="board",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
     if action and action.type == "reopen_plan":
         reopen_key = ("planning reopened", ("board",))
         if reopen_key not in seen:
@@ -4904,6 +8177,24 @@ def _merge_decision_history(
                     id=f"decision_{uuid4().hex[:10]}",
                     title="Trip plan finalized",
                     description="The user finalized the quick plan in chat and saved the brochure-ready trip.",
+                    options=["chat"],
+                    selected_option="chat",
+                    source_turn_id=turn_id,
+                    resolved_at=now,
+                )
+            )
+    if (
+        llm_update.requested_advanced_finalization
+        and not action
+        and confirmation_status == "finalized"
+    ):
+        finalization_key = ("advanced plan finalized", ("chat",))
+        if finalization_key not in seen:
+            merged.append(
+                ConversationDecisionEvent(
+                    id=f"decision_{uuid4().hex[:10]}",
+                    title="Advanced plan finalized",
+                    description="The user finalized the reviewed Advanced plan in chat and saved the brochure-ready trip.",
                     options=["chat"],
                     selected_option="chat",
                     source_turn_id=turn_id,
@@ -5017,6 +8308,8 @@ def _build_turn_summary_user_message(board_action: dict) -> str:
         return "Planner action recorded."
     if action.type == "finalize_quick_plan":
         return "Board action: confirm the current quick plan."
+    if action.type == "finalize_advanced_plan":
+        return "Board action: finalize the reviewed Advanced plan."
     if action.type == "reopen_plan":
         return "Board action: reopen planning for this trip."
     if action.type == "confirm_trip_details":
@@ -5402,8 +8695,11 @@ def _question_is_still_relevant(
     question: ConversationQuestion,
     configuration: TripConfiguration,
     missing_fields: list[str],
+    reliability_question_fields: set[TripFieldKey] | None = None,
 ) -> bool:
     if question.field is None:
+        return True
+    if reliability_question_fields and question.field in reliability_question_fields:
         return True
 
     if question.field == "selected_modules":
@@ -5457,6 +8753,7 @@ def _build_conversation_question(
     candidate: TripOpenQuestionUpdate,
     configuration: TripConfiguration,
     missing_fields: list[str],
+    reliability_question_fields: set[TripFieldKey] | None = None,
 ) -> ConversationQuestion | None:
     cleaned = candidate.question.strip()
     if not cleaned:
@@ -5484,7 +8781,12 @@ def _build_conversation_question(
         or _default_question_reason(field, step),
         status="open",
     )
-    if not _question_is_still_relevant(question, configuration, missing_fields):
+    if not _question_is_still_relevant(
+        question,
+        configuration,
+        missing_fields,
+        reliability_question_fields=reliability_question_fields,
+    ):
         return None
     return question
 

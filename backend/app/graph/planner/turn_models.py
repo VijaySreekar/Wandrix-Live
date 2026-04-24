@@ -5,10 +5,13 @@ from pydantic import BaseModel, Field
 
 from app.schemas.trip_conversation import (
     PlannerAdvancedAnchor,
+    PlannerFlightStrategy,
     PlannerActivityCandidateKind,
     PlannerActivityDaypart,
     PlannerActivityDisposition,
     PlannerTripPace,
+    PlannerTripStyleTradeoffAxis,
+    PlannerTripStyleTradeoffChoice,
     PlannerReviewResolutionScope,
     PlannerTripDirectionAccent,
     PlannerTripDirectionPrimary,
@@ -131,6 +134,28 @@ class RequestedTripStylePaceUpdate(BaseModel):
     pace: PlannerTripPace | None = None
 
 
+class RequestedTripStyleTradeoffUpdate(BaseModel):
+    action: Literal[
+        "set_tradeoff",
+        "confirm",
+        "keep_current",
+    ]
+    axis: PlannerTripStyleTradeoffAxis | None = None
+    value: PlannerTripStyleTradeoffChoice | None = None
+
+
+class RequestedFlightUpdate(BaseModel):
+    action: Literal[
+        "select_strategy",
+        "select_outbound",
+        "select_return",
+        "confirm",
+        "keep_open",
+    ]
+    strategy: PlannerFlightStrategy | None = None
+    flight_option_id: str | None = Field(default=None, max_length=120)
+
+
 class RequestedReviewResolution(BaseModel):
     scope: PlannerReviewResolutionScope
 
@@ -177,6 +202,8 @@ class TripTurnUpdate(BaseModel):
     planner_intent: PlannerIntent = "none"
     requested_planning_mode: PlannerPlanningMode | None = None
     requested_advanced_anchor: PlannerAdvancedAnchor | None = None
+    requested_advanced_review: bool = False
+    requested_advanced_finalization: bool = False
     requested_stay_option_title: str | None = Field(default=None, max_length=160)
     requested_stay_hotel_name: str | None = Field(default=None, max_length=160)
     requested_trip_style_direction_updates: list[RequestedTripStyleDirectionUpdate] = Field(
@@ -185,6 +212,10 @@ class TripTurnUpdate(BaseModel):
     requested_trip_style_pace_updates: list[RequestedTripStylePaceUpdate] = Field(
         default_factory=list
     )
+    requested_trip_style_tradeoff_updates: list[RequestedTripStyleTradeoffUpdate] = Field(
+        default_factory=list
+    )
+    requested_flight_updates: list[RequestedFlightUpdate] = Field(default_factory=list)
     requested_activity_decisions: list[RequestedActivityDecision] = Field(
         default_factory=list
     )

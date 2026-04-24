@@ -6,9 +6,11 @@ from app.schemas.trip_planning import TripModuleSelection
 
 from app.graph.planner.turn_models import (
     RequestedActivityScheduleEdit,
+    RequestedFlightUpdate,
     RequestedReviewResolution,
     RequestedTripStyleDirectionUpdate,
     RequestedTripStylePaceUpdate,
+    RequestedTripStyleTradeoffUpdate,
     TripFieldConfidenceUpdate,
     TripFieldSourceUpdate,
     TripTurnUpdate,
@@ -39,6 +41,11 @@ def apply_board_action_updates(
         merged_update.planner_intent = "confirm_plan"
         return merged_update
 
+    if action.type == "finalize_advanced_plan":
+        merged_update = llm_update.model_copy(deep=True)
+        merged_update.requested_advanced_finalization = True
+        return merged_update
+
     if action.type == "reopen_plan":
         merged_update = llm_update.model_copy(deep=True)
         merged_update.planner_intent = "reopen_plan"
@@ -56,6 +63,32 @@ def apply_board_action_updates(
         merged_update.requested_review_resolutions.append(
             RequestedReviewResolution(scope="hotel")
         )
+        return merged_update
+
+    if action.type in {
+        "select_flight_strategy",
+        "select_outbound_flight",
+        "select_return_flight",
+        "confirm_flight_selection",
+        "keep_flights_open",
+    }:
+        merged_update = llm_update.model_copy(deep=True)
+        action_map = {
+            "select_flight_strategy": "select_strategy",
+            "select_outbound_flight": "select_outbound",
+            "select_return_flight": "select_return",
+            "confirm_flight_selection": "confirm",
+            "keep_flights_open": "keep_open",
+        }
+        mapped_action = action_map.get(action.type)
+        if mapped_action is not None:
+            merged_update.requested_flight_updates.append(
+                RequestedFlightUpdate(
+                    action=mapped_action,
+                    strategy=action.flight_strategy,
+                    flight_option_id=action.flight_option_id,
+                )
+            )
         return merged_update
 
     if action.type in {
@@ -101,6 +134,28 @@ def apply_board_action_updates(
                 RequestedTripStylePaceUpdate(
                     action=mapped_action,
                     pace=action.trip_style_pace,
+                )
+            )
+        return merged_update
+
+    if action.type in {
+        "set_trip_style_tradeoff",
+        "confirm_trip_style_tradeoffs",
+        "keep_current_trip_style_tradeoffs",
+    }:
+        merged_update = llm_update.model_copy(deep=True)
+        action_map = {
+            "set_trip_style_tradeoff": "set_tradeoff",
+            "confirm_trip_style_tradeoffs": "confirm",
+            "keep_current_trip_style_tradeoffs": "keep_current",
+        }
+        mapped_action = action_map.get(action.type)
+        if mapped_action is not None:
+            merged_update.requested_trip_style_tradeoff_updates.append(
+                RequestedTripStyleTradeoffUpdate(
+                    action=mapped_action,
+                    axis=action.trip_style_tradeoff_axis,
+                    value=action.trip_style_tradeoff_value,
                 )
             )
         return merged_update

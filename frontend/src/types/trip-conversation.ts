@@ -38,13 +38,52 @@ export type PlannerReviewResolutionScope = "stay" | "hotel";
 export type PlannerActivityScheduleStatus = "none" | "ready";
 export type PlannerActivityCompletionStatus = "in_progress" | "completed";
 export type PlannerActivityTimelineBlockType = "activity" | "event" | "transfer";
+export type PlannerFlightStrategy =
+  | "smoothest_route"
+  | "best_timing"
+  | "best_value"
+  | "keep_flexible";
+export type PlannerFlightSelectionStatus =
+  | "none"
+  | "selected"
+  | "completed"
+  | "kept_open";
+export type PlannerFlightResultsStatus = "blocked" | "ready" | "placeholder";
+export type PlannerFlightOptionSource = "provider" | "placeholder";
+export type PlannerWeatherResultsStatus =
+  | "ready"
+  | "unavailable"
+  | "not_requested";
+export type PlannerAdvancedReviewReadinessStatus =
+  | "ready"
+  | "needs_review"
+  | "flexible";
 export type PlannerTripStyleSelectionStatus =
   | "none"
   | "selected"
   | "review"
   | "completed";
-export type PlannerTripStyleSubstep = "direction" | "pace" | "completed";
+export type PlannerTripStyleSubstep =
+  | "direction"
+  | "pace"
+  | "tradeoffs"
+  | "completed";
 export type PlannerTripPace = "slow" | "balanced" | "full";
+export type PlannerTripStyleTradeoffAxis =
+  | "must_sees_vs_wandering"
+  | "convenience_vs_atmosphere"
+  | "early_starts_vs_evening_energy"
+  | "polished_vs_hidden_gems";
+export type PlannerTripStyleTradeoffChoice =
+  | "must_sees"
+  | "wandering"
+  | "convenience"
+  | "atmosphere"
+  | "early_starts"
+  | "evening_energy"
+  | "polished"
+  | "hidden_gems"
+  | "balanced";
 export type PlannerTripDirectionPrimary =
   | "food_led"
   | "culture_led"
@@ -114,6 +153,48 @@ export type ConversationFieldSource =
   | "assistant_derived"
   | "board_action";
 export type ConversationFieldConfidence = "low" | "medium" | "high";
+export type PlannerDecisionMemoryKey =
+  | "destination"
+  | "origin"
+  | "date_window"
+  | "travelers"
+  | "budget"
+  | "module_scope"
+  | "trip_style_direction"
+  | "trip_style_pace"
+  | "trip_style_tradeoffs"
+  | "selected_flights"
+  | "selected_stay"
+  | "selected_activities"
+  | "weather_context"
+  | "advanced_review";
+export type PlannerDecisionSource =
+  | "user_explicit"
+  | "board_action"
+  | "assistant_inferred"
+  | "profile_default"
+  | "provider"
+  | "system";
+export type PlannerDecisionConfidence = "low" | "medium" | "high";
+export type PlannerDecisionStatus =
+  | "working"
+  | "confirmed"
+  | "needs_review"
+  | "superseded";
+export type PlannerConflictSeverity = "info" | "warning" | "important";
+export type PlannerConflictCategory =
+  | "style_pace"
+  | "logistics"
+  | "stay_fit"
+  | "weather"
+  | "schedule_density"
+  | "provider_confidence";
+export type PlannerConflictRevisionTarget =
+  | "flight"
+  | "stay"
+  | "trip_style"
+  | "activities"
+  | "review";
 
 export type ConversationOptionKind =
   | "destination"
@@ -134,8 +215,10 @@ export type TripSuggestionBoardMode =
   | "advanced_date_resolution"
   | "advanced_anchor_choice"
   | "advanced_next_step"
+  | "advanced_flights_workspace"
   | "advanced_trip_style_direction"
   | "advanced_trip_style_pace"
+  | "advanced_trip_style_tradeoffs"
   | "advanced_activities_workspace"
   | "advanced_stay_choice"
   | "advanced_stay_selected"
@@ -143,6 +226,7 @@ export type TripSuggestionBoardMode =
   | "advanced_stay_hotel_choice"
   | "advanced_stay_hotel_selected"
   | "advanced_stay_hotel_review"
+  | "advanced_review_workspace"
   | "helper";
 export type DestinationSuggestionSelectionStatus =
   | "suggested"
@@ -207,6 +291,81 @@ export type AdvancedAnchorChoiceCard = {
   recommended: boolean;
   badge?: string | null;
   cta_label?: string | null;
+};
+
+export type AdvancedFlightStrategyCard = {
+  id: PlannerFlightStrategy;
+  title: string;
+  description: string;
+  bullets: string[];
+  recommended: boolean;
+};
+
+export type AdvancedFlightLegCard = {
+  carrier?: string | null;
+  flight_number?: string | null;
+  departure_airport: string;
+  arrival_airport: string;
+  departure_time?: string | null;
+  arrival_time?: string | null;
+  duration_text?: string | null;
+};
+
+export type AdvancedFlightOptionCard = {
+  id: string;
+  direction: "outbound" | "return";
+  carrier: string;
+  flight_number?: string | null;
+  departure_airport: string;
+  arrival_airport: string;
+  departure_time?: string | null;
+  arrival_time?: string | null;
+  duration_text?: string | null;
+  price_text?: string | null;
+  stop_count?: number | null;
+  layover_summary?: string | null;
+  legs?: AdvancedFlightLegCard[];
+  timing_quality?: string | null;
+  inventory_notice?: string | null;
+  summary: string;
+  tradeoffs: string[];
+  source_kind: PlannerFlightOptionSource;
+  recommended: boolean;
+};
+
+export type AdvancedReviewSectionCard = {
+  id: string;
+  title: string;
+  status: PlannerAdvancedReviewReadinessStatus;
+  summary: string;
+  notes: string[];
+  revision_anchor?: PlannerAdvancedAnchor | null;
+  cta_label?: string | null;
+};
+
+export type AdvancedReviewDecisionSignal = {
+  id: string;
+  title: string;
+  value_summary: string;
+  source: PlannerDecisionSource;
+  source_label: string;
+  confidence: PlannerDecisionConfidence;
+  confidence_label: string;
+  status: PlannerDecisionStatus;
+  note?: string | null;
+  related_anchor?: PlannerAdvancedAnchor | null;
+};
+
+export type PlannerConflictRecord = {
+  id: string;
+  severity: PlannerConflictSeverity;
+  category: PlannerConflictCategory;
+  affected_areas: string[];
+  summary: string;
+  evidence: string[];
+  source_decision_ids: string[];
+  suggested_repair: string;
+  revision_target?: PlannerConflictRevisionTarget | null;
 };
 
 export type AdvancedDateOptionCard = {
@@ -371,6 +530,25 @@ export type AdvancedActivityPlanningState = {
   completion_anchor_ids: string[];
 };
 
+export type TripStyleTradeoffOption = {
+  value: PlannerTripStyleTradeoffChoice;
+  label: string;
+  description: string;
+  recommended: boolean;
+};
+
+export type TripStyleTradeoffCard = {
+  axis: PlannerTripStyleTradeoffAxis;
+  title: string;
+  description: string;
+  options: TripStyleTradeoffOption[];
+};
+
+export type TripStyleTradeoffDecision = {
+  axis: PlannerTripStyleTradeoffAxis;
+  selected_value: PlannerTripStyleTradeoffChoice;
+};
+
 export type TripStylePlanningState = {
   substep: PlannerTripStyleSubstep;
   recommended_primary_directions: PlannerTripDirectionPrimary[];
@@ -386,6 +564,11 @@ export type TripStylePlanningState = {
   pace_status: PlannerTripStyleSelectionStatus;
   pace_rationale?: string | null;
   pace_downstream_influence_summary?: string | null;
+  recommended_tradeoff_cards: TripStyleTradeoffCard[];
+  selected_tradeoffs: TripStyleTradeoffDecision[];
+  tradeoff_status: PlannerTripStyleSelectionStatus;
+  tradeoff_rationale?: string | null;
+  tradeoff_downstream_influence_summary?: string | null;
   workspace_touched: boolean;
   completion_summary?: string | null;
 };
@@ -466,6 +649,36 @@ export type TripSuggestionBoardState = {
   source_timing_text?: string | null;
   source_trip_length_text?: string | null;
   advanced_anchor_cards?: AdvancedAnchorChoiceCard[];
+  flight_strategy_cards?: AdvancedFlightStrategyCard[];
+  outbound_flight_options?: AdvancedFlightOptionCard[];
+  return_flight_options?: AdvancedFlightOptionCard[];
+  selected_flight_strategy?: PlannerFlightStrategy | null;
+  selected_outbound_flight_id?: string | null;
+  selected_return_flight_id?: string | null;
+  selected_outbound_flight?: AdvancedFlightOptionCard | null;
+  selected_return_flight?: AdvancedFlightOptionCard | null;
+  flight_selection_status?: PlannerFlightSelectionStatus | null;
+  flight_results_status?: PlannerFlightResultsStatus | null;
+  flight_missing_requirements?: string[];
+  flight_workspace_summary?: string | null;
+  flight_selection_summary?: string | null;
+  flight_downstream_notes?: string[];
+  flight_arrival_day_impact_summary?: string | null;
+  flight_departure_day_impact_summary?: string | null;
+  flight_timing_review_notes?: string[];
+  flight_completion_summary?: string | null;
+  weather_results_status?: PlannerWeatherResultsStatus | null;
+  weather_workspace_summary?: string | null;
+  weather_day_impact_summaries?: string[];
+  weather_activity_influence_notes?: string[];
+  advanced_review_readiness_status?: PlannerAdvancedReviewReadinessStatus | null;
+  advanced_review_summary?: string | null;
+  advanced_review_completed_summary?: string | null;
+  advanced_review_open_summary?: string | null;
+  advanced_review_section_cards?: AdvancedReviewSectionCard[];
+  advanced_review_notes?: string[];
+  advanced_review_decision_signals?: AdvancedReviewDecisionSignal[];
+  planner_conflicts?: PlannerConflictRecord[];
   stay_cards?: AdvancedStayOptionCard[];
   hotel_cards?: AdvancedStayHotelOptionCard[];
   activity_candidates?: AdvancedActivityCandidateCard[];
@@ -489,6 +702,11 @@ export type TripSuggestionBoardState = {
   trip_style_pace_status?: PlannerTripStyleSelectionStatus | null;
   trip_style_pace_rationale?: string | null;
   trip_style_pace_downstream_influence_summary?: string | null;
+  trip_style_recommended_tradeoff_cards?: TripStyleTradeoffCard[];
+  selected_trip_style_tradeoffs?: TripStyleTradeoffDecision[];
+  trip_style_tradeoff_status?: PlannerTripStyleSelectionStatus | null;
+  trip_style_tradeoff_rationale?: string | null;
+  trip_style_tradeoff_downstream_influence_summary?: string | null;
   trip_style_completion_summary?: string | null;
   activity_day_plans?: AdvancedActivityDayPlan[];
   unscheduled_activity_candidate_ids?: string[];
@@ -567,6 +785,17 @@ export type ConversationDecisionEvent = {
   resolved_at?: string | null;
 };
 
+export type PlannerDecisionMemoryRecord = {
+  key: PlannerDecisionMemoryKey;
+  value_summary: string;
+  source: PlannerDecisionSource;
+  confidence: PlannerDecisionConfidence;
+  status: PlannerDecisionStatus;
+  rationale?: string | null;
+  related_anchor?: PlannerAdvancedAnchor | null;
+  updated_at?: string | null;
+};
+
 export type ConversationTurnSummary = {
   turn_id: string;
   user_message: string;
@@ -578,6 +807,7 @@ export type ConversationTurnSummary = {
 
 export type TripConversationMemory = {
   field_memory: Partial<Record<TripFieldKey, ConversationFieldMemory>>;
+  decision_memory: PlannerDecisionMemoryRecord[];
   mentioned_options: ConversationOptionMemory[];
   rejected_options: ConversationOptionMemory[];
   decision_history: ConversationDecisionEvent[];
@@ -597,12 +827,54 @@ export type TripConversationState = {
   decision_cards: PlannerDecisionCard[];
   last_turn_summary?: string | null;
   active_goals: string[];
+  planner_conflicts: PlannerConflictRecord[];
   advanced_date_resolution?: AdvancedDateResolutionState;
+  flight_planning?: AdvancedFlightPlanningState;
+  weather_planning?: AdvancedWeatherPlanningState;
+  advanced_review_planning?: AdvancedReviewPlanningState;
   trip_style_planning?: TripStylePlanningState;
   activity_planning?: AdvancedActivityPlanningState;
   stay_planning?: AdvancedStayPlanningState;
   suggestion_board: TripSuggestionBoardState;
   memory: TripConversationMemory;
+};
+
+export type AdvancedFlightPlanningState = {
+  strategy_cards: AdvancedFlightStrategyCard[];
+  outbound_options: AdvancedFlightOptionCard[];
+  return_options: AdvancedFlightOptionCard[];
+  selected_strategy?: PlannerFlightStrategy | null;
+  selected_outbound_flight_id?: string | null;
+  selected_return_flight_id?: string | null;
+  selected_outbound_flight?: AdvancedFlightOptionCard | null;
+  selected_return_flight?: AdvancedFlightOptionCard | null;
+  selection_status: PlannerFlightSelectionStatus;
+  results_status: PlannerFlightResultsStatus;
+  missing_requirements: string[];
+  workspace_summary?: string | null;
+  selection_summary?: string | null;
+  downstream_notes: string[];
+  arrival_day_impact_summary?: string | null;
+  departure_day_impact_summary?: string | null;
+  timing_review_notes: string[];
+  workspace_touched: boolean;
+  completion_summary?: string | null;
+};
+
+export type AdvancedWeatherPlanningState = {
+  results_status: PlannerWeatherResultsStatus;
+  workspace_summary?: string | null;
+  day_impact_summaries: string[];
+  activity_influence_notes: string[];
+};
+
+export type AdvancedReviewPlanningState = {
+  readiness_status: PlannerAdvancedReviewReadinessStatus;
+  workspace_summary?: string | null;
+  completed_summary?: string | null;
+  open_summary?: string | null;
+  section_cards: AdvancedReviewSectionCard[];
+  review_notes: string[];
 };
 
 export type CheckpointConversationMessage = {

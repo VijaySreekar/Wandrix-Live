@@ -38,8 +38,13 @@ def build_assistant_response(
         return _sanitize_assistant_text(
             _build_plan_finalized_response(
                 configuration=configuration,
+                conversation=conversation,
                 greeting_name=greeting_name,
                 finalized_via=finalized_via,
+                advanced_finalization=_is_advanced_finalization_request(
+                    action=action,
+                    llm_update=llm_update,
+                ),
             )
         )
 
@@ -109,6 +114,15 @@ def build_assistant_response(
         return _sanitize_assistant_text(
             _build_advanced_choose_anchor_response(
                 configuration=configuration,
+                greeting_name=greeting_name,
+            )
+        )
+
+    if conversation.planning_mode == "advanced" and conversation.advanced_step == "review":
+        return _sanitize_assistant_text(
+            _build_advanced_review_response(
+                configuration=configuration,
+                conversation=conversation,
                 greeting_name=greeting_name,
             )
         )
@@ -569,6 +583,14 @@ def _build_advanced_anchor_flow_response(
             greeting_prefix=greeting_prefix,
             action=action,
         )
+    if conversation.advanced_anchor == "flight":
+        return _build_advanced_flights_response(
+            configuration=configuration,
+            conversation=conversation,
+            greeting_prefix=greeting_prefix,
+            action=action,
+            llm_update=llm_update,
+        )
     if conversation.advanced_anchor == "trip_style":
         return _build_advanced_trip_style_response(
             configuration=configuration,
@@ -584,6 +606,89 @@ def _build_advanced_anchor_flow_response(
     return (
         f"{greeting_prefix}We'll lead {destination} with {anchor_label} first. "
         "I'll keep this in Advanced Planning mode and use that choice as the first deeper planning path."
+    )
+
+
+def _build_advanced_flights_response(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    greeting_prefix: str,
+    action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
+) -> str:
+    destination = configuration.to_location or "this trip"
+    flight_planning = conversation.flight_planning
+
+    if flight_planning.results_status == "blocked" and flight_planning.missing_requirements:
+        missing = ", ".join(flight_planning.missing_requirements)
+        return (
+            f"{greeting_prefix}Flights are the next planning branch, but I still need {missing} before I can shape working outbound and return choices. "
+            "Once that is in place, the board will switch from route readiness into selectable flight options."
+        )
+
+    if (
+        action
+        and action.type == "select_flight_strategy"
+        and flight_planning.selected_strategy
+    ) or any(update.action == "select_strategy" for update in llm_update.requested_flight_updates):
+        strategy_label = _flight_strategy_label(
+            flight_planning.selected_strategy or "best_timing"
+        )
+        return (
+            f"{greeting_prefix}I set the flight posture to {strategy_label}. "
+            "Now choose the outbound and return options that Wandrix should treat as working planning inputs."
+        )
+
+    if (
+        action
+        and action.type in {"select_outbound_flight", "select_return_flight"}
+    ) or any(update.action in {"select_outbound", "select_return"} for update in llm_update.requested_flight_updates):
+        summary = (
+            flight_planning.selection_summary
+            or "That flight choice is saved as a working planning input."
+        )
+        return (
+            f"{greeting_prefix}{summary} "
+            "This is still only a planning input, and it gives the rest of Advanced Planning a clearer travel shape."
+        )
+
+    if (
+        action and action.type in {"keep_flights_open", "confirm_flight_selection"}
+    ) or any(update.action in {"confirm", "keep_open"} for update in llm_update.requested_flight_updates):
+        next_anchor = _recommend_advanced_anchor_after_flights(
+            configuration=configuration,
+            conversation=conversation,
+        )
+        next_anchor_label = next_anchor.replace("_", " ")
+        completion = (
+            flight_planning.completion_summary
+            or "Flights now have enough working shape for downstream planning."
+        )
+        timing_line = " ".join(
+            note
+            for note in [
+                flight_planning.arrival_day_impact_summary,
+                flight_planning.departure_day_impact_summary,
+            ]
+            if note
+        )
+        return (
+            f"{greeting_prefix}{completion}"
+            f"{' ' + timing_line if timing_line else ''} "
+            f"The board is back to the remaining planning choices, and the cleanest next move is {next_anchor_label}."
+        )
+
+    if flight_planning.results_status == "placeholder":
+        return (
+            f"{greeting_prefix}We’re choosing the working flight shape for {destination}. "
+            "Exact inventory is thin, so the board is showing planning placeholders instead of treating any schedule as final."
+        )
+
+    option_count = len(flight_planning.outbound_options) + len(flight_planning.return_options)
+    return (
+        f"{greeting_prefix}We’re choosing which flight shape Wandrix should build around for {destination}. "
+        f"The board has {option_count} working option{'s' if option_count != 1 else ''} split across outbound and return, plus strategy cards for the tradeoff."
     )
 
 
@@ -647,11 +752,6 @@ def _build_advanced_trip_style_response(
     if (
         action and action.type in {"confirm_trip_style_pace", "keep_current_trip_style_pace"}
     ) or any(update.action in {"confirm", "keep_current"} for update in llm_update.requested_trip_style_pace_updates):
-        next_anchor = _recommend_advanced_anchor_after_trip_style(
-            configuration=configuration,
-            conversation=conversation,
-        )
-        next_anchor_label = next_anchor.replace("_", " ")
         pace_label = _trip_pace_label(trip_style_planning.selected_pace).lower()
         pace_line = (
             f" {trip_style_planning.pace_downstream_influence_summary}"
@@ -660,7 +760,42 @@ def _build_advanced_trip_style_response(
         )
         return (
             f"{greeting_prefix}{destination} is now set as a {primary_label}{accent_line} trip at a {pace_label} pace.{pace_line} "
+            "Last step: choose the final tie-breakers so Activities knows how to resolve close calls."
+        )
+
+    if action and action.type == "set_trip_style_tradeoff":
+        return (
+            f"{greeting_prefix}I updated that Trip Style tie-breaker. "
+            "These tradeoffs will shape ranking when two good activity options are close, without becoming hard constraints."
+        )
+
+    if (
+        action and action.type in {"confirm_trip_style_tradeoffs", "keep_current_trip_style_tradeoffs"}
+    ) or any(update.action in {"confirm", "keep_current"} for update in llm_update.requested_trip_style_tradeoff_updates):
+        next_anchor = _recommend_advanced_anchor_after_trip_style(
+            configuration=configuration,
+            conversation=conversation,
+        )
+        next_anchor_label = next_anchor.replace("_", " ")
+        tradeoff_line = (
+            f" {trip_style_planning.tradeoff_downstream_influence_summary}"
+            if trip_style_planning.tradeoff_downstream_influence_summary
+            else ""
+        )
+        return (
+            f"{greeting_prefix}Trip Style is now complete for {destination}.{tradeoff_line} "
             f"The board is back to the remaining planning choices now, and the cleanest next move is {next_anchor_label}."
+        )
+
+    if trip_style_planning.substep == "tradeoffs":
+        tradeoff_line = (
+            f" {trip_style_planning.tradeoff_rationale}"
+            if trip_style_planning.tradeoff_rationale
+            else ""
+        )
+        return (
+            f"{greeting_prefix}The direction and pace are set for {destination}. "
+            f"Now we’re choosing the final tie-breakers before Activities opens.{tradeoff_line}"
         )
 
     if trip_style_planning.substep == "pace":
@@ -860,7 +995,7 @@ def _build_advanced_activities_response(
         )
         return (
             f"{greeting_prefix}The trip in {destination} is now leaning in a way that puts {stay_direction_label} under review{reopened_line} because {review_reason} "
-            "I’m keeping that stay visible instead of silently replacing it, and the board is switching into stay review so we can decide whether the base or the trip shape should move."
+            "Activities are still leading this step, so I’m keeping that stay visible instead of silently replacing it, and the board is switching into stay review so we can decide whether the base or the trip shape should move."
         )
 
     if (
@@ -1130,17 +1265,24 @@ def _build_quick_plan_waiting_response(
         ),
         "a few core details are still soft",
     )
+    next_question = (provider_activation.get("next_reliability_question") or {}).get(
+        "question"
+    )
+    question_line = f" The key thing to confirm is: {next_question}" if next_question else ""
     return (
         f"{greeting_prefix}Quick Plan is selected for {destination}, but I am not triggering live planning yet because {blocker_text}. "
         "I will keep the brief structured and move into the first draft as soon as the remaining blocker is resolved."
+        f"{question_line}"
     )
 
 
 def _build_plan_finalized_response(
     *,
     configuration: TripConfiguration,
+    conversation: TripConversationState,
     greeting_name: str | None,
     finalized_via: PlannerFinalizedVia | None,
+    advanced_finalization: bool = False,
 ) -> str:
     greeting_prefix = f"Locked in, {greeting_name}. " if greeting_name else "Locked in. "
     destination = configuration.to_location or "this trip"
@@ -1149,11 +1291,62 @@ def _build_plan_finalized_response(
         if finalized_via == "board"
         else "I finalized it from your chat confirmation. "
     )
+    plan_label = "reviewed Advanced plan" if advanced_finalization else "current plan"
+    conflict_line = (
+        f" I also saved {len(conversation.planner_conflicts)} planning caution"
+        f"{'s' if len(conversation.planner_conflicts) != 1 else ''} with the brochure notes."
+        if conversation.planner_conflicts
+        else ""
+    )
     return (
         f"{greeting_prefix}{via_line}"
-        f"The current plan for {destination} is now finalized and the brochure-ready version is saved in Saved Trips. "
+        f"The {plan_label} for {destination} is now finalized and the brochure-ready version is saved in Saved Trips. "
         "You can open it there, review the details, and download the brochure when you need it. "
+        f"{conflict_line} "
         "If you want to change anything later, just ask me to reopen planning and I will unlock it."
+    )
+
+
+def _build_advanced_review_response(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    greeting_name: str | None,
+) -> str:
+    greeting_prefix = f"Absolutely, {greeting_name}. " if greeting_name else "Absolutely. "
+    destination = configuration.to_location or "this trip"
+    review = conversation.advanced_review_planning
+    top_conflict = conversation.planner_conflicts[0] if conversation.planner_conflicts else None
+    conflict_line = (
+        f" I also found one planning tension to resolve first: {top_conflict.summary}"
+        if top_conflict
+        else ""
+    )
+    if review.readiness_status == "needs_review":
+        return (
+            f"{greeting_prefix}I’ve pulled {destination} into a working trip review. "
+            "The board shows what is selected, what is still flexible, and the parts worth checking before you save a brochure-ready version."
+            f"{conflict_line}"
+        )
+    if review.readiness_status == "ready":
+        return (
+            f"{greeting_prefix}I’ve pulled together the reviewed plan for {destination}. "
+            "The board shows the current flights, stay, trip character, experiences, and supporting weather notes, with revision buttons if you want to adjust a section before saving it."
+        )
+    return (
+        f"{greeting_prefix}I’ve opened the working review for {destination}. "
+        "Some choices are still flexible; you can revise them, or save the brochure-ready version with those flexible notes captured."
+    )
+
+
+def _is_advanced_finalization_request(
+    *,
+    action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
+) -> bool:
+    return bool(
+        (action and action.type == "finalize_advanced_plan")
+        or llm_update.requested_advanced_finalization
     )
 
 
@@ -1561,6 +1754,20 @@ def _recommend_advanced_anchor_after_trip_style(
     return "activities"
 
 
+def _recommend_advanced_anchor_after_flights(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+) -> str:
+    if configuration.selected_modules.activities and conversation.trip_style_planning.substep != "completed":
+        return "trip_style"
+    if configuration.selected_modules.activities and conversation.activity_planning.completion_status != "completed":
+        return "activities"
+    if configuration.selected_modules.hotels and not conversation.stay_planning.selected_hotel_id:
+        return "stay"
+    return "activities"
+
+
 def _recommend_advanced_anchor_after_activities(
     *,
     configuration: TripConfiguration,
@@ -1628,6 +1835,15 @@ def _trip_pace_label(pace: str | None) -> str:
         "balanced": "Balanced",
         "full": "Full",
     }.get(pace or "", "Balanced")
+
+
+def _flight_strategy_label(strategy: str | None) -> str:
+    return {
+        "smoothest_route": "smoothest route",
+        "best_timing": "best timing",
+        "best_value": "best value",
+        "keep_flexible": "keep flexible",
+    }.get(strategy or "", "best timing")
 
 
 def _build_completion_personalization_line(

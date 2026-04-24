@@ -17,6 +17,7 @@ from app.graph.planner.turn_models import (
 from app.schemas.trip_conversation import AdvancedDateOptionCard, TripConversationState
 from app.schemas.trip_planning import (
     ActivityDetail,
+    FlightDetail,
     HotelStayDetail,
     TripConfiguration,
     TripModuleOutputs,
@@ -221,6 +222,83 @@ def test_process_trip_turn_blocks_flights_until_origin_is_reliable(monkeypatch) 
         "departure point is not reliable enough yet"
     ]
     assert "not triggering live planning yet" in result["assistant_response"].lower()
+
+
+def test_provider_blocker_adds_confidence_clarification_for_profile_origin(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Lisbon",
+            travel_window="late September",
+            trip_length="4 nights",
+            adults=2,
+            confirmed_fields=["to_location", "travel_window", "trip_length", "adults"],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="travel_window", confidence="high"),
+                TripFieldConfidenceUpdate(field="trip_length", confidence="high"),
+                TripFieldConfidenceUpdate(field="adults", confidence="high"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="travel_window", source="user_explicit"),
+                TripFieldSourceUpdate(field="trip_length", source="user_explicit"),
+                TripFieldSourceUpdate(field="adults", source="user_explicit"),
+            ],
+            selected_modules={
+                "flights": True,
+                "weather": False,
+                "activities": False,
+                "hotels": False,
+            },
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Yes, use flights only and build the quick draft.",
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "from_location": "London",
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "memory": {
+                        "field_memory": {
+                            "from_location": {
+                                "field": "from_location",
+                                "value": "London",
+                                "source": "profile_default",
+                                "confidence_level": "high",
+                            }
+                        }
+                    }
+                },
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+    open_questions = result["trip_draft"]["conversation"]["open_questions"]
+    conflicts = result["trip_draft"]["conversation"]["planner_conflicts"]
+
+    assert observability["provider_activation"]["quick_plan_ready"] is False
+    assert observability["provider_activation"]["reliability_blockers"][0]["category"] == "origin"
+    assert observability["provider_activation"]["reliability_blockers"][0]["source"] == "profile_default"
+    assert open_questions[0]["field"] == "from_location"
+    assert open_questions[0]["question"] == "Where should I search flights from?"
+    assert conflicts[0]["category"] == "provider_confidence"
+    assert conflicts[0]["revision_target"] == "review"
+    assert "Where should I search flights from?" in result["assistant_response"]
 
 
 def test_process_trip_turn_allows_ready_nonflight_modules_to_start_quick_plan(
@@ -782,15 +860,200 @@ def test_trip_style_anchor_opens_direction_workspace_and_completion_returns_to_a
     conversation = pace_result["trip_draft"]["conversation"]
     board = conversation["suggestion_board"]
 
+    assert conversation["trip_style_planning"]["selection_status"] == "selected"
+    assert conversation["trip_style_planning"]["substep"] == "tradeoffs"
+    assert conversation["trip_style_planning"]["selected_pace"] == "slow"
+    assert conversation["trip_style_planning"]["recommended_tradeoff_cards"]
+    assert board["mode"] == "advanced_trip_style_tradeoffs"
+    assert board["selected_trip_style_primary"] == "food_led"
+    assert board["selected_trip_style_pace"] == "slow"
+
+    tradeoff_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_confirm_trip_style_tradeoffs",
+                "type": "confirm_trip_style_tradeoffs",
+            },
+            "trip_draft": pace_result["trip_draft"],
+        }
+    )
+
+    conversation = tradeoff_result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+
     assert conversation["trip_style_planning"]["selection_status"] == "completed"
     assert conversation["trip_style_planning"]["substep"] == "completed"
-    assert conversation["trip_style_planning"]["selected_pace"] == "slow"
+    assert conversation["trip_style_planning"]["tradeoff_status"] == "completed"
     assert board["mode"] == "advanced_anchor_choice"
+    assert len(board["subtitle"]) <= 320
     recommended_card = next(
         card for card in board["advanced_anchor_cards"] if card["recommended"]
     )
     assert recommended_card["id"] == "activities"
-    assert "activities" in pace_result["assistant_response"].lower()
+    assert "activities" in tradeoff_result["assistant_response"].lower()
+
+
+def test_flight_anchor_opens_workspace_and_confirmation_returns_to_anchor_choice(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    captured_allowed_modules: list[set[str]] = []
+
+    def _fake_build_module_outputs(
+        configuration,
+        previous_configuration,
+        existing_module_outputs,
+        *,
+        allowed_modules,
+    ):
+        captured_allowed_modules.append(set(allowed_modules))
+        return TripModuleOutputs(
+            flights=[
+                FlightDetail(
+                    id="flight_outbound",
+                    direction="outbound",
+                    carrier="Working Air",
+                    departure_airport="LHR",
+                    arrival_airport="KIX",
+                    departure_time=runner.datetime(
+                        2027, 3, 23, 9, 0, tzinfo=runner.timezone.utc
+                    ),
+                    arrival_time=runner.datetime(
+                        2027, 3, 24, 8, 0, tzinfo=runner.timezone.utc
+                    ),
+                    duration_text="14h",
+                ),
+                FlightDetail(
+                    id="flight_outbound_unselected",
+                    direction="outbound",
+                    carrier="Other Air",
+                    departure_airport="LGW",
+                    arrival_airport="KIX",
+                    departure_time=runner.datetime(
+                        2027, 3, 23, 18, 0, tzinfo=runner.timezone.utc
+                    ),
+                    arrival_time=runner.datetime(
+                        2027, 3, 24, 18, 0, tzinfo=runner.timezone.utc
+                    ),
+                    duration_text="16h",
+                ),
+                FlightDetail(
+                    id="flight_return",
+                    direction="return",
+                    carrier="Working Air",
+                    departure_airport="KIX",
+                    arrival_airport="LHR",
+                    departure_time=runner.datetime(
+                        2027, 3, 29, 13, 0, tzinfo=runner.timezone.utc
+                    ),
+                    arrival_time=runner.datetime(
+                        2027, 3, 29, 19, 0, tzinfo=runner.timezone.utc
+                    ),
+                    duration_text="14h",
+                ),
+            ]
+        )
+
+    monkeypatch.setattr(runner, "build_module_outputs", _fake_build_module_outputs)
+
+    anchor_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_anchor_flight",
+                "type": "select_advanced_anchor",
+                "advanced_anchor": "flight",
+            },
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "from_location": "London",
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-23",
+                    "end_date": "2027-03-29",
+                    "travel_window": "late March",
+                    "trip_length": "6 nights",
+                    "travelers": {"adults": 2, "children": 0},
+                    "selected_modules": {
+                        "flights": True,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "choose_anchor",
+                },
+            },
+        }
+    )
+
+    board = anchor_result["trip_draft"]["conversation"]["suggestion_board"]
+    assert captured_allowed_modules[-1] == {"flights"}
+    assert board["mode"] == "advanced_flights_workspace"
+    assert board["outbound_flight_options"][0]["id"] == "flight_outbound"
+    assert board["return_flight_options"][0]["id"] == "flight_return"
+
+    outbound_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_select_outbound",
+                "type": "select_outbound_flight",
+                "flight_option_id": "flight_outbound",
+            },
+            "trip_draft": anchor_result["trip_draft"],
+        }
+    )
+    return_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_select_return",
+                "type": "select_return_flight",
+                "flight_option_id": "flight_return",
+            },
+            "trip_draft": outbound_result["trip_draft"],
+        }
+    )
+    completed_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_confirm_flights",
+                "type": "confirm_flight_selection",
+            },
+            "trip_draft": return_result["trip_draft"],
+        }
+    )
+
+    conversation = completed_result["trip_draft"]["conversation"]
+    assert conversation["flight_planning"]["selection_status"] == "completed"
+    assert conversation["suggestion_board"]["mode"] == "advanced_anchor_choice"
+    flight_timeline_ids = [
+        item["id"]
+        for item in completed_result["trip_draft"]["timeline"]
+        if item["type"] == "flight"
+    ]
+    assert flight_timeline_ids == [
+        "timeline_selected_flight_outbound",
+        "timeline_selected_flight_return",
+    ]
+    assert any(
+        card["id"] == "flight" and card["status"] == "completed"
+        for card in conversation["suggestion_board"]["advanced_anchor_cards"]
+    )
+    assert "flight" in completed_result["assistant_response"].lower()
 
 
 def test_advanced_mode_with_exact_dates_skips_date_resolution(monkeypatch) -> None:
@@ -2127,7 +2390,7 @@ def test_selected_stay_hotel_moves_into_review_when_the_stay_itself_conflicts(
     assert "stay direction" in stay_planning["hotel_compatibility_notes"][0]
 
 
-def test_non_stay_advanced_anchor_keeps_generic_next_step(monkeypatch) -> None:
+def test_trip_style_advanced_anchor_opens_direction_workspace(monkeypatch) -> None:
     monkeypatch.setattr(
         runner,
         "generate_llm_trip_update",
@@ -2164,8 +2427,8 @@ def test_non_stay_advanced_anchor_keeps_generic_next_step(monkeypatch) -> None:
     conversation = result["trip_draft"]["conversation"]
 
     assert conversation["advanced_anchor"] == "trip_style"
-    assert conversation["suggestion_board"]["mode"] == "advanced_next_step"
-    assert "trip style first" in result["assistant_response"].lower()
+    assert conversation["suggestion_board"]["mode"] == "advanced_trip_style_direction"
+    assert "main direction first" in result["assistant_response"].lower()
 
 
 def test_activities_anchor_initially_stays_in_workspace_until_user_shapes_it(
@@ -3507,3 +3770,551 @@ def test_reselecting_same_advanced_anchor_does_not_duplicate_decision_history(
     ]
 
     assert len(matching_events) == 1
+
+
+def test_advanced_review_opens_when_enabled_anchors_are_complete(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Okay, what do we have?",
+            "trip_draft": {
+                "title": "Kyoto planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-26",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "activities",
+                    "trip_style_planning": {
+                        "substep": "completed",
+                        "selection_status": "completed",
+                        "tradeoff_status": "completed",
+                        "selected_primary_direction": "culture_led",
+                        "selected_pace": "balanced",
+                        "completion_summary": "Culture-led, balanced days are set.",
+                    },
+                    "activity_planning": {
+                        "completion_status": "completed",
+                        "schedule_status": "ready",
+                        "completion_summary": "Temples, markets, and an evening walk are planned.",
+                        "workspace_touched": True,
+                        "recommended_candidates": [
+                            {
+                                "id": "activity_temple",
+                                "title": "Temple morning",
+                                "disposition": "essential",
+                            },
+                            {
+                                "id": "activity_market",
+                                "title": "Market afternoon",
+                                "disposition": "essential",
+                            },
+                        ],
+                        "visible_candidates": [
+                            {
+                                "id": "activity_temple",
+                                "title": "Temple morning",
+                                "disposition": "essential",
+                            },
+                            {
+                                "id": "activity_market",
+                                "title": "Market afternoon",
+                                "disposition": "essential",
+                            },
+                        ],
+                        "timeline_blocks": [
+                            {
+                                "id": "block_temple",
+                                "type": "activity",
+                                "candidate_id": "activity_temple",
+                                "title": "Temple morning",
+                                "day_index": 1,
+                                "day_label": "Day 1",
+                            },
+                            {
+                                "id": "block_market",
+                                "type": "activity",
+                                "candidate_id": "activity_market",
+                                "title": "Market afternoon",
+                                "day_index": 2,
+                                "day_label": "Day 2",
+                            },
+                        ],
+                        "reserved_candidate_ids": ["activity_extra"],
+                    },
+                    "memory": {
+                        "decision_history": [
+                            {
+                                "id": "decision_confirmed",
+                                "title": "Trip details confirmed",
+                                "description": "The user confirmed the working trip details.",
+                                "options": [],
+                                "selected_option": "confirm_trip_details",
+                            }
+                        ]
+                    },
+                },
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+    section_titles = {section["title"] for section in board["advanced_review_section_cards"]}
+
+    assert conversation["advanced_step"] == "review"
+    assert board["mode"] == "advanced_review_workspace"
+    assert board["advanced_review_readiness_status"] == "ready"
+    assert {"Trip character", "Planned experiences"}.issubset(section_titles)
+    assert "finalize" not in json.dumps(board).lower()
+
+
+def test_chat_can_request_advanced_review_before_everything_is_set(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            requested_advanced_review=True,
+            assistant_response="",
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Can we review the plan so far?",
+            "trip_draft": {
+                "title": "Kyoto planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-26",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "choose_anchor",
+                    "trip_style_planning": {
+                        "substep": "completed",
+                        "selection_status": "completed",
+                        "completion_summary": "Food-led and local is the working trip character.",
+                    },
+                    "memory": {
+                        "decision_history": [
+                            {
+                                "id": "decision_confirmed",
+                                "title": "Trip details confirmed",
+                                "description": "The user confirmed the working trip details.",
+                                "options": [],
+                                "selected_option": "confirm_trip_details",
+                            }
+                        ]
+                    },
+                },
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+    sections = {section["id"]: section for section in board["advanced_review_section_cards"]}
+
+    assert conversation["advanced_step"] == "review"
+    assert board["mode"] == "advanced_review_workspace"
+    assert board["advanced_review_readiness_status"] == "flexible"
+    assert sections["activities"]["status"] == "flexible"
+
+
+def test_advanced_review_revision_action_routes_to_existing_workspace(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_review_stay",
+                "type": "revise_advanced_review_section",
+                "advanced_anchor": "stay",
+            },
+            "trip_draft": {
+                "title": "Kyoto planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-26",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "review",
+                    "advanced_anchor": None,
+                    "stay_planning": {
+                        "selected_hotel_id": "hotel_gion",
+                        "selected_hotel_name": "Gion House",
+                        "hotel_selection_status": "selected",
+                        "hotel_selection_rationale": "Gion House keeps the evenings walkable.",
+                    },
+                    "trip_style_planning": {
+                        "substep": "completed",
+                        "selection_status": "completed",
+                        "tradeoff_status": "completed",
+                        "completion_summary": "Culture-led, balanced days are set.",
+                    },
+                    "activity_planning": {
+                        "completion_status": "completed",
+                        "completion_summary": "Experiences are selected.",
+                    },
+                    "memory": {
+                        "decision_history": [
+                            {
+                                "id": "decision_confirmed",
+                                "title": "Trip details confirmed",
+                                "description": "The user confirmed the working trip details.",
+                                "options": [],
+                                "selected_option": "confirm_trip_details",
+                            }
+                        ]
+                    },
+                },
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+
+    assert conversation["advanced_step"] == "anchor_flow"
+    assert conversation["advanced_anchor"] == "stay"
+    assert board["mode"].startswith("advanced_stay")
+
+
+def test_finalize_advanced_plan_from_review_marks_trip_finalized(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_finalize_advanced",
+                "type": "finalize_advanced_plan",
+            },
+            "trip_draft": {
+                "title": "Kyoto planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-26",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "review",
+                    "trip_style_planning": {
+                        "substep": "completed",
+                        "selection_status": "completed",
+                        "tradeoff_status": "completed",
+                        "completion_summary": "Culture-led, balanced days are set.",
+                    },
+                    "activity_planning": {
+                        "completion_status": "completed",
+                        "completion_summary": "Temples and markets are planned.",
+                        "schedule_status": "ready",
+                    },
+                    "memory": {
+                        "decision_history": [
+                            {
+                                "id": "decision_confirmed",
+                                "title": "Trip details confirmed",
+                                "description": "The user confirmed the working trip details.",
+                                "options": [],
+                                "selected_option": "confirm_trip_details",
+                            }
+                        ]
+                    },
+                },
+            },
+        }
+    )
+
+    status = result["trip_draft"]["status"]
+    conversation = result["trip_draft"]["conversation"]
+
+    assert status["confirmation_status"] == "finalized"
+    assert status["brochure_ready"] is True
+    assert conversation["confirmation_status"] == "finalized"
+    assert conversation["finalized_via"] == "board"
+    assert "reviewed Advanced plan" in result["assistant_response"]
+    assert any(
+        event["title"] == "Advanced plan finalized"
+        for event in conversation["memory"]["decision_history"]
+    )
+
+
+def test_finalize_advanced_plan_allows_needs_review_notes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_finalize_advanced_with_warning",
+                "type": "finalize_advanced_plan",
+            },
+            "trip_draft": {
+                "title": "Kyoto planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-26",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "review",
+                    "stay_planning": {
+                        "selected_hotel_id": "hotel_gion",
+                        "selected_hotel_name": "Gion House",
+                        "hotel_selection_status": "needs_review",
+                        "hotel_compatibility_status": "strained",
+                        "hotel_compatibility_notes": [
+                            "The stay is a little far from the strongest evening plan."
+                        ],
+                    },
+                    "trip_style_planning": {
+                        "substep": "completed",
+                        "selection_status": "completed",
+                        "tradeoff_status": "completed",
+                        "completion_summary": "Culture-led, balanced days are set.",
+                    },
+                    "activity_planning": {
+                        "completion_status": "completed",
+                        "completion_summary": "Experiences are selected.",
+                    },
+                    "memory": {
+                        "decision_history": [
+                            {
+                                "id": "decision_confirmed",
+                                "title": "Trip details confirmed",
+                                "description": "The user confirmed the working trip details.",
+                                "options": [],
+                                "selected_option": "confirm_trip_details",
+                            }
+                        ]
+                    },
+                },
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    review = conversation["advanced_review_planning"]
+
+    assert result["trip_draft"]["status"]["confirmation_status"] == "finalized"
+    assert review["readiness_status"] == "needs_review"
+    assert "far from the strongest evening plan" in " ".join(review["review_notes"])
+
+
+def test_finalize_advanced_plan_does_not_finalize_quick_plan(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_wrong_finalizer",
+                "type": "finalize_advanced_plan",
+            },
+            "trip_draft": {
+                "title": "Kyoto planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    },
+                },
+                "timeline": [
+                    {
+                        "id": "day_1",
+                        "day": 1,
+                        "type": "activity",
+                        "title": "Temple walk",
+                    }
+                ],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "quick",
+                    "planning_mode_status": "selected",
+                },
+            },
+        }
+    )
+
+    assert result["trip_draft"]["status"]["confirmation_status"] == "unconfirmed"
+
+
+def test_chat_advanced_finalization_only_finalizes_from_review(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            requested_advanced_finalization=True,
+            assistant_response="",
+        ),
+    )
+
+    early_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Make this brochure-ready.",
+            "trip_draft": {
+                "title": "Kyoto planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-26",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "choose_anchor",
+                    "memory": {
+                        "decision_history": [
+                            {
+                                "id": "decision_confirmed",
+                                "title": "Trip details confirmed",
+                                "description": "The user confirmed the working trip details.",
+                                "options": [],
+                                "selected_option": "confirm_trip_details",
+                            }
+                        ]
+                    },
+                },
+            },
+        }
+    )
+
+    assert early_result["trip_draft"]["status"]["confirmation_status"] == "unconfirmed"
+    assert early_result["trip_draft"]["conversation"]["advanced_step"] == "review"
+
+    review_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Make this brochure-ready.",
+            "trip_draft": {
+                "title": "Kyoto planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-26",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "review",
+                    "memory": {
+                        "decision_history": [
+                            {
+                                "id": "decision_confirmed",
+                                "title": "Trip details confirmed",
+                                "description": "The user confirmed the working trip details.",
+                                "options": [],
+                                "selected_option": "confirm_trip_details",
+                            }
+                        ]
+                    },
+                },
+            },
+        }
+    )
+
+    assert review_result["trip_draft"]["status"]["confirmation_status"] == "finalized"
+    assert review_result["trip_draft"]["conversation"]["finalized_via"] == "chat"

@@ -3,7 +3,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas.trip_planning import ActivityStyle, BudgetPosture, TripModuleSelection
+from app.schemas.trip_planning import (
+    ActivityStyle,
+    BudgetPosture,
+    FlightLegDetail,
+    TripModuleSelection,
+)
 
 
 calendar_date = date
@@ -34,6 +39,17 @@ PlannerAdvancedStep = Literal[
     "review",
 ]
 PlannerAdvancedAnchor = Literal["flight", "stay", "trip_style", "activities"]
+PlannerFlightStrategy = Literal[
+    "smoothest_route",
+    "best_timing",
+    "best_value",
+    "keep_flexible",
+]
+PlannerFlightSelectionStatus = Literal["none", "selected", "completed", "kept_open"]
+PlannerFlightResultsStatus = Literal["blocked", "ready", "placeholder"]
+PlannerFlightOptionSource = Literal["provider", "placeholder"]
+PlannerWeatherResultsStatus = Literal["ready", "unavailable", "not_requested"]
+PlannerAdvancedReviewReadinessStatus = Literal["ready", "needs_review", "flexible"]
 PlannerStaySelectionStatus = Literal["none", "selected", "needs_review"]
 PlannerStayCompatibilityStatus = Literal["fit", "strained", "conflicted"]
 PlannerStayStrategyType = Literal["single_base", "split_stay"]
@@ -45,8 +61,25 @@ PlannerActivityScheduleStatus = Literal["none", "ready"]
 PlannerActivityCompletionStatus = Literal["in_progress", "completed"]
 PlannerActivityTimelineBlockType = Literal["activity", "event", "transfer"]
 PlannerTripStyleSelectionStatus = Literal["none", "selected", "review", "completed"]
-PlannerTripStyleSubstep = Literal["direction", "pace", "completed"]
+PlannerTripStyleSubstep = Literal["direction", "pace", "tradeoffs", "completed"]
 PlannerTripPace = Literal["slow", "balanced", "full"]
+PlannerTripStyleTradeoffAxis = Literal[
+    "must_sees_vs_wandering",
+    "convenience_vs_atmosphere",
+    "early_starts_vs_evening_energy",
+    "polished_vs_hidden_gems",
+]
+PlannerTripStyleTradeoffChoice = Literal[
+    "must_sees",
+    "wandering",
+    "convenience",
+    "atmosphere",
+    "early_starts",
+    "evening_energy",
+    "polished",
+    "hidden_gems",
+    "balanced",
+]
 PlannerTripDirectionPrimary = Literal[
     "food_led",
     "culture_led",
@@ -104,8 +137,10 @@ TripSuggestionBoardMode = Literal[
     "advanced_date_resolution",
     "advanced_anchor_choice",
     "advanced_next_step",
+    "advanced_flights_workspace",
     "advanced_trip_style_direction",
     "advanced_trip_style_pace",
+    "advanced_trip_style_tradeoffs",
     "advanced_activities_workspace",
     "advanced_stay_choice",
     "advanced_stay_selected",
@@ -113,6 +148,7 @@ TripSuggestionBoardMode = Literal[
     "advanced_stay_hotel_choice",
     "advanced_stay_hotel_selected",
     "advanced_stay_hotel_review",
+    "advanced_review_workspace",
     "helper",
 ]
 DestinationSuggestionSelectionStatus = Literal[
@@ -150,6 +186,53 @@ ConversationFieldSource = Literal[
     "board_action",
 ]
 ConversationFieldConfidence = Literal["low", "medium", "high"]
+PlannerDecisionMemoryKey = Literal[
+    "destination",
+    "origin",
+    "date_window",
+    "travelers",
+    "budget",
+    "module_scope",
+    "trip_style_direction",
+    "trip_style_pace",
+    "trip_style_tradeoffs",
+    "selected_flights",
+    "selected_stay",
+    "selected_activities",
+    "weather_context",
+    "advanced_review",
+]
+PlannerDecisionSource = Literal[
+    "user_explicit",
+    "board_action",
+    "assistant_inferred",
+    "profile_default",
+    "provider",
+    "system",
+]
+PlannerDecisionConfidence = Literal["low", "medium", "high"]
+PlannerDecisionStatus = Literal[
+    "working",
+    "confirmed",
+    "needs_review",
+    "superseded",
+]
+PlannerConflictSeverity = Literal["info", "warning", "important"]
+PlannerConflictCategory = Literal[
+    "style_pace",
+    "logistics",
+    "stay_fit",
+    "weather",
+    "schedule_density",
+    "provider_confidence",
+]
+PlannerConflictRevisionTarget = Literal[
+    "flight",
+    "stay",
+    "trip_style",
+    "activities",
+    "review",
+]
 
 ConversationOptionKind = Literal[
     "destination",
@@ -252,6 +335,125 @@ class AdvancedDateResolutionState(BaseModel):
     selection_status: PlannerDateResolutionStatus = "none"
     selection_rationale: str | None = Field(default=None, max_length=200)
     requires_confirmation: bool = True
+
+
+class AdvancedFlightStrategyCard(BaseModel):
+    id: PlannerFlightStrategy
+    title: str = Field(..., min_length=1, max_length=80)
+    description: str = Field(..., min_length=1, max_length=240)
+    bullets: list[str] = Field(default_factory=list, max_length=4)
+    recommended: bool = False
+
+
+class AdvancedFlightOptionCard(BaseModel):
+    id: str = Field(..., min_length=1, max_length=120)
+    direction: Literal["outbound", "return"]
+    carrier: str = Field(..., min_length=1, max_length=120)
+    flight_number: str | None = Field(default=None, max_length=80)
+    departure_airport: str = Field(..., min_length=1, max_length=40)
+    arrival_airport: str = Field(..., min_length=1, max_length=40)
+    departure_time: datetime | None = None
+    arrival_time: datetime | None = None
+    duration_text: str | None = Field(default=None, max_length=80)
+    price_text: str | None = Field(default=None, max_length=80)
+    stop_count: int | None = Field(default=None, ge=0, le=8)
+    layover_summary: str | None = Field(default=None, max_length=200)
+    legs: list[FlightLegDetail] = Field(default_factory=list, max_length=8)
+    timing_quality: str | None = Field(default=None, max_length=120)
+    inventory_notice: str | None = Field(default=None, max_length=200)
+    summary: str = Field(..., min_length=1, max_length=240)
+    tradeoffs: list[str] = Field(default_factory=list, max_length=4)
+    source_kind: PlannerFlightOptionSource = "provider"
+    recommended: bool = False
+
+
+class AdvancedFlightPlanningState(BaseModel):
+    strategy_cards: list[AdvancedFlightStrategyCard] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    outbound_options: list[AdvancedFlightOptionCard] = Field(
+        default_factory=list,
+        max_length=6,
+    )
+    return_options: list[AdvancedFlightOptionCard] = Field(
+        default_factory=list,
+        max_length=6,
+    )
+    selected_strategy: PlannerFlightStrategy | None = None
+    selected_outbound_flight_id: str | None = Field(default=None, max_length=120)
+    selected_return_flight_id: str | None = Field(default=None, max_length=120)
+    selected_outbound_flight: AdvancedFlightOptionCard | None = None
+    selected_return_flight: AdvancedFlightOptionCard | None = None
+    selection_status: PlannerFlightSelectionStatus = "none"
+    results_status: PlannerFlightResultsStatus = "blocked"
+    missing_requirements: list[str] = Field(default_factory=list, max_length=5)
+    workspace_summary: str | None = Field(default=None, max_length=240)
+    selection_summary: str | None = Field(default=None, max_length=240)
+    downstream_notes: list[str] = Field(default_factory=list, max_length=4)
+    arrival_day_impact_summary: str | None = Field(default=None, max_length=240)
+    departure_day_impact_summary: str | None = Field(default=None, max_length=240)
+    timing_review_notes: list[str] = Field(default_factory=list, max_length=4)
+    workspace_touched: bool = False
+    completion_summary: str | None = Field(default=None, max_length=240)
+
+
+class AdvancedWeatherPlanningState(BaseModel):
+    results_status: PlannerWeatherResultsStatus = "not_requested"
+    workspace_summary: str | None = Field(default=None, max_length=240)
+    day_impact_summaries: list[str] = Field(default_factory=list, max_length=7)
+    activity_influence_notes: list[str] = Field(default_factory=list, max_length=4)
+
+
+class AdvancedReviewSectionCard(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    title: str = Field(..., min_length=1, max_length=120)
+    status: PlannerAdvancedReviewReadinessStatus = "flexible"
+    summary: str = Field(..., min_length=1, max_length=280)
+    notes: list[str] = Field(default_factory=list, max_length=4)
+    revision_anchor: PlannerAdvancedAnchor | None = None
+    cta_label: str | None = Field(default=None, max_length=80)
+
+
+class AdvancedReviewDecisionSignal(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    title: str = Field(..., min_length=1, max_length=120)
+    value_summary: str = Field(..., min_length=1, max_length=240)
+    source: PlannerDecisionSource = "system"
+    source_label: str = Field(..., min_length=1, max_length=80)
+    confidence: PlannerDecisionConfidence = "medium"
+    confidence_label: str = Field(..., min_length=1, max_length=80)
+    status: PlannerDecisionStatus = "working"
+    note: str | None = Field(default=None, max_length=220)
+    related_anchor: PlannerAdvancedAnchor | None = None
+
+
+class PlannerConflictRecord(BaseModel):
+    id: str = Field(..., min_length=1, max_length=120)
+    severity: PlannerConflictSeverity = "warning"
+    category: PlannerConflictCategory
+    affected_areas: list[str] = Field(default_factory=list, max_length=4)
+    summary: str = Field(..., min_length=1, max_length=280)
+    evidence: list[str] = Field(default_factory=list, max_length=4)
+    source_decision_ids: list[str] = Field(default_factory=list, max_length=6)
+    suggested_repair: str = Field(..., min_length=1, max_length=220)
+    revision_target: PlannerConflictRevisionTarget | None = None
+
+
+class AdvancedReviewPlanningState(BaseModel):
+    readiness_status: PlannerAdvancedReviewReadinessStatus = "flexible"
+    workspace_summary: str | None = Field(default=None, max_length=280)
+    completed_summary: str | None = Field(default=None, max_length=240)
+    open_summary: str | None = Field(default=None, max_length=240)
+    section_cards: list[AdvancedReviewSectionCard] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    review_notes: list[str] = Field(default_factory=list, max_length=6)
+    decision_signals: list[AdvancedReviewDecisionSignal] = Field(
+        default_factory=list,
+        max_length=8,
+    )
 
 
 class AdvancedStayPlanningSegment(BaseModel):
@@ -405,6 +607,25 @@ class AdvancedActivityPlanningState(BaseModel):
     completion_anchor_ids: list[str] = Field(default_factory=list, max_length=8)
 
 
+class TripStyleTradeoffOption(BaseModel):
+    value: PlannerTripStyleTradeoffChoice
+    label: str = Field(..., min_length=1, max_length=80)
+    description: str = Field(..., min_length=1, max_length=240)
+    recommended: bool = False
+
+
+class TripStyleTradeoffCard(BaseModel):
+    axis: PlannerTripStyleTradeoffAxis
+    title: str = Field(..., min_length=1, max_length=120)
+    description: str = Field(..., min_length=1, max_length=280)
+    options: list[TripStyleTradeoffOption] = Field(default_factory=list, max_length=3)
+
+
+class TripStyleTradeoffDecision(BaseModel):
+    axis: PlannerTripStyleTradeoffAxis
+    selected_value: PlannerTripStyleTradeoffChoice
+
+
 class TripStylePlanningState(BaseModel):
     substep: PlannerTripStyleSubstep = "direction"
     recommended_primary_directions: list[PlannerTripDirectionPrimary] = Field(
@@ -431,6 +652,20 @@ class TripStylePlanningState(BaseModel):
     pace_downstream_influence_summary: str | None = Field(
         default=None,
         max_length=240,
+    )
+    recommended_tradeoff_cards: list[TripStyleTradeoffCard] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    selected_tradeoffs: list[TripStyleTradeoffDecision] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    tradeoff_status: PlannerTripStyleSelectionStatus = "none"
+    tradeoff_rationale: str | None = Field(default=None, max_length=320)
+    tradeoff_downstream_influence_summary: str | None = Field(
+        default=None,
+        max_length=320,
     )
     workspace_touched: bool = False
     completion_summary: str | None = Field(default=None, max_length=240)
@@ -510,6 +745,54 @@ class TripSuggestionBoardState(BaseModel):
         default_factory=list,
         max_length=4,
     )
+    flight_strategy_cards: list[AdvancedFlightStrategyCard] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    outbound_flight_options: list[AdvancedFlightOptionCard] = Field(
+        default_factory=list,
+        max_length=6,
+    )
+    return_flight_options: list[AdvancedFlightOptionCard] = Field(
+        default_factory=list,
+        max_length=6,
+    )
+    selected_flight_strategy: PlannerFlightStrategy | None = None
+    selected_outbound_flight_id: str | None = Field(default=None, max_length=120)
+    selected_return_flight_id: str | None = Field(default=None, max_length=120)
+    selected_outbound_flight: AdvancedFlightOptionCard | None = None
+    selected_return_flight: AdvancedFlightOptionCard | None = None
+    flight_selection_status: PlannerFlightSelectionStatus | None = None
+    flight_results_status: PlannerFlightResultsStatus | None = None
+    flight_missing_requirements: list[str] = Field(default_factory=list, max_length=5)
+    flight_workspace_summary: str | None = Field(default=None, max_length=240)
+    flight_selection_summary: str | None = Field(default=None, max_length=240)
+    flight_downstream_notes: list[str] = Field(default_factory=list, max_length=4)
+    flight_arrival_day_impact_summary: str | None = Field(default=None, max_length=240)
+    flight_departure_day_impact_summary: str | None = Field(default=None, max_length=240)
+    flight_timing_review_notes: list[str] = Field(default_factory=list, max_length=4)
+    flight_completion_summary: str | None = Field(default=None, max_length=240)
+    weather_results_status: PlannerWeatherResultsStatus | None = None
+    weather_workspace_summary: str | None = Field(default=None, max_length=240)
+    weather_day_impact_summaries: list[str] = Field(default_factory=list, max_length=7)
+    weather_activity_influence_notes: list[str] = Field(default_factory=list, max_length=4)
+    advanced_review_readiness_status: PlannerAdvancedReviewReadinessStatus | None = None
+    advanced_review_summary: str | None = Field(default=None, max_length=280)
+    advanced_review_completed_summary: str | None = Field(default=None, max_length=240)
+    advanced_review_open_summary: str | None = Field(default=None, max_length=240)
+    advanced_review_section_cards: list[AdvancedReviewSectionCard] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    advanced_review_notes: list[str] = Field(default_factory=list, max_length=6)
+    advanced_review_decision_signals: list[AdvancedReviewDecisionSignal] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    planner_conflicts: list[PlannerConflictRecord] = Field(
+        default_factory=list,
+        max_length=8,
+    )
     stay_cards: list[AdvancedStayOptionCard] = Field(default_factory=list, max_length=4)
     hotel_cards: list[AdvancedStayHotelOptionCard] = Field(default_factory=list, max_length=8)
     activity_candidates: list[AdvancedActivityCandidateCard] = Field(
@@ -550,6 +833,20 @@ class TripSuggestionBoardState(BaseModel):
     trip_style_pace_downstream_influence_summary: str | None = Field(
         default=None,
         max_length=240,
+    )
+    trip_style_recommended_tradeoff_cards: list[TripStyleTradeoffCard] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    selected_trip_style_tradeoffs: list[TripStyleTradeoffDecision] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    trip_style_tradeoff_status: PlannerTripStyleSelectionStatus | None = None
+    trip_style_tradeoff_rationale: str | None = Field(default=None, max_length=320)
+    trip_style_tradeoff_downstream_influence_summary: str | None = Field(
+        default=None,
+        max_length=320,
     )
     trip_style_completion_summary: str | None = Field(default=None, max_length=240)
     activity_day_plans: list[AdvancedActivityDayPlan] = Field(
@@ -640,6 +937,17 @@ class ConversationDecisionEvent(BaseModel):
     resolved_at: datetime | None = None
 
 
+class PlannerDecisionMemoryRecord(BaseModel):
+    key: PlannerDecisionMemoryKey
+    value_summary: str = Field(..., min_length=1, max_length=240)
+    source: PlannerDecisionSource = "system"
+    confidence: PlannerDecisionConfidence = "medium"
+    status: PlannerDecisionStatus = "working"
+    rationale: str | None = Field(default=None, max_length=320)
+    related_anchor: PlannerAdvancedAnchor | None = None
+    updated_at: datetime | None = None
+
+
 class ConversationTurnSummary(BaseModel):
     turn_id: str
     user_message: str = Field(..., min_length=1, max_length=4000)
@@ -656,6 +964,10 @@ class ConversationTurnSummary(BaseModel):
 class TripConversationMemory(BaseModel):
     field_memory: dict[TripFieldKey, ConversationFieldMemory] = Field(
         default_factory=dict
+    )
+    decision_memory: list[PlannerDecisionMemoryRecord] = Field(
+        default_factory=list,
+        max_length=24,
     )
     mentioned_options: list[ConversationOptionMemory] = Field(default_factory=list)
     rejected_options: list[ConversationOptionMemory] = Field(default_factory=list)
@@ -676,8 +988,21 @@ class TripConversationState(BaseModel):
     decision_cards: list[PlannerDecisionCard] = Field(default_factory=list)
     last_turn_summary: str | None = Field(default=None, max_length=400)
     active_goals: list[str] = Field(default_factory=list)
+    planner_conflicts: list[PlannerConflictRecord] = Field(
+        default_factory=list,
+        max_length=8,
+    )
     advanced_date_resolution: AdvancedDateResolutionState = Field(
         default_factory=AdvancedDateResolutionState
+    )
+    flight_planning: AdvancedFlightPlanningState = Field(
+        default_factory=AdvancedFlightPlanningState
+    )
+    weather_planning: AdvancedWeatherPlanningState = Field(
+        default_factory=AdvancedWeatherPlanningState
+    )
+    advanced_review_planning: AdvancedReviewPlanningState = Field(
+        default_factory=AdvancedReviewPlanningState
     )
     trip_style_planning: TripStylePlanningState = Field(
         default_factory=TripStylePlanningState

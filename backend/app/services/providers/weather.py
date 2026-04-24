@@ -1,3 +1,5 @@
+from datetime import date
+
 from app.integrations.open_meteo.client import create_open_meteo_client
 from app.schemas.trip_planning import TripConfiguration, WeatherDetail
 from app.services.providers.location_lookup import (
@@ -65,13 +67,25 @@ def enrich_weather_from_open_meteo(
     for index, day_value in enumerate(dates):
         code = codes[index] if index < len(codes) else None
         summary = WMO_WEATHER_LABELS.get(code, "Forecast available for this day.")
+        high_c = _safe_int(max_temps, index)
+        low_c = _safe_int(min_temps, index)
+        condition_tags = _condition_tags_for_code(code)
         weather_items.append(
             WeatherDetail(
                 id=f"weather_live_{index + 1}",
                 day_label=f"Day {index + 1}",
                 summary=summary,
-                high_c=_safe_int(max_temps, index),
-                low_c=_safe_int(min_temps, index),
+                forecast_date=_parse_forecast_date(day_value),
+                weather_code=code if isinstance(code, int) else None,
+                condition_tags=condition_tags,
+                temperature_band=_temperature_band(high_c, low_c),
+                weather_risk_level=_weather_risk_level(
+                    condition_tags=condition_tags,
+                    high_c=high_c,
+                    low_c=low_c,
+                ),
+                high_c=high_c,
+                low_c=low_c,
                 notes=[
                     f"Forecast date: {day_value}",
                     f"Location: {configuration.to_location}",
@@ -80,6 +94,71 @@ def enrich_weather_from_open_meteo(
         )
 
     return weather_items
+
+
+def _condition_tags_for_code(code: object) -> list[str]:
+    if not isinstance(code, int):
+        return []
+    if code == 0:
+        return ["clear"]
+    if code in {1, 2}:
+        return ["clear", "mild"]
+    if code == 3:
+        return ["cloudy"]
+    if code in {45, 48}:
+        return ["fog"]
+    if code in {51, 53, 55, 61, 63, 65, 80, 81, 82}:
+        tags = ["rain"]
+        if code in {65, 82}:
+            tags.append("heavy_rain")
+        return tags
+    if code in {71, 73, 75}:
+        return ["snow"]
+    if code == 95:
+        return ["storm", "rain"]
+    return []
+
+
+def _temperature_band(high_c: int | None, low_c: int | None) -> str | None:
+    if high_c is None and low_c is None:
+        return None
+    if high_c is not None and high_c >= 30:
+        return "hot"
+    if high_c is not None and high_c >= 24:
+        return "warm"
+    if low_c is not None and low_c <= 2:
+        return "cold"
+    if high_c is not None and high_c <= 10:
+        return "cool"
+    return "mild"
+
+
+def _weather_risk_level(
+    *,
+    condition_tags: list[str],
+    high_c: int | None,
+    low_c: int | None,
+) -> str:
+    if any(tag in condition_tags for tag in ["storm", "heavy_rain", "snow"]):
+        return "high"
+    if any(tag in condition_tags for tag in ["rain", "fog"]):
+        return "medium"
+    if high_c is not None and high_c >= 30:
+        return "medium"
+    if low_c is not None and low_c <= 2:
+        return "medium"
+    return "low"
+
+
+def _parse_forecast_date(value: object) -> date | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def _can_search_weather(configuration: TripConfiguration) -> bool:
     return bool(configuration.selected_modules.weather and configuration.to_location)
 

@@ -11,9 +11,11 @@ export type BrochureWarningCategory =
   | "logistics"
   | "budget"
   | "weather"
-  | "selection_pending";
+  | "selection_pending"
+  | "review";
 
 export type BrochureSnapshotStatus = "latest" | "historical";
+export type BrochureAdvancedReviewStatus = "ready" | "needs_review" | "flexible";
 
 export type BrochureHeroImage = {
   url: string;
@@ -39,6 +41,14 @@ export type BrochureSection = {
   id: string;
   title: string;
   summary: string | null;
+};
+
+export type BrochureAdvancedSectionSummary = {
+  id: string;
+  title: string;
+  status: BrochureAdvancedReviewStatus;
+  summary: string;
+  notes: string[];
 };
 
 export type BrochureResourceLink = {
@@ -77,6 +87,13 @@ export type BrochureSnapshotPayload = {
   hero_image: BrochureHeroImage;
   metrics: BrochureMetric[];
   sections: BrochureSection[];
+  advanced_review_status?: BrochureAdvancedReviewStatus | null;
+  advanced_review_summary?: string | null;
+  advanced_section_summaries?: BrochureAdvancedSectionSummary[];
+  trip_character_summary?: string | null;
+  planned_experience_summary?: string | null;
+  flexible_items?: string[];
+  worth_reviewing_notes?: string[];
   warnings: BrochureWarning[];
   itinerary_days: BrochureItineraryDay[];
   flights: FlightDetail[];

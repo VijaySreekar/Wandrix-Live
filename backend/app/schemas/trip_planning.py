@@ -61,6 +61,16 @@ class TripConfiguration(BaseModel):
     custom_style: str | None = Field(default=None, max_length=160)
 
 
+class FlightLegDetail(BaseModel):
+    carrier: str | None = Field(default=None, max_length=120)
+    flight_number: str | None = Field(default=None, max_length=80)
+    departure_airport: str = Field(..., min_length=1, max_length=40)
+    arrival_airport: str = Field(..., min_length=1, max_length=40)
+    departure_time: datetime | None = None
+    arrival_time: datetime | None = None
+    duration_text: str | None = Field(default=None, max_length=80)
+
+
 class FlightDetail(BaseModel):
     id: str
     direction: Literal["outbound", "return"]
@@ -71,6 +81,12 @@ class FlightDetail(BaseModel):
     departure_time: datetime | None = None
     arrival_time: datetime | None = None
     duration_text: str | None = None
+    price_text: str | None = Field(default=None, max_length=80)
+    stop_count: int | None = Field(default=None, ge=0, le=8)
+    layover_summary: str | None = Field(default=None, max_length=200)
+    legs: list[FlightLegDetail] = Field(default_factory=list, max_length=8)
+    timing_quality: str | None = Field(default=None, max_length=120)
+    inventory_notice: str | None = Field(default=None, max_length=200)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -96,6 +112,11 @@ class WeatherDetail(BaseModel):
     id: str
     day_label: str
     summary: str
+    forecast_date: date | None = None
+    weather_code: int | None = None
+    condition_tags: list[str] = Field(default_factory=list, max_length=8)
+    temperature_band: str | None = Field(default=None, max_length=40)
+    weather_risk_level: Literal["low", "medium", "high"] | None = None
     high_c: int | None = None
     low_c: int | None = None
     notes: list[str] = Field(default_factory=list)

@@ -14,7 +14,7 @@ from app.graph.planner.location_context import resolve_planner_location_context
 from app.graph.planner.quick_plan import generate_quick_plan_draft
 from app.graph.planner.provider_enrichment import build_module_outputs, build_timeline
 from app.graph.planner.response_builder import build_assistant_response
-from app.graph.planner.turn_models import TripTurnUpdate
+from app.graph.planner.turn_models import TripOpenQuestionUpdate, TripTurnUpdate
 from app.graph.planner.understanding import generate_llm_trip_update
 from app.graph.state import PlanningGraphState
 from app.schemas.conversation import ConversationBoardAction
@@ -142,6 +142,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         configuration=next_configuration,
         brief_confirmed=brief_confirmed,
         board_action=state.get("board_action", {}),
+        llm_update=effective_input_update,
         advanced_anchor=advanced_anchor,
     )
     preserve_existing_quick_plan = _should_preserve_existing_quick_plan(
@@ -172,6 +173,10 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         brief_confirmed=brief_confirmed,
         planning_mode=planning_mode,
     )
+    effective_llm_update = _apply_provider_activation_clarifications(
+        llm_update=effective_llm_update,
+        provider_activation=provider_activation,
+    )
     should_enrich_modules = provider_activation["quick_plan_ready"]
     should_enrich_advanced_stay_hotels = _should_enrich_advanced_stay_hotels(
         current_conversation=current_conversation,
@@ -182,6 +187,12 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         advanced_anchor=advanced_anchor,
     )
     should_enrich_advanced_activities = _should_enrich_advanced_activities(
+        configuration=next_configuration,
+        planning_mode=planning_mode,
+        advanced_step=advanced_step,
+        advanced_anchor=advanced_anchor,
+    )
+    should_enrich_advanced_flights = _should_enrich_advanced_flights(
         configuration=next_configuration,
         planning_mode=planning_mode,
         advanced_step=advanced_step,
@@ -202,6 +213,8 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
                     if should_enrich_modules
                     else {"activities", "weather"}
                     if should_enrich_advanced_activities
+                    else {"flights"}
+                    if should_enrich_advanced_flights
                     else {"hotels"}
                     if should_enrich_advanced_stay_hotels
                     else set()
@@ -211,6 +224,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
                 should_enrich_modules
                 or should_enrich_advanced_stay_hotels
                 or should_enrich_advanced_activities
+                or should_enrich_advanced_flights
             )
             else existing_module_outputs
         )
@@ -248,6 +262,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
             llm_update=effective_llm_update,
             board_action=state.get("board_action", {}),
             planning_mode=planning_mode,
+            advanced_step=advanced_step,
             timeline=timeline,
             now=now,
         )
@@ -275,6 +290,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         finalized_at=finalized_at,
         finalized_via=finalized_via,
         record_memory=False,
+        provider_activation=provider_activation,
     )
     assistant_response = build_assistant_response(
         configuration=next_configuration,
@@ -313,6 +329,13 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         confirmation_status=confirmation_status,
         finalized_at=finalized_at,
         finalized_via=finalized_via,
+        provider_activation=provider_activation,
+    )
+    timeline = _merge_selected_flight_timeline(
+        timeline=timeline,
+        conversation=next_conversation,
+        configuration=next_configuration,
+        planning_mode=planning_mode,
     )
     timeline = _merge_hidden_activity_timeline(
         timeline=timeline,
@@ -597,6 +620,7 @@ def _resolve_advanced_step(
     configuration: TripConfiguration,
     brief_confirmed: bool,
     board_action: dict,
+    llm_update: TripTurnUpdate,
     advanced_anchor: PlannerAdvancedAnchor | None,
 ) -> PlannerAdvancedStep | None:
     if planning_mode != "advanced":
@@ -605,12 +629,34 @@ def _resolve_advanced_step(
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
     prior_advanced_step = current_conversation.advanced_step
 
+    if action and action.type == "revise_advanced_review_section" and action.advanced_anchor:
+        return "anchor_flow"
+
+    if (
+        prior_advanced_step == "review"
+        and advanced_anchor is not None
+        and llm_update.requested_advanced_anchor is not None
+    ):
+        return "anchor_flow"
+
     if (
         not brief_confirmed
         and prior_advanced_step
         not in {"resolve_dates", "choose_anchor", "anchor_flow", "review"}
     ):
         return "intake"
+
+    if llm_update.requested_advanced_review:
+        return "review"
+
+    if llm_update.requested_advanced_finalization:
+        return "review"
+
+    if _advanced_review_is_ready(
+        conversation=current_conversation,
+        configuration=configuration,
+    ):
+        return "review"
 
     if prior_advanced_step in {"anchor_flow", "review"}:
         return prior_advanced_step
@@ -654,6 +700,8 @@ def _resolve_advanced_anchor(
     brief_confirmed: bool,
 ) -> PlannerAdvancedAnchor | None:
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action and action.type == "revise_advanced_review_section" and action.advanced_anchor:
+        return action.advanced_anchor
     if action and action.type == "select_advanced_anchor" and action.advanced_anchor:
         return action.advanced_anchor
 
@@ -668,6 +716,35 @@ def _resolve_advanced_anchor(
         return llm_update.requested_advanced_anchor
 
     return current_conversation.advanced_anchor
+
+
+def _advanced_review_is_ready(
+    *,
+    conversation: TripConversationState,
+    configuration: TripConfiguration,
+) -> bool:
+    if conversation.planning_mode != "advanced":
+        return False
+    required: set[PlannerAdvancedAnchor] = set()
+    if configuration.selected_modules.flights:
+        required.add("flight")
+    if configuration.selected_modules.hotels:
+        required.add("stay")
+    if configuration.selected_modules.activities:
+        required.update({"trip_style", "activities"})
+    if not required:
+        return False
+
+    completed: set[PlannerAdvancedAnchor] = set()
+    if conversation.flight_planning.selection_status in {"completed", "kept_open"}:
+        completed.add("flight")
+    if conversation.stay_planning.selected_hotel_id:
+        completed.add("stay")
+    if conversation.trip_style_planning.substep == "completed":
+        completed.add("trip_style")
+    if conversation.activity_planning.completion_status == "completed":
+        completed.add("activities")
+    return required.issubset(completed)
 
 
 def _prepare_locked_turn_update(llm_update) -> TripTurnUpdate:
@@ -731,16 +808,41 @@ def _evaluate_provider_activation(
     )
     traveler_ready = _is_traveler_ready(adults_snapshot)
 
+    reliability_blockers: list[dict] = []
     if not brief_confirmed:
         base_reasons = ["trip brief is not confirmed yet"]
     elif planning_mode != "quick":
         base_reasons = ["quick planning is not active"]
     elif not scope_explicit:
         base_reasons = ["module scope is still implicit"]
+        reliability_blockers.append(
+            _provider_reliability_blocker(
+                category="module_scope",
+                field="selected_modules",
+                reason=base_reasons[0],
+                snapshot=None,
+            )
+        )
     elif not destination_ready:
         base_reasons = ["destination is not reliable enough yet"]
+        reliability_blockers.append(
+            _provider_reliability_blocker(
+                category="destination",
+                field="to_location",
+                reason=base_reasons[0],
+                snapshot=destination_snapshot,
+            )
+        )
     elif not timing_ready:
         base_reasons = ["timing is not reliable enough yet"]
+        reliability_blockers.append(
+            _provider_reliability_blocker(
+                category="timing",
+                field=_best_timing_snapshot(timing_snapshots)["field"],
+                reason=base_reasons[0],
+                snapshot=_best_timing_snapshot(timing_snapshots),
+            )
+        )
     else:
         base_reasons = []
 
@@ -753,8 +855,24 @@ def _evaluate_provider_activation(
         blockers = list(base_reasons)
         if not blockers and module_name == "flights" and not origin_ready:
             blockers.append("departure point is not reliable enough yet")
+            reliability_blockers.append(
+                _provider_reliability_blocker(
+                    category="origin",
+                    field="from_location",
+                    reason=blockers[0],
+                    snapshot=origin_snapshot,
+                )
+            )
         if not blockers and module_name in {"flights", "hotels"} and not traveler_ready:
             blockers.append("traveller count is not reliable enough yet")
+            reliability_blockers.append(
+                _provider_reliability_blocker(
+                    category="travellers",
+                    field="adults",
+                    reason=blockers[0],
+                    snapshot=adults_snapshot,
+                )
+            )
 
         if blockers:
             blocked_modules[module_name] = blockers
@@ -773,6 +891,12 @@ def _evaluate_provider_activation(
         "quick_plan_ready": bool(allowed_modules),
         "allowed_modules": allowed_modules,
         "blocked_modules": blocked_modules,
+        "reliability_blockers": _dedupe_provider_reliability_blockers(
+            reliability_blockers
+        ),
+        "next_reliability_question": _next_provider_reliability_question(
+            reliability_blockers
+        ),
         "field_readiness": {
             "destination": destination_snapshot,
             "origin": origin_snapshot,
@@ -782,6 +906,28 @@ def _evaluate_provider_activation(
             "timing": timing_snapshots,
         },
     }
+
+
+def _apply_provider_activation_clarifications(
+    *,
+    llm_update: TripTurnUpdate,
+    provider_activation: dict,
+) -> TripTurnUpdate:
+    question = provider_activation.get("next_reliability_question")
+    if not question:
+        return llm_update
+    if any(
+        existing.question.strip().lower() == question["question"].strip().lower()
+        or (question.get("field") and existing.field == question["field"])
+        for existing in llm_update.open_question_updates
+    ):
+        return llm_update
+    update = llm_update.model_copy(deep=True)
+    update.open_question_updates = [
+        TripOpenQuestionUpdate(**question),
+        *update.open_question_updates,
+    ][:4]
+    return update
 
 
 def _projected_field_snapshot(
@@ -811,6 +957,109 @@ def _projected_field_snapshot(
         "source": source,
         "confidence_level": confidence_level,
     }
+
+
+def _best_timing_snapshot(snapshots: list[dict]) -> dict:
+    for field in ["start_date", "travel_window", "trip_length", "end_date"]:
+        for snapshot in snapshots:
+            if snapshot["field"] == field and snapshot["has_value"]:
+                return snapshot
+    return snapshots[0] if snapshots else {"field": "travel_window"}
+
+
+def _provider_reliability_blocker(
+    *,
+    category: str,
+    field: str,
+    reason: str,
+    snapshot: dict | None,
+) -> dict:
+    return {
+        "category": category,
+        "field": field,
+        "reason": reason,
+        "source": snapshot.get("source") if snapshot else None,
+        "confidence_level": snapshot.get("confidence_level") if snapshot else None,
+        "has_value": bool(snapshot.get("has_value")) if snapshot else False,
+        "value": snapshot.get("value") if snapshot else None,
+    }
+
+
+def _dedupe_provider_reliability_blockers(blockers: list[dict]) -> list[dict]:
+    deduped: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for blocker in blockers:
+        key = (blocker["category"], blocker["reason"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(blocker)
+    return deduped
+
+
+def _next_provider_reliability_question(blockers: list[dict]) -> dict | None:
+    for blocker in _dedupe_provider_reliability_blockers(blockers):
+        question = _provider_reliability_question(blocker)
+        if question:
+            return question
+    return None
+
+
+def _provider_reliability_question(blocker: dict) -> dict | None:
+    category = blocker.get("category")
+    if category == "module_scope":
+        return {
+            "question": "Which planning areas should I include in the live draft right now?",
+            "field": "selected_modules",
+            "step": "modules",
+            "priority": 1,
+            "why": "Live planning waits until the active planning areas are explicit.",
+        }
+    if category == "destination":
+        return {
+            "question": "Which destination should I treat as definite for live planning?",
+            "field": "to_location",
+            "step": "route",
+            "priority": 1,
+            "why": _provider_reliability_question_reason(blocker),
+        }
+    if category == "timing":
+        return {
+            "question": "Should I use this timing as the working search window?",
+            "field": blocker.get("field") or "travel_window",
+            "step": "timing",
+            "priority": 1,
+            "why": _provider_reliability_question_reason(blocker),
+        }
+    if category == "origin":
+        return {
+            "question": "Where should I search flights from?",
+            "field": "from_location",
+            "step": "route",
+            "priority": 1,
+            "why": _provider_reliability_question_reason(blocker),
+        }
+    if category == "travellers":
+        return {
+            "question": "How many travelers should I use for live flight and hotel checks?",
+            "field": "adults",
+            "step": "travellers",
+            "priority": 1,
+            "why": _provider_reliability_question_reason(blocker),
+        }
+    return None
+
+
+def _provider_reliability_question_reason(blocker: dict) -> str:
+    if not blocker.get("has_value"):
+        return "Live provider checks need this before Wandrix can search responsibly."
+    source = blocker.get("source")
+    confidence = blocker.get("confidence_level")
+    if source == "profile_default":
+        return "This currently comes from profile memory, so Wandrix needs trip-specific confirmation before live checks."
+    if confidence == "low":
+        return "This is only a low-confidence working assumption, so Wandrix should confirm it before live checks."
+    return "This detail is still provisional, so Wandrix should confirm it before live checks."
 
 
 def _is_destination_ready(snapshot: dict) -> bool:
@@ -992,6 +1241,30 @@ def _should_enrich_advanced_activities(
     )
 
 
+def _should_enrich_advanced_flights(
+    *,
+    configuration: TripConfiguration,
+    planning_mode: str | None,
+    advanced_step: PlannerAdvancedStep | None,
+    advanced_anchor: PlannerAdvancedAnchor | None,
+) -> bool:
+    if (
+        planning_mode != "advanced"
+        or advanced_step != "anchor_flow"
+        or advanced_anchor != "flight"
+    ):
+        return False
+    if not configuration.selected_modules.flights:
+        return False
+    return bool(
+        configuration.from_location
+        and configuration.to_location
+        and configuration.start_date
+        and configuration.end_date
+        and (configuration.travelers.adults or configuration.travelers_flexible)
+    )
+
+
 def _resolve_confirmation_state(
     *,
     current_status: TripDraftStatus,
@@ -999,6 +1272,7 @@ def _resolve_confirmation_state(
     llm_update,
     board_action: dict,
     planning_mode: str | None,
+    advanced_step: PlannerAdvancedStep | None,
     timeline: list[TimelineItem],
     now: datetime,
 ) -> tuple[
@@ -1025,6 +1299,12 @@ def _resolve_confirmation_state(
     )
     planner_intent: PlannerIntent = getattr(llm_update, "planner_intent", "none")
     quick_draft_ready = planning_mode == "quick" and len(timeline) > 0
+    advanced_review_ready = planning_mode == "advanced" and advanced_step == "review"
+    chat_advanced_finalization_ready = (
+        advanced_review_ready
+        and current_conversation.advanced_step == "review"
+        and llm_update.requested_advanced_finalization
+    )
 
     if action and action.type == "reopen_plan" and current_confirmation_status == "finalized":
         return ("unconfirmed", None, None, "reopened")
@@ -1036,7 +1316,11 @@ def _resolve_confirmation_state(
 
     if action and action.type == "finalize_quick_plan" and quick_draft_ready:
         return ("finalized", now, "board", "finalized")
+    if action and action.type == "finalize_advanced_plan" and advanced_review_ready:
+        return ("finalized", now, "board", "finalized")
     if planner_intent == "confirm_plan" and quick_draft_ready:
+        return ("finalized", now, "chat", "finalized")
+    if chat_advanced_finalization_ready:
         return ("finalized", now, "chat", "finalized")
 
     return ("unconfirmed", None, None, "none")
@@ -1062,6 +1346,21 @@ def _build_board_action_audit_message(board_action: dict) -> str:
         )
     if action.type == "confirm_trip_style_direction":
         return "Board action: confirmed the current trip direction."
+    if action.type == "select_trip_style_pace" and action.trip_style_pace:
+        return f"Board action: set trip pace to {action.trip_style_pace}."
+    if action.type == "confirm_trip_style_pace":
+        return "Board action: confirmed the current trip pace."
+    if (
+        action.type == "set_trip_style_tradeoff"
+        and action.trip_style_tradeoff_axis
+        and action.trip_style_tradeoff_value
+    ):
+        return (
+            "Board action: set trip style tradeoff "
+            f"{action.trip_style_tradeoff_axis} to {action.trip_style_tradeoff_value}."
+        )
+    if action.type == "confirm_trip_style_tradeoffs":
+        return "Board action: confirmed the current trip style tradeoffs."
     if (
         action.type == "set_activity_candidate_disposition"
         and action.activity_candidate_title
@@ -1079,6 +1378,8 @@ def _build_board_action_audit_message(board_action: dict) -> str:
         return f"Board action: selected stay option {action.stay_option_id}."
     if action.type == "select_advanced_anchor" and action.advanced_anchor:
         return f"Board action: start advanced planning with {action.advanced_anchor}."
+    if action.type == "finalize_advanced_plan":
+        return "Board action: finalize the reviewed Advanced plan."
     return f"Board action: {action.type}"
 
 
@@ -1127,3 +1428,66 @@ def _merge_hidden_activity_timeline(
         for block in conversation.activity_planning.timeline_blocks
     ]
     return [*preserved_items, *scheduled_activity_items]
+
+
+def _merge_selected_flight_timeline(
+    *,
+    timeline: list[TimelineItem],
+    conversation: TripConversationState,
+    configuration: TripConfiguration,
+    planning_mode: str | None,
+) -> list[TimelineItem]:
+    if planning_mode != "advanced":
+        return timeline
+
+    preserved_items = [
+        item for item in timeline if item.source_module != "flights" and item.type != "flight"
+    ]
+    flight_planning = conversation.flight_planning
+    if flight_planning.selection_status != "completed":
+        return preserved_items
+
+    selected_flights = [
+        flight
+        for flight in [
+            flight_planning.selected_outbound_flight,
+            flight_planning.selected_return_flight,
+        ]
+        if flight is not None
+    ]
+    selected_items = [
+        TimelineItem(
+            id=f"timeline_selected_{flight.id}",
+            type="flight",
+            title="Outbound flight" if flight.direction == "outbound" else "Return flight",
+            day_label=_flight_day_label(flight, configuration),
+            start_at=flight.departure_time,
+            end_at=flight.arrival_time,
+            location_label=f"{flight.departure_airport} to {flight.arrival_airport}",
+            summary=flight.duration_text or flight.summary,
+            details=[
+                detail
+                for detail in [
+                    flight.summary,
+                    *flight.tradeoffs,
+                    "Working planning flight, not a final schedule.",
+                ]
+                if detail
+            ][:6],
+            source_module="flights",
+            status="draft",
+        )
+        for flight in selected_flights
+    ]
+    return [*preserved_items, *selected_items]
+
+
+def _flight_day_label(
+    flight,
+    configuration: TripConfiguration,
+) -> str | None:
+    departure_time = getattr(flight, "departure_time", None)
+    if not departure_time or not configuration.start_date:
+        return None
+    day_number = max((departure_time.date() - configuration.start_date).days + 1, 1)
+    return f"Day {day_number}"

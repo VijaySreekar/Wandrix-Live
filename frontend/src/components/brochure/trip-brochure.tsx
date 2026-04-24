@@ -32,6 +32,7 @@ import {
 } from "@/lib/api/brochures";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type {
+  BrochureAdvancedSectionSummary,
   BrochureHistoryItem,
   BrochureSnapshot,
   BrochureWarning,
@@ -164,12 +165,19 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
   }
 
   const payload = snapshot.payload;
+  const advancedSections = payload.advanced_section_summaries ?? [];
+  const flexibleItems = payload.flexible_items ?? [];
+  const worthReviewingNotes = payload.worth_reviewing_notes ?? [];
+  const proposalSummary =
+    payload.advanced_review_summary ||
+    payload.trip_character_summary ||
+    payload.executive_summary;
   const totalDays = payload.itinerary_days.length;
   const totalEvents = payload.itinerary_days.reduce((s, d) => s + d.items.length, 0);
 
   return (
-    <div className="pb-16">
-      <div className="relative overflow-hidden rounded-2xl" style={{ minHeight: "28rem" }}>
+    <div className="min-w-0 pb-16">
+      <div className="relative overflow-hidden rounded-[1.75rem] border border-white/40 shadow-[0_24px_80px_rgba(16,24,40,0.16)]" style={{ minHeight: "34rem" }}>
         <div
           className="absolute inset-0"
           aria-hidden="true"
@@ -180,7 +188,11 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
           }}
         />
         <div
-          className="absolute inset-0 bg-[linear-gradient(180deg,rgba(5,10,25,0.38)_0%,rgba(5,10,25,0.72)_55%,rgba(5,10,25,0.90)_100%)]"
+          className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,19,18,0.18)_0%,rgba(7,19,18,0.58)_58%,rgba(7,19,18,0.88)_100%)]"
+          aria-hidden="true"
+        />
+        <div
+          className="absolute inset-x-0 bottom-0 h-28 bg-[linear-gradient(180deg,transparent,rgba(248,246,240,0.96))]"
           aria-hidden="true"
         />
 
@@ -211,24 +223,24 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
           </div>
         </div>
 
-        <div className="relative px-6 pb-10 pt-14 sm:px-8 sm:pb-12 sm:pt-16">
+        <div className="relative px-6 pb-14 pt-20 sm:px-8 sm:pb-16 sm:pt-24 lg:px-10">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-white/22 bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/82 backdrop-blur-sm">
-              Wandrix Brochure
+              Private proposal
             </span>
             <span className="rounded-full border border-white/14 bg-white/6 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
               v{snapshot.version_number}{snapshot.status === "latest" ? " · Latest" : " · Historical"}
             </span>
           </div>
 
-          <h1 className="mt-5 max-w-3xl text-[2.6rem] font-bold leading-[1.07] tracking-tight text-white sm:text-5xl lg:text-[3.25rem]">
+          <h1 className="mt-6 max-w-4xl text-[2.8rem] font-bold leading-[1.02] tracking-tight text-white sm:text-6xl lg:text-[4.5rem]">
             {payload.title}
           </h1>
           <p className="mt-3 text-sm font-semibold uppercase tracking-[0.2em] text-white/50">
             {payload.route_text}
           </p>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-white/75 sm:text-[1.05rem]">
-            {payload.executive_summary}
+          <p className="mt-6 max-w-2xl text-base leading-7 text-white/80 sm:text-lg">
+            {proposalSummary}
           </p>
 
           <div className="mt-7 flex flex-wrap items-center gap-2.5">
@@ -242,28 +254,76 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
         </div>
       </div>
 
-      {payload.metrics.length > 0 && (
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {payload.metrics.map((metric) => (
-            <StatCard key={metric.label} metric={metric} />
-          ))}
-        </div>
-      )}
+      <div className="-mt-8 grid gap-3 px-3 sm:grid-cols-3 sm:px-6">
+        <ProposalStatusCard
+          label="Selected"
+          value={selectedSummaryLabel(advancedSections, payload.metrics)}
+          body="Working choices captured in this saved version."
+        />
+        <ProposalStatusCard
+          label="Still flexible"
+          value={String(flexibleItems.length)}
+          body={flexibleItems[0] || "No intentionally flexible items were captured."}
+        />
+        <ProposalStatusCard
+          label="Worth reviewing"
+          value={String(worthReviewingNotes.length || payload.warnings.length)}
+          body={worthReviewingNotes[0] || "No extra review notes were captured."}
+        />
+      </div>
 
-      {payload.warnings.length > 0 && (
-        <div className="mt-4 space-y-2">
-          {payload.warnings.map((warning) => (
-            <WarningBanner key={warning.id} warning={warning} />
-          ))}
-        </div>
-      )}
+      <div className="mt-10 grid min-w-0 gap-7 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] xl:items-start">
+        <div className="min-w-0 space-y-7">
+          {(payload.trip_character_summary || payload.planned_experience_summary || advancedSections.length > 0) && (
+            <section className="rounded-[1.5rem] border border-[color:var(--planner-board-border)] bg-white px-6 py-6 shadow-[0_12px_40px_rgba(16,24,40,0.06)]">
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[color:var(--accent)]">
+                    Trip character
+                  </p>
+                  <h2 className="mt-2 max-w-sm text-2xl font-semibold tracking-tight text-foreground">
+                    The point of view behind this proposal
+                  </h2>
+                  {payload.trip_character_summary ? (
+                    <p className="mt-4 text-sm leading-7 text-foreground/62">
+                      {payload.trip_character_summary}
+                    </p>
+                  ) : null}
+                  {payload.planned_experience_summary ? (
+                    <p className="mt-3 text-sm leading-7 text-foreground/62">
+                      {payload.planned_experience_summary}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {advancedSections.slice(0, 6).map((section) => (
+                    <AdvancedProposalCard key={section.id} section={section} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
 
-      <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(300px,340px)] xl:items-start">
-        <div className="space-y-5">
+          {(flexibleItems.length > 0 || worthReviewingNotes.length > 0 || payload.warnings.length > 0) && (
+            <section className="grid gap-4 md:grid-cols-2">
+              <ProposalNotePanel
+                title="Still flexible"
+                notes={flexibleItems}
+                empty="No intentionally flexible items were captured."
+              />
+              <ProposalNotePanel
+                title="Worth reviewing"
+                notes={worthReviewingNotes.length ? worthReviewingNotes : payload.warnings.map((warning) => warning.message)}
+                empty="No additional review notes were captured."
+                tone="warning"
+              />
+            </section>
+          )}
+
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[color:var(--accent)]">Day by day</p>
-              <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">Itinerary</h2>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">Proposal itinerary</h2>
             </div>
             {totalDays > 0 && (
               <p className="shrink-0 text-sm text-foreground/42">
@@ -306,7 +366,7 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
           )}
         </div>
 
-        <div className="space-y-5 xl:sticky xl:top-6">
+        <div className="min-w-0 space-y-5 xl:sticky xl:top-6">
           <BrochureVersionPanel tripId={tripId} history={history} currentSnapshotId={snapshot.snapshot_id} />
 
           <BrochureSidePanel kicker="Flights" icon={Plane} emptyMessage="Flight inventory was not locked into this brochure version.">
@@ -319,6 +379,15 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
 
           <BrochureSidePanel kicker="Highlights" icon={Star} emptyMessage="Highlights were still being curated when this brochure was created.">
             {payload.highlights.length > 0 ? payload.highlights.map((h) => <HighlightRow key={h.id} highlight={h} />) : null}
+          </BrochureSidePanel>
+
+          <BrochureSidePanel kicker="Weather" icon={CloudSun} emptyMessage="No forecast signal was captured in this brochure version.">
+            {payload.weather.length > 0 ? payload.weather.slice(0, 4).map((item) => (
+              <div key={item.id} className="px-5 py-4">
+                <p className="text-sm font-semibold text-foreground">{item.day_label || item.forecast_date || "Weather note"}</p>
+                <p className="mt-1 text-xs leading-relaxed text-foreground/52">{item.summary}</p>
+              </div>
+            )) : null}
           </BrochureSidePanel>
 
           {payload.resources.length > 0 && (
@@ -347,35 +416,106 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
   );
 }
 
-function HeroPill({ icon: Icon, label }: { icon?: React.ComponentType<{ className?: string }>; label: string }) {
+function ProposalStatusCard({
+  label,
+  value,
+  body,
+}: {
+  label: string;
+  value: string;
+  body: string;
+}) {
   return (
-    <span className="flex items-center gap-1.5 rounded-full border border-white/16 bg-black/22 px-3.5 py-1.5 text-xs font-medium text-white/80 backdrop-blur-sm">
-      {Icon && <Icon className="h-3.5 w-3.5 opacity-70" />}
-      {label}
-    </span>
-  );
-}
-
-function StatCard({ metric }: { metric: { label: string; value: string; note: string | null } }) {
-  return (
-    <div className="rounded-2xl border border-[color:var(--planner-board-border)] bg-white px-5 py-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/40">{metric.label}</p>
-      <p className="mt-2 text-2xl font-bold tracking-tight text-[color:var(--accent)]">{metric.value}</p>
-      {metric.note && <p className="mt-1.5 text-xs leading-relaxed text-foreground/48">{metric.note}</p>}
+    <div className="relative rounded-2xl border border-white/70 bg-white/90 px-5 py-4 shadow-[0_16px_44px_rgba(16,24,40,0.10)] backdrop-blur">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-foreground/42">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--accent)]">
+        {value}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-foreground/52">{body}</p>
     </div>
   );
 }
 
-function WarningBanner({ warning }: { warning: BrochureWarning }) {
+function AdvancedProposalCard({ section }: { section: BrochureAdvancedSectionSummary }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5">
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-      <div className="min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">{warning.category.replaceAll("_", " ")}</p>
-        <p className="mt-0.5 text-sm font-semibold text-amber-900">{warning.title}</p>
-        <p className="mt-1 text-sm leading-relaxed text-amber-800/80">{warning.message}</p>
+    <article className="rounded-2xl border border-[color:var(--planner-board-border)] bg-[color:var(--planner-board-soft)] px-4 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{section.title}</h3>
+        <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-foreground/48">
+          {formatAdvancedStatus(section.status)}
+        </span>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-foreground/58">{section.summary}</p>
+      {section.notes.length > 0 ? (
+        <ul className="mt-3 space-y-1.5">
+          {section.notes.slice(0, 2).map((note) => (
+            <li key={note} className="text-xs leading-5 text-foreground/46">
+              {note}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </article>
+  );
+}
+
+function ProposalNotePanel({
+  title,
+  notes,
+  empty,
+  tone = "neutral",
+}: {
+  title: string;
+  notes: string[];
+  empty: string;
+  tone?: "neutral" | "warning";
+}) {
+  const displayNotes = notes.length ? notes : [empty];
+  return (
+    <div className="min-w-0 rounded-[1.25rem] border border-[color:var(--planner-board-border)] bg-white px-5 py-5">
+      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--accent)]">
+        {title}
+      </p>
+      <div className="mt-4 space-y-3">
+        {displayNotes.slice(0, 5).map((note) => (
+          <p
+            key={note}
+            className={
+              "break-words text-sm leading-6 " +
+              (tone === "warning" ? "text-amber-800" : "text-foreground/60")
+            }
+          >
+            {note}
+          </p>
+        ))}
       </div>
     </div>
+  );
+}
+
+function selectedSummaryLabel(
+  sections: BrochureAdvancedSectionSummary[],
+  metrics: { value: string }[],
+) {
+  const readyCount = sections.filter((section) => section.status === "ready").length;
+  if (readyCount > 0) return String(readyCount);
+  return metrics[0]?.value ?? "0";
+}
+
+function formatAdvancedStatus(status: BrochureAdvancedSectionSummary["status"]) {
+  if (status === "needs_review") return "Worth review";
+  if (status === "ready") return "Selected";
+  return "Flexible";
+}
+
+function HeroPill({ icon: Icon, label }: { icon?: React.ComponentType<{ className?: string }>; label: string }) {
+  return (
+    <span className="flex max-w-full items-center gap-1.5 rounded-full border border-white/16 bg-black/22 px-3.5 py-1.5 text-xs font-medium text-white/80 backdrop-blur-sm">
+      {Icon && <Icon className="h-3.5 w-3.5 opacity-70" />}
+      <span className="min-w-0 break-words">{label}</span>
+    </span>
   );
 }
 
@@ -391,9 +531,9 @@ function BrochureDayCard({
   const isLast = dayIndex === totalDays - 1;
 
   return (
-    <article className="overflow-hidden rounded-2xl border border-[color:var(--planner-board-border)] bg-white shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+    <article className="min-w-0 overflow-hidden rounded-2xl border border-[color:var(--planner-board-border)] bg-white shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
       <div
-        className="flex items-center gap-4 px-5 py-4"
+        className="flex flex-col items-start gap-3 px-5 py-4 sm:flex-row sm:items-center sm:gap-4"
         style={{
           background: isFirst
             ? "linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, white), color-mix(in srgb, var(--accent) 5%, white))"
@@ -410,9 +550,9 @@ function BrochureDayCard({
           <p className="text-sm font-bold tracking-tight" style={{ color: isFirst ? "var(--accent)" : "var(--planner-board-text)" }}>
             {day.label}
           </p>
-          {day.summary && <p className="mt-0.5 truncate text-xs text-foreground/50">{day.summary}</p>}
+          {day.summary && <p className="mt-0.5 break-words text-xs leading-5 text-foreground/50">{day.summary}</p>}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           {isFirst && (
             <span className="rounded-full bg-[color:var(--accent)] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white">Start</span>
           )}
@@ -462,8 +602,8 @@ function BrochureEventRow({ item, warnings }: { item: TimelineItem; warnings: Br
   const { bg, text, label } = getItemStyle(item.type);
 
   return (
-    <div className="flex items-start transition-colors hover:bg-[color:var(--planner-board-soft)]/50">
-      <div className="flex w-20 shrink-0 flex-col items-end px-4 py-4 pt-[1.1rem]">
+    <div className="flex min-w-0 items-start transition-colors hover:bg-[color:var(--planner-board-soft)]/50">
+      <div className="flex w-14 shrink-0 flex-col items-end px-2 py-4 pt-[1.1rem] sm:w-20 sm:px-4">
         {item.start_at ? (
           <>
             <span className="text-xs font-bold tabular-nums" style={{ color: text }}>{formatTime(item.start_at)}</span>
@@ -482,9 +622,9 @@ function BrochureEventRow({ item, warnings }: { item: TimelineItem; warnings: Br
         </div>
       </div>
 
-      <div className="min-w-0 flex-1 px-4 py-4">
-        <div className="flex items-start gap-2">
-          <p className="flex-1 text-sm font-semibold leading-snug text-[color:var(--planner-board-text)]">{item.title}</p>
+      <div className="min-w-0 flex-1 px-3 py-4 sm:px-4">
+        <div className="flex min-w-0 flex-wrap items-start gap-2">
+          <p className="min-w-0 flex-1 break-words text-sm font-semibold leading-snug text-[color:var(--planner-board-text)]">{item.title}</p>
           <span className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em]" style={{ background: bg, color: text }}>{label}</span>
         </div>
 
@@ -498,9 +638,9 @@ function BrochureEventRow({ item, warnings }: { item: TimelineItem; warnings: Br
         )}
 
         {item.location_label && (
-          <div className="mt-1 flex items-center gap-1 text-xs text-foreground/46">
+          <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-foreground/46">
             <MapPin className="h-3 w-3 shrink-0" />
-            <span className="truncate">
+            <span className="min-w-0 truncate">
               {item.venue_name && item.type === "event"
                 ? `${item.venue_name} · ${item.location_label}`
                 : item.location_label}
@@ -508,7 +648,7 @@ function BrochureEventRow({ item, warnings }: { item: TimelineItem; warnings: Br
           </div>
         )}
 
-        {item.summary && <p className="mt-1.5 text-xs leading-relaxed text-foreground/52">{item.summary}</p>}
+        {item.summary && <p className="mt-1.5 break-words text-xs leading-relaxed text-foreground/52">{item.summary}</p>}
 
         {(item.status_text || item.price_text || item.availability_text) && (
           <div className="mt-2 flex flex-wrap gap-2">
@@ -528,7 +668,7 @@ function BrochureEventRow({ item, warnings }: { item: TimelineItem; warnings: Br
         {item.details.length > 0 && (
           <ul className="mt-2 space-y-1">
             {item.details.slice(0, 2).map((detail, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-xs leading-relaxed text-foreground/44">
+              <li key={i} className="flex items-start gap-1.5 break-words text-xs leading-relaxed text-foreground/44">
                 <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-foreground/22" />{detail}
               </li>
             ))}
@@ -550,9 +690,9 @@ function BrochureEventRow({ item, warnings }: { item: TimelineItem; warnings: Br
         {warnings.length > 0 && (
           <div className="mt-3 space-y-1.5">
             {warnings.map((w) => (
-              <div key={w.id} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+              <div key={w.id} className="flex min-w-0 items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
                 <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
-                <span><span className="font-semibold">{w.title}:</span> {w.message}</span>
+                <span className="min-w-0 break-words"><span className="font-semibold">{w.title}:</span> {w.message}</span>
               </div>
             ))}
           </div>

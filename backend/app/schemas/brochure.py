@@ -18,8 +18,10 @@ BrochureWarningCategory = Literal[
     "budget",
     "weather",
     "selection_pending",
+    "review",
 ]
 BrochureSnapshotStatus = Literal["latest", "historical"]
+BrochureAdvancedReviewStatus = Literal["ready", "needs_review", "flexible"]
 
 
 class BrochureHeroImage(BaseModel):
@@ -46,6 +48,14 @@ class BrochureSection(BaseModel):
     id: str
     title: str = Field(..., min_length=1, max_length=120)
     summary: str | None = Field(default=None, max_length=320)
+
+
+class BrochureAdvancedSectionSummary(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    title: str = Field(..., min_length=1, max_length=120)
+    status: BrochureAdvancedReviewStatus = "flexible"
+    summary: str = Field(..., min_length=1, max_length=320)
+    notes: list[str] = Field(default_factory=list, max_length=4)
 
 
 class BrochureResourceLink(BaseModel):
@@ -84,6 +94,15 @@ class BrochureSnapshotPayload(BaseModel):
     hero_image: BrochureHeroImage
     metrics: list[BrochureMetric] = Field(default_factory=list)
     sections: list[BrochureSection] = Field(default_factory=list)
+    advanced_review_status: BrochureAdvancedReviewStatus | None = None
+    advanced_review_summary: str | None = Field(default=None, max_length=400)
+    advanced_section_summaries: list[BrochureAdvancedSectionSummary] = Field(
+        default_factory=list
+    )
+    trip_character_summary: str | None = Field(default=None, max_length=400)
+    planned_experience_summary: str | None = Field(default=None, max_length=400)
+    flexible_items: list[str] = Field(default_factory=list)
+    worth_reviewing_notes: list[str] = Field(default_factory=list)
     warnings: list[BrochureWarning] = Field(default_factory=list)
     itinerary_days: list[BrochureItineraryDay] = Field(default_factory=list)
     flights: list[FlightDetail] = Field(default_factory=list)

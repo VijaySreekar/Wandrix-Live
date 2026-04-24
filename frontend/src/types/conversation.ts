@@ -3,7 +3,10 @@ import type {
   PlannerActivityCandidateKind,
   PlannerActivityDaypart,
   PlannerActivityDisposition,
+  PlannerFlightStrategy,
   PlannerTripPace,
+  PlannerTripStyleTradeoffAxis,
+  PlannerTripStyleTradeoffChoice,
   PlannerTripDirectionAccent,
   PlannerTripDirectionPrimary,
   PlannerReviewResolutionScope,
@@ -53,6 +56,11 @@ export type ConversationBoardAction = {
     | "select_date_option"
     | "pick_dates_for_me"
     | "confirm_working_dates"
+    | "select_flight_strategy"
+    | "select_outbound_flight"
+    | "select_return_flight"
+    | "confirm_flight_selection"
+    | "keep_flights_open"
     | "select_stay_option"
     | "select_stay_hotel"
     | "keep_current_stay_choice"
@@ -73,10 +81,15 @@ export type ConversationBoardAction = {
     | "select_trip_style_pace"
     | "confirm_trip_style_pace"
     | "keep_current_trip_style_pace"
+    | "set_trip_style_tradeoff"
+    | "confirm_trip_style_tradeoffs"
+    | "keep_current_trip_style_tradeoffs"
     | "set_stay_hotel_filters"
     | "set_stay_hotel_sort"
     | "set_stay_hotel_page"
     | "reset_stay_hotel_filters"
+    | "revise_advanced_review_section"
+    | "finalize_advanced_plan"
     | "finalize_quick_plan"
     | "reopen_plan";
   advanced_anchor?: PlannerAdvancedAnchor | null;
@@ -84,6 +97,8 @@ export type ConversationBoardAction = {
   country_or_region?: string | null;
   suggestion_id?: string | null;
   date_option_id?: string | null;
+  flight_strategy?: PlannerFlightStrategy | null;
+  flight_option_id?: string | null;
   stay_option_id?: string | null;
   stay_segment_id?: string | null;
   stay_hotel_id?: string | null;
@@ -97,6 +112,8 @@ export type ConversationBoardAction = {
   trip_style_direction_primary?: PlannerTripDirectionPrimary | null;
   trip_style_direction_accent?: PlannerTripDirectionAccent | null;
   trip_style_pace?: PlannerTripPace | null;
+  trip_style_tradeoff_axis?: PlannerTripStyleTradeoffAxis | null;
+  trip_style_tradeoff_value?: PlannerTripStyleTradeoffChoice | null;
   review_resolution_scope?: PlannerReviewResolutionScope | null;
   stay_hotel_max_nightly_rate?: number | null;
   stay_hotel_area_filter?: string | null;

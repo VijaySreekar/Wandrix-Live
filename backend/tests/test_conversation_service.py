@@ -3,7 +3,9 @@ from psycopg import OperationalError
 from app.services.conversation_service import (
     _get_graph_state_with_retry,
     _invoke_graph_with_retry,
+    _should_create_brochure_snapshot,
 )
+from app.schemas.trip_draft import TripDraft
 
 
 class _RetryGraph:
@@ -53,3 +55,31 @@ def test_get_graph_state_with_retry_retries_once_after_operational_error() -> No
 
     assert graph.state_calls == 2
     assert result["result"] == "ok"
+
+
+def test_brochure_snapshot_triggers_on_transition_to_finalized() -> None:
+    previous = TripDraft(
+        trip_id="trip_1",
+        thread_id="thread_1",
+        title="Kyoto planner",
+    )
+    next_draft = TripDraft.model_validate(
+        {
+            "trip_id": "trip_1",
+            "thread_id": "thread_1",
+            "title": "Kyoto planner",
+            "status": {
+                "confirmation_status": "finalized",
+                "finalized_at": "2027-03-01T12:00:00Z",
+                "finalized_via": "board",
+                "brochure_ready": True,
+            },
+            "conversation": {
+                "planning_mode": "advanced",
+                "advanced_step": "review",
+                "confirmation_status": "finalized",
+            },
+        }
+    )
+
+    assert _should_create_brochure_snapshot(previous, next_draft) is True

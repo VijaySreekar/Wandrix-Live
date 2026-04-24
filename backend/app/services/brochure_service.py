@@ -18,6 +18,7 @@ from app.repositories.brochure_snapshot_repository import (
 )
 from app.repositories.trip_repository import get_trip_for_user
 from app.schemas.brochure import (
+    BrochureAdvancedSectionSummary,
     BrochureBudgetSummary,
     BrochureHeroImage,
     BrochureHistoryItem,
@@ -139,7 +140,10 @@ def render_trip_brochure_pdf(
 
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
+            try:
+                browser = playwright.chromium.launch()
+            except Exception:
+                browser = playwright.chromium.launch(channel="chrome")
             page = browser.new_page(viewport={"width": 1440, "height": 2200})
             page.set_content(html, wait_until="networkidle")
             pdf_bytes = page.pdf(
@@ -170,6 +174,12 @@ def build_brochure_snapshot_payload(
     party_text = _build_party_text(draft)
     budget_text = _build_budget_text(draft)
     warnings = _build_warnings(draft)
+    advanced_section_summaries = _build_advanced_section_summaries(draft)
+    flexible_items = _build_flexible_items(draft, advanced_section_summaries)
+    worth_reviewing_notes = _build_worth_reviewing_notes(
+        draft,
+        advanced_section_summaries,
+    )
     hero_image = BrochureHeroImage(
         url=get_destination_hero_image(destination_label),
         alt_text=f"{destination_label or 'Destination'} hero image for brochure cover",
@@ -191,6 +201,7 @@ def build_brochure_snapshot_payload(
         metrics=_build_metrics(draft),
         sections=[
             BrochureSection(id="summary", title="Trip summary", summary="The travel shape at a glance."),
+            BrochureSection(id="proposal", title="Proposal framing", summary="The Advanced Planning choices that shaped this saved version."),
             BrochureSection(id="warnings", title="Warnings", summary="Timing, logistics, and budget notes to keep in mind."),
             BrochureSection(id="itinerary", title="Day by day itinerary", summary="The current itinerary from departure through return."),
             BrochureSection(id="flights", title="Flights and transfers", summary="Air legs, timing posture, and transfer-sensitive moments."),
@@ -198,6 +209,17 @@ def build_brochure_snapshot_payload(
             BrochureSection(id="budget", title="Budget and movement", summary="The trip spend posture and movement load."),
             BrochureSection(id="highlights", title="Highlights and notes", summary="The destination moments this trip is built around."),
         ],
+        advanced_review_status=draft.conversation.advanced_review_planning.readiness_status
+        if _has_advanced_brochure_context(draft)
+        else None,
+        advanced_review_summary=draft.conversation.advanced_review_planning.workspace_summary
+        if _has_advanced_brochure_context(draft)
+        else None,
+        advanced_section_summaries=advanced_section_summaries,
+        trip_character_summary=_build_trip_character_summary(draft),
+        planned_experience_summary=_build_planned_experience_summary(draft),
+        flexible_items=flexible_items,
+        worth_reviewing_notes=worth_reviewing_notes,
         warnings=warnings,
         itinerary_days=_group_itinerary_days(draft.timeline),
         flights=list(draft.module_outputs.flights),
@@ -211,8 +233,281 @@ def build_brochure_snapshot_payload(
     )
 
 
+def _has_advanced_brochure_context(draft: TripDraft) -> bool:
+    conversation = draft.conversation
+    return bool(
+        conversation.planning_mode == "advanced"
+        or conversation.advanced_review_planning.section_cards
+        or conversation.trip_style_planning.completion_summary
+        or conversation.activity_planning.completion_summary
+        or conversation.flight_planning.completion_summary
+        or conversation.stay_planning.selected_hotel_id
+    )
+
+
+def _build_advanced_section_summaries(
+    draft: TripDraft,
+) -> list[BrochureAdvancedSectionSummary]:
+    if not _has_advanced_brochure_context(draft):
+        return []
+
+    review_cards = draft.conversation.advanced_review_planning.section_cards
+    if review_cards:
+        return [
+            BrochureAdvancedSectionSummary(
+                id=card.id,
+                title=card.title,
+                status=card.status,
+                summary=card.summary[:320],
+                notes=card.notes[:4],
+            )
+            for card in review_cards[:8]
+        ]
+
+    fallback_cards: list[BrochureAdvancedSectionSummary] = []
+    flight = draft.conversation.flight_planning
+    if flight.completion_summary or flight.selection_summary:
+        fallback_cards.append(
+            BrochureAdvancedSectionSummary(
+                id="flight",
+                title="Working flights",
+                status="ready" if flight.selection_status == "completed" else "flexible",
+                summary=(
+                    flight.completion_summary
+                    or flight.selection_summary
+                    or "Flights were kept flexible in this saved proposal."
+                )[:320],
+                notes=[
+                    note
+                    for note in [
+                        flight.arrival_day_impact_summary,
+                        flight.departure_day_impact_summary,
+                        *flight.timing_review_notes,
+                    ]
+                    if note
+                ][:4],
+            )
+        )
+    stay = draft.conversation.stay_planning
+    if stay.selected_hotel_name or stay.selected_stay_direction:
+        stay_needs_review = (
+            stay.selection_status == "needs_review"
+            or stay.hotel_selection_status == "needs_review"
+            or stay.compatibility_status in {"strained", "conflicted"}
+            or stay.hotel_compatibility_status in {"strained", "conflicted"}
+        )
+        fallback_cards.append(
+            BrochureAdvancedSectionSummary(
+                id="stay",
+                title="Current stay",
+                status="needs_review" if stay_needs_review else "ready",
+                summary=(
+                    stay.hotel_selection_rationale
+                    or stay.selection_rationale
+                    or f"{stay.selected_hotel_name or stay.selected_stay_direction} is the current stay choice."
+                )[:320],
+                notes=[*stay.compatibility_notes, *stay.hotel_compatibility_notes][:4],
+            )
+        )
+    trip_style = draft.conversation.trip_style_planning
+    if trip_style.completion_summary:
+        fallback_cards.append(
+            BrochureAdvancedSectionSummary(
+                id="trip_style",
+                title="Trip character",
+                status="ready" if trip_style.substep == "completed" else "flexible",
+                summary=trip_style.completion_summary[:320],
+                notes=[
+                    label
+                    for label in [
+                        _trip_direction_primary_label(
+                            trip_style.selected_primary_direction
+                        ),
+                        _trip_pace_label(trip_style.selected_pace),
+                    ]
+                    if label
+                ][:4],
+            )
+        )
+    activity = draft.conversation.activity_planning
+    if activity.completion_summary or activity.schedule_summary:
+        fallback_cards.append(
+            BrochureAdvancedSectionSummary(
+                id="activities",
+                title="Planned experiences",
+                status="ready"
+                if activity.completion_status == "completed"
+                else "flexible",
+                summary=(
+                    activity.completion_summary
+                    or activity.schedule_summary
+                    or "Experiences were still taking shape in this saved proposal."
+                )[:320],
+                notes=activity.schedule_notes[:4],
+            )
+        )
+    weather = draft.conversation.weather_planning
+    if weather.workspace_summary:
+        fallback_cards.append(
+            BrochureAdvancedSectionSummary(
+                id="weather",
+                title="Weather notes",
+                status="ready" if weather.results_status == "ready" else "flexible",
+                summary=weather.workspace_summary[:320],
+                notes=[
+                    *weather.day_impact_summaries[:2],
+                    *weather.activity_influence_notes[:2],
+                ][:4],
+            )
+        )
+    return fallback_cards[:8]
+
+
+def _build_trip_character_summary(draft: TripDraft) -> str | None:
+    if not _has_advanced_brochure_context(draft):
+        return None
+    trip_style = draft.conversation.trip_style_planning
+    if trip_style.completion_summary:
+        return trip_style.completion_summary
+    style_parts = [
+        _trip_direction_primary_label(trip_style.selected_primary_direction),
+        _trip_pace_label(trip_style.selected_pace),
+    ]
+    style_text = ", ".join(part for part in style_parts if part)
+    if style_text:
+        return f"This proposal is shaped around {style_text.lower()}."
+    if draft.configuration.custom_style:
+        return f"This proposal preserves the requested feel: {draft.configuration.custom_style}."
+    if draft.configuration.activity_styles:
+        return (
+            "This proposal keeps the original trip-style memory visible: "
+            + ", ".join(draft.configuration.activity_styles)
+            + "."
+        )
+    return None
+
+
+def _build_planned_experience_summary(draft: TripDraft) -> str | None:
+    if not _has_advanced_brochure_context(draft):
+        return None
+    activity = draft.conversation.activity_planning
+    if activity.completion_summary:
+        return activity.completion_summary
+    if activity.schedule_summary:
+        return activity.schedule_summary
+    if draft.module_outputs.activities:
+        lead_titles = ", ".join(
+            activity_detail.title
+            for activity_detail in draft.module_outputs.activities[:3]
+        )
+        return f"The proposal highlights {lead_titles}."
+    return None
+
+
+def _build_flexible_items(
+    draft: TripDraft,
+    advanced_section_summaries: list[BrochureAdvancedSectionSummary],
+) -> list[str]:
+    if not _has_advanced_brochure_context(draft):
+        return []
+    items: list[str] = []
+    review = draft.conversation.advanced_review_planning
+    if review.open_summary:
+        items.append(review.open_summary)
+    for section in advanced_section_summaries:
+        if section.status == "flexible":
+            items.append(f"{section.title}: {section.summary}")
+    activity = draft.conversation.activity_planning
+    if activity.reserved_candidate_ids:
+        items.append(
+            f"{len(activity.reserved_candidate_ids)} experience idea"
+            f"{'s' if len(activity.reserved_candidate_ids) != 1 else ''} saved for later."
+        )
+    flight = draft.conversation.flight_planning
+    if flight.selection_status == "kept_open":
+        items.append("Flights were intentionally kept flexible in this proposal.")
+    return _dedupe_text(items)[:8]
+
+
+def _build_worth_reviewing_notes(
+    draft: TripDraft,
+    advanced_section_summaries: list[BrochureAdvancedSectionSummary],
+) -> list[str]:
+    if not _has_advanced_brochure_context(draft):
+        return []
+    review = draft.conversation.advanced_review_planning
+    notes = [
+        *review.review_notes,
+        *[
+            f"{conflict.summary} Suggested next step: {conflict.suggested_repair}"
+            for conflict in draft.conversation.planner_conflicts
+        ],
+        *[
+            note
+            for section in advanced_section_summaries
+            if section.status == "needs_review"
+            for note in section.notes
+        ],
+    ]
+    return _dedupe_text(notes)[:8]
+
+
+def _trip_direction_primary_label(value: str | None) -> str | None:
+    if not value:
+        return None
+    return {
+        "food_led": "Food-led",
+        "culture_led": "Culture-led",
+        "nightlife_led": "Nightlife-led",
+        "outdoors_led": "Outdoors-led",
+        "balanced": "Balanced",
+    }.get(value, value.replace("_", " ").title())
+
+
+def _trip_pace_label(value: str | None) -> str | None:
+    if not value:
+        return None
+    return {
+        "slow": "Slow pace",
+        "balanced": "Balanced pace",
+        "full": "Full pace",
+    }.get(value, value.replace("_", " ").title())
+
+
+def _dedupe_text(items: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = item.strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(text)
+    return deduped
+
+
 def build_brochure_print_html(snapshot: BrochureSnapshot) -> str:
     payload = snapshot.payload
+    advanced_section_rows = "".join(
+        f"""
+        <article class="proposal-card {escape(section.status)}">
+          <div class="proposal-kicker">{escape(section.status.replace('_', ' '))}</div>
+          <h3>{escape(section.title)}</h3>
+          <p>{escape(section.summary)}</p>
+          {''.join(f'<span>{escape(note)}</span>' for note in section.notes)}
+        </article>
+        """
+        for section in payload.advanced_section_summaries
+    )
+    flexible_rows = "".join(
+        f'<li>{escape(item)}</li>' for item in payload.flexible_items
+    )
+    worth_reviewing_rows = "".join(
+        f'<li>{escape(note)}</li>' for note in payload.worth_reviewing_notes
+    )
     warning_cards = "".join(
         f"""
         <article class="warning-card">
@@ -275,12 +570,14 @@ def build_brochure_print_html(snapshot: BrochureSnapshot) -> str:
     :root {{
       color-scheme: light;
       --paper: #f8f3ea;
-      --panel: rgba(255,255,255,0.72);
+      --panel: rgba(255,255,255,0.82);
       --ink: #1b1713;
       --muted: #6d6459;
       --line: rgba(76,55,35,0.12);
-      --accent: #8f4022;
-      --accent-soft: rgba(143,64,34,0.1);
+      --accent: #0f6f67;
+      --accent-deep: #163b36;
+      --gold: #a8732a;
+      --accent-soft: rgba(15,111,103,0.1);
       --warning: #b66a1b;
     }}
     * {{ box-sizing: border-box; }}
@@ -288,7 +585,7 @@ def build_brochure_print_html(snapshot: BrochureSnapshot) -> str:
       margin: 0;
       font-family: "Georgia", "Times New Roman", serif;
       color: var(--ink);
-      background: linear-gradient(180deg, #f8f3ea 0%, #efe7da 100%);
+      background: linear-gradient(180deg, #f8f6f0 0%, #eef4f2 100%);
     }}
     main {{ padding: 28px; }}
     .cover {{
@@ -296,7 +593,7 @@ def build_brochure_print_html(snapshot: BrochureSnapshot) -> str:
       border-radius: 28px;
       overflow: hidden;
       position: relative;
-      background: linear-gradient(180deg, rgba(23,18,15,.08), rgba(23,18,15,.55)), url('{escape(payload.hero_image.url)}') center/cover no-repeat;
+      background: linear-gradient(180deg, rgba(13,30,28,.10), rgba(13,30,28,.62)), url('{escape(payload.hero_image.url)}') center/cover no-repeat;
       padding: 28px;
       display: flex;
       flex-direction: column;
@@ -325,6 +622,34 @@ def build_brochure_print_html(snapshot: BrochureSnapshot) -> str:
       backdrop-filter: blur(12px);
     }}
     .panel h2 {{ margin: 0 0 12px; font-size: 20px; }}
+    .proposal-grid {{ display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0,1fr)); }}
+    .proposal-card {{
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.58);
+      border-radius: 18px;
+      padding: 16px;
+      break-inside: avoid;
+    }}
+    .proposal-kicker {{
+      color: var(--gold);
+      text-transform: uppercase;
+      letter-spacing: .13em;
+      font-size: 10px;
+      margin-bottom: 8px;
+    }}
+    .proposal-card span {{
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }}
+    .note-list {{
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.55;
+    }}
     .summary-grid, .metric-grid {{ display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0,1fr)); }}
     .metric {{
       border-top: 1px solid var(--line);
@@ -343,7 +668,7 @@ def build_brochure_print_html(snapshot: BrochureSnapshot) -> str:
       font-size: 11px;
       margin-bottom: 8px;
     }}
-    .warning-card h3, .detail-row h3, .highlight-row h3, .day-header h3 {{ margin: 0; font-size: 17px; }}
+    .warning-card h3, .detail-row h3, .highlight-row h3, .day-header h3, .proposal-card h3 {{ margin: 0; font-size: 17px; }}
     .warning-card p, .detail-row p, .highlight-row p, .timeline-item p, .panel p {{ color: var(--muted); line-height: 1.6; }}
     .timeline-stack {{ display: grid; gap: 14px; }}
     .day-block + .day-block {{ margin-top: 18px; }}
@@ -410,7 +735,7 @@ def build_brochure_print_html(snapshot: BrochureSnapshot) -> str:
     </section>
     <section class="grid top-grid">
       <article class="panel">
-        <h2>Trip at a glance</h2>
+        <h2>Proposal at a glance</h2>
         <div class="summary-grid">
           <div><p>Route</p><strong>{escape(payload.route_text)}</strong></div>
           <div><p>Trip window</p><strong>{escape(payload.travel_window_text)}</strong></div>
@@ -422,14 +747,33 @@ def build_brochure_print_html(snapshot: BrochureSnapshot) -> str:
         </div>
       </article>
       <article class="panel">
-        <h2>Warnings</h2>
+        <h2>Review notes</h2>
         <div class="warning-grid">
           {warning_cards or '<p>No active travel warnings were captured in this snapshot.</p>'}
         </div>
       </article>
     </section>
     <section class="panel">
-      <h2>Day by day itinerary</h2>
+      <h2>Trip character</h2>
+      <p>{escape(payload.trip_character_summary or payload.executive_summary)}</p>
+      {f'<p><strong>{escape(payload.planned_experience_summary)}</strong></p>' if payload.planned_experience_summary else ''}
+      {f'<p>{escape(payload.advanced_review_summary)}</p>' if payload.advanced_review_summary else ''}
+      {f'<div class="proposal-grid">{advanced_section_rows}</div>' if advanced_section_rows else ''}
+    </section>
+    {(flexible_rows or worth_reviewing_rows) and f'''
+    <section class="grid top-grid">
+      <article class="panel">
+        <h2>Still flexible</h2>
+        <ul class="note-list">{flexible_rows or '<li>No intentionally flexible items were captured.</li>'}</ul>
+      </article>
+      <article class="panel">
+        <h2>Worth reviewing</h2>
+        <ul class="note-list">{worth_reviewing_rows or '<li>No additional review notes were captured.</li>'}</ul>
+      </article>
+    </section>
+    ''' or ''}
+    <section class="panel">
+      <h2>Proposal itinerary</h2>
       {itinerary_sections or '<p>The day-by-day itinerary is still being shaped.</p>'}
     </section>
     <section class="grid top-grid">
@@ -747,6 +1091,17 @@ def _build_warnings(draft: TripDraft) -> list[BrochureWarning]:
                 category="budget",
                 title="Budget and trip posture may be pulling apart",
                 message="The trip tone and current spend posture do not align cleanly yet, so expect brochure totals to move when flights or stays firm up.",
+                related_timeline_ids=[],
+            )
+        )
+
+    for index, note in enumerate(_build_worth_reviewing_notes(draft, _build_advanced_section_summaries(draft))):
+        warnings.append(
+            BrochureWarning(
+                id=f"warning_advanced_review_{index + 1}",
+                category="review",
+                title="Worth reviewing before booking",
+                message=note[:320],
                 related_timeline_ids=[],
             )
         )

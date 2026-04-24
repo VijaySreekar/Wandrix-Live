@@ -65,6 +65,16 @@ export type TripConfiguration = {
   custom_style?: string | null;
 };
 
+export type FlightLegDetail = {
+  carrier?: string | null;
+  flight_number?: string | null;
+  departure_airport: string;
+  arrival_airport: string;
+  departure_time?: string | null;
+  arrival_time?: string | null;
+  duration_text?: string | null;
+};
+
 export type FlightDetail = {
   id: string;
   direction: "outbound" | "return";
@@ -75,6 +85,12 @@ export type FlightDetail = {
   departure_time: string | null;
   arrival_time: string | null;
   duration_text: string | null;
+  price_text?: string | null;
+  stop_count?: number | null;
+  layover_summary?: string | null;
+  legs?: FlightLegDetail[];
+  timing_quality?: string | null;
+  inventory_notice?: string | null;
   notes: string[];
 };
 
@@ -100,6 +116,11 @@ export type WeatherDetail = {
   id: string;
   day_label: string;
   summary: string;
+  forecast_date?: string | null;
+  weather_code?: number | null;
+  condition_tags?: string[];
+  temperature_band?: string | null;
+  weather_risk_level?: "low" | "medium" | "high" | null;
   high_c: number | null;
   low_c: number | null;
   notes: string[];
