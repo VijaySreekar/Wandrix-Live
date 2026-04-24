@@ -6,6 +6,13 @@ from app.schemas.trip_conversation import (
     CheckpointConversationMessage,
     ChatPlannerPhase,
     PlannerAdvancedAnchor,
+    PlannerActivityCandidateKind,
+    PlannerActivityDaypart,
+    PlannerActivityDisposition,
+    PlannerTripPace,
+    PlannerTripDirectionAccent,
+    PlannerTripDirectionPrimary,
+    PlannerReviewResolutionScope,
 )
 from app.schemas.trip_planning import ActivityStyle, BudgetPosture, TripModuleSelection
 from app.schemas.trip_draft import TripDraft
@@ -49,6 +56,24 @@ class ConversationBoardAction(BaseModel):
         "confirm_working_dates",
         "select_stay_option",
         "select_stay_hotel",
+        "keep_current_stay_choice",
+        "keep_current_hotel_choice",
+        "set_activity_candidate_disposition",
+        "rebuild_activity_day_plan",
+        "move_activity_candidate_to_day",
+        "move_activity_candidate_earlier",
+        "move_activity_candidate_later",
+        "pin_activity_candidate_daypart",
+        "send_activity_candidate_to_reserve",
+        "restore_activity_candidate_from_reserve",
+        "select_trip_style_direction_primary",
+        "select_trip_style_direction_accent",
+        "clear_trip_style_direction_accent",
+        "confirm_trip_style_direction",
+        "keep_current_trip_style_direction",
+        "select_trip_style_pace",
+        "confirm_trip_style_pace",
+        "keep_current_trip_style_pace",
         "set_stay_hotel_filters",
         "set_stay_hotel_sort",
         "set_stay_hotel_page",
@@ -65,6 +90,16 @@ class ConversationBoardAction(BaseModel):
     stay_segment_id: str | None = Field(default=None, max_length=80)
     stay_hotel_id: str | None = Field(default=None, max_length=120)
     stay_hotel_name: str | None = Field(default=None, max_length=160)
+    activity_candidate_id: str | None = Field(default=None, max_length=160)
+    activity_candidate_title: str | None = Field(default=None, max_length=160)
+    activity_candidate_kind: PlannerActivityCandidateKind | None = None
+    activity_candidate_disposition: PlannerActivityDisposition | None = None
+    activity_target_day_index: int | None = Field(default=None, ge=1, le=30)
+    activity_target_daypart: PlannerActivityDaypart | None = None
+    trip_style_direction_primary: PlannerTripDirectionPrimary | None = None
+    trip_style_direction_accent: PlannerTripDirectionAccent | None = None
+    trip_style_pace: PlannerTripPace | None = None
+    review_resolution_scope: PlannerReviewResolutionScope | None = None
     stay_hotel_max_nightly_rate: float | None = Field(default=None, ge=0)
     stay_hotel_area_filter: str | None = Field(default=None, max_length=160)
     stay_hotel_style_filter: str | None = Field(default=None, max_length=40)

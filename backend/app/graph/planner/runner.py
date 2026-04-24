@@ -181,6 +181,12 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         advanced_step=advanced_step,
         advanced_anchor=advanced_anchor,
     )
+    should_enrich_advanced_activities = _should_enrich_advanced_activities(
+        configuration=next_configuration,
+        planning_mode=planning_mode,
+        advanced_step=advanced_step,
+        advanced_anchor=advanced_anchor,
+    )
     allowed_modules = set(provider_activation["allowed_modules"])
     if locked_without_reopen or preserve_existing_quick_plan:
         module_outputs = existing_module_outputs
@@ -194,12 +200,18 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
                 allowed_modules=(
                     allowed_modules
                     if should_enrich_modules
+                    else {"activities", "weather"}
+                    if should_enrich_advanced_activities
                     else {"hotels"}
                     if should_enrich_advanced_stay_hotels
                     else set()
                 ),
             )
-            if should_enrich_modules or should_enrich_advanced_stay_hotels
+            if (
+                should_enrich_modules
+                or should_enrich_advanced_stay_hotels
+                or should_enrich_advanced_activities
+            )
             else existing_module_outputs
         )
         effective_preview = effective_llm_update.timeline_preview
@@ -220,12 +232,15 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
                 include_derived_when_preview_present = False
             if quick_plan_draft.board_summary:
                 effective_llm_update.last_turn_summary = quick_plan_draft.board_summary
-        timeline = build_timeline(
-            configuration=next_configuration,
-            llm_preview=effective_preview,
-            module_outputs=module_outputs,
-            include_derived_when_preview_present=include_derived_when_preview_present,
-        )
+        if should_enrich_advanced_activities and planning_mode == "advanced":
+            timeline = existing_timeline
+        else:
+            timeline = build_timeline(
+                configuration=next_configuration,
+                llm_preview=effective_preview,
+                module_outputs=module_outputs,
+                include_derived_when_preview_present=include_derived_when_preview_present,
+            )
     confirmation_status, finalized_at, finalized_via, confirmation_transition = (
         _resolve_confirmation_state(
             current_status=current_status,
@@ -298,6 +313,11 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         confirmation_status=confirmation_status,
         finalized_at=finalized_at,
         finalized_via=finalized_via,
+    )
+    timeline = _merge_hidden_activity_timeline(
+        timeline=timeline,
+        conversation=next_conversation,
+        planning_mode=planning_mode,
     )
     next_status = build_status(
         current=current_status,
@@ -947,6 +967,31 @@ def _should_enrich_advanced_stay_hotels(
     return bool(current_conversation.stay_planning.selected_stay_option_id)
 
 
+def _should_enrich_advanced_activities(
+    *,
+    configuration: TripConfiguration,
+    planning_mode: str | None,
+    advanced_step: PlannerAdvancedStep | None,
+    advanced_anchor: PlannerAdvancedAnchor | None,
+) -> bool:
+    if (
+        planning_mode != "advanced"
+        or advanced_step != "anchor_flow"
+        or advanced_anchor != "activities"
+    ):
+        return False
+    if not configuration.selected_modules.activities:
+        return False
+    if not configuration.to_location:
+        return False
+    return bool(
+        configuration.start_date
+        or configuration.end_date
+        or configuration.travel_window
+        or configuration.trip_length
+    )
+
+
 def _resolve_confirmation_state(
     *,
     current_status: TripDraftStatus,
@@ -999,4 +1044,86 @@ def _resolve_confirmation_state(
 
 def _build_board_action_audit_message(board_action: dict) -> str:
     action = ConversationBoardAction.model_validate(board_action)
+    if (
+        action.type == "select_trip_style_direction_primary"
+        and action.trip_style_direction_primary
+    ):
+        return (
+            "Board action: set trip direction to "
+            f"{action.trip_style_direction_primary}."
+        )
+    if (
+        action.type == "select_trip_style_direction_accent"
+        and action.trip_style_direction_accent
+    ):
+        return (
+            "Board action: set trip accent to "
+            f"{action.trip_style_direction_accent}."
+        )
+    if action.type == "confirm_trip_style_direction":
+        return "Board action: confirmed the current trip direction."
+    if (
+        action.type == "set_activity_candidate_disposition"
+        and action.activity_candidate_title
+        and action.activity_candidate_disposition
+    ):
+        return (
+            f"Board action: set {action.activity_candidate_title} to "
+            f"{action.activity_candidate_disposition}."
+        )
+    if action.type == "rebuild_activity_day_plan":
+        return "Board action: rebuild the activity day plan."
+    if action.type == "select_stay_hotel" and action.stay_hotel_name:
+        return f"Board action: selected hotel {action.stay_hotel_name}."
+    if action.type == "select_stay_option" and action.stay_option_id:
+        return f"Board action: selected stay option {action.stay_option_id}."
+    if action.type == "select_advanced_anchor" and action.advanced_anchor:
+        return f"Board action: start advanced planning with {action.advanced_anchor}."
     return f"Board action: {action.type}"
+
+
+def _merge_hidden_activity_timeline(
+    *,
+    timeline: list[TimelineItem],
+    conversation: TripConversationState,
+    planning_mode: str | None,
+) -> list[TimelineItem]:
+    if planning_mode != "advanced":
+        return timeline
+
+    preserved_items = [
+        item
+        for item in timeline
+        if not (
+            item.source_module == "activities"
+            and item.type in {"activity", "event", "transfer"}
+        )
+    ]
+    scheduled_activity_items = [
+        TimelineItem(
+            id=block.id,
+            type=block.type,
+            title=block.title,
+            day_label=block.day_label,
+            start_at=block.start_at,
+            end_at=block.end_at,
+            venue_name=block.venue_name,
+            location_label=block.location_label,
+            summary=block.summary,
+            details=[
+                detail
+                for detail in block.details
+                if not detail.startswith("coords:")
+            ],
+            source_label=block.source_label,
+            source_url=block.source_url,
+            image_url=block.image_url,
+            availability_text=block.availability_text,
+            price_text=block.price_text,
+            status_text=block.status_text,
+            source_module="activities",
+            status="draft",
+        )
+        for block in conversation.activity_planning.timeline_blocks
+    ]
+    return [*preserved_items, *scheduled_activity_items]

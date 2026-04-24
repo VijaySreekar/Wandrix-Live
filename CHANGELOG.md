@@ -9,6 +9,783 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-24 - Added Trip Style Pace Before Activities
+
+Technical Summary:
+- Extended the Advanced Trip Style branch from `Direction -> completed` to `Direction -> Pace -> completed`, with `slow`, `balanced`, and `full` pace choices carried through board actions, chat-side structured updates, suggestion-board state, assistant copy, and frontend contracts.
+- Added the dedicated `advanced_trip_style_pace` workspace so confirmed Direction now opens a Pace decision instead of immediately returning to anchor choice, and Pace confirmation completes Trip Style with Activities recommended next.
+- Fed confirmed Pace into the activities scheduler as a density default: slow places fewer flexible candidates, balanced targets two main moments, and full can use more dayparts while fixed-time events and manual placements remain stronger.
+- Added targeted backend coverage for Pace board/chat merging, Direction-to-Pace runtime flow, activity schedule density, fixed/manual preservation, and understanding prompt semantics; verified backend compile checks plus frontend type/lint checks.
+
+Plain-English Summary:
+- Trip Style now asks one more useful question before Activities: how full should the days feel?
+- The user can keep the same trip character, then choose Slow, Balanced, or Full pacing so Activities knows whether to leave more open time or build denser days.
+- Existing event locks and manual activity edits stay safe when pacing changes.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Trip Style Direction As A Real Advanced Planning Workspace
+
+Technical Summary:
+- Added planner-owned `trip_style_planning` state, Direction vocabularies (`primary` plus optional `accent`), board actions, and chat-side `requested_trip_style_direction_updates` so `trip_style` now behaves like a real Advanced Planning branch instead of generic placeholder flow.
+- Extended the suggestion board and assistant response layers with a dedicated Direction workspace, explicit confirmation flow, completed-anchor return behavior, and activities-first handoff once the trip character is confirmed.
+- Updated activity ranking so a confirmed Direction now shapes candidate ordering and rationale ahead of raw intake style signals, while preserving existing activity selections and schedule edits when Direction changes later.
+- Added focused backend coverage for board-action merging, Direction prompt semantics, trip-style workspace completion flow, and activity reranking behavior, and verified the new contracts through planner compile checks plus frontend lint/build.
+
+Plain-English Summary:
+- Trip Style now works as a real step in Advanced Planning instead of just a label.
+- You can choose the trip’s main character first, like food-led or culture-led, optionally soften it with an accent like local or relaxed, and then let Activities inherit that direction.
+- Once Direction is confirmed, Wandrix sends you back to the remaining anchors and pushes Activities next, already biased toward the kind of trip you chose.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Closed The Activities Workspace With Direct Schedule Editing
+
+Technical Summary:
+- Extended the Advanced activities planner contracts with explicit schedule-editing actions, chat-side `requested_activity_schedule_edits`, planner-owned placement preferences, reserve tracking, daypart metadata, and schedule rebalance notes.
+- Updated the activities reducer to preserve manual day and daypart choices across rebuilds, allow reserve/restore actions, keep fixed-time events locked, and regenerate draft day plans around those explicit edits instead of wiping them away.
+- Expanded the activities workspace and live board UI to expose direct schedule controls for placing picks on specific days, pinning them to morning/afternoon/evening, moving scheduled blocks earlier or later, and sending or restoring items from reserve, while surfacing rebalance notes and richer highlight context.
+- Added focused backend coverage for board/chat scheduling parity, reserve/restore behavior, fixed-time event protection, and the new understanding prompt semantics for activity schedule edits.
+
+Plain-English Summary:
+- You can now shape the activities branch more directly instead of only marking picks as strong or weak.
+- Activities and events can be moved between days, nudged earlier or later, pinned to a part of the day, or saved for later without losing the planner’s surrounding draft.
+- Fixed-time events stay locked to their real time, and the board now explains when the planner had to rebalance nearby stops to keep the plan workable.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Softened Timeline Copy And Activities Handoff Language
+
+Technical Summary:
+- Reworked activities schedule summaries and completion summaries so they describe draft days and trip shape more naturally, instead of sounding like internal planner state.
+- Updated transfer blocks and per-stop timing notes to read like a travel draft (`Travel between plans`, `Set aside about ... minutes`) instead of generated system output.
+- Renamed frontend timeline badges from raw block types to more human labels like `Planned stop`, `Timed moment`, and `Travel`, and softened `Fixed time` to `Set time`.
+
+Plain-English Summary:
+- The activities timeline should now read more like a real itinerary draft and less like a backend-generated schedule dump.
+- Moving from the activities workspace back to the next planning choice should feel calmer and more natural.
+- The day-by-day blocks should be easier for a traveler to scan at a glance.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Polished Activity Card Copy And Shortened Raw Location Text
+
+Technical Summary:
+- Tightened Geoapify activity shaping so location labels now prefer shorter English-forward area text over raw full-address strings when possible.
+- Reworked planner-side activity candidate summaries and ranking reasons into more editorial travel copy, replacing raw category phrases like `Commercial Marketplace` and generic boilerplate with cleaner experience-led language.
+- Added provider assertions to keep shorter location labels stable for English-first and local-script Kyoto activity cases, and updated the runtime expectation for the renamed event-led copy.
+
+Plain-English Summary:
+- Activity cards should now read more like real travel suggestions and less like raw map data.
+- The location lines are shorter and cleaner, and the supporting reasons sound more natural.
+- Kyoto activities should feel less like a scraped POI list and more like a curated planning workspace.
+
+Files / Areas Touched:
+- `backend/app/services/providers/activities.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/tests/test_activities_provider.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Tightened Activities Completion And Aligned The Next-Step Recommendation
+
+Technical Summary:
+- Tightened `_finalize_activity_completion_state(...)` so multi-day activities planning no longer completes after a single `Shape trip` choice unless there is a stronger short-trip or fixed-time-event signal.
+- Added a dedicated post-activities recommendation helper on the board side so the completed activities handoff now uses the same next-step logic as the assistant response, instead of producing conflicting recommendations.
+- Updated the runtime expectation for hotel-review resolution on a longer trip so resolving review can return to the activities workspace without prematurely marking the branch complete.
+
+Plain-English Summary:
+- Wandrix should no longer act like one chosen activity is enough to finish planning a whole 5-day activities flow.
+- The board and the assistant should now agree on what the next planning move is after experiences are in place.
+- This makes the activities handoff feel less jumpy and less contradictory.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Reframed The Activities Experience In More Human Language
+
+Technical Summary:
+- Rewrote the Advanced activities board copy, completion copy, and review copy so the experience talks about moments, trip shape, and draft days instead of leaning on planner-internal terms like anchors, branches, essentials, and passes.
+- Renamed the main activities workspace labels in the frontend from internal planning semantics to more user-facing language such as `Shape trip`, `Keep option`, `Skip`, `Leading picks`, `In the mix`, and `Refresh draft days`.
+- Softened chat-side board action echoes so clicking through the activities workspace now produces more natural transcript language that matches the board labels.
+- Updated related anchor-choice and stay-review surface text so the activities flow hands off more smoothly without snapping back into technical planning language.
+
+Plain-English Summary:
+- The activities flow should now feel more like a travel planner helping shape a trip, and less like a state machine showing its internal wiring.
+- The board now uses friendlier labels for what belongs at the heart of the trip, what should stay as an option, and what should be left out.
+- Moving through activities, review, and handoff should read more naturally for a normal traveler, even though the same planning logic is still underneath.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Stabilized Board Actions And Softened Activities Language
+
+Technical Summary:
+- Routed planner board actions through the direct backend update path instead of relying on the assistant thread run loop, so board-triggered planner changes can update the trip draft and chat history more reliably.
+- Softened Advanced activities wording across the backend board/response builders so the UI talks about what should shape the trip rather than surfacing planner-internal terms like branches and anchors as heavily.
+- Updated activities completion copy so selected essentials now describe shaping the activities plan instead of using awkward anchor phrasing.
+- Counted chat-side stay-review resolution turns as real activities-branch interaction, so chat and board now agree about when a resolved review can return to a completed activities handoff.
+- Replaced the composer send/cancel primitives with thread-state-driven controls because the local assistant runtime always advertised cancel capability, which kept surfacing a fake idle `Stop generating` state in chat.
+- Guarded the chat-history cache against server rendering so `/chat/new` no longer throws when the app shell renders before `window` exists, and pointed the top-nav `Chat` entry plus login handoff at `/chat/new` so it always starts a fresh planner.
+
+Plain-English Summary:
+- Board actions should now feel less brittle, because they update the real trip state more directly instead of waiting on the chat runtime to catch up.
+- The activities flow now sounds more like a travel planner and less like an internal planning system.
+- The overall experience should feel a little more natural, even though there is still more polish left to do.
+- Resolving a stay review in chat now behaves the same way as resolving it on the board, instead of one path feeling like it "counted" and the other one did not.
+- The chat composer now behaves more honestly: the stop button only shows up while Wandrix is actually responding, and idle chat goes back to a normal send state.
+- Opening Chat from the navbar now starts cleanly in a new planner instead of yanking you back into an older trip, and the `/chat/new` page no longer trips over browser-only storage during the first render.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/app/app-nav-links.tsx`
+- `frontend/src/lib/chat-history-cache.ts`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Improved Activity Candidate Filtering And English-First Titles
+
+Technical Summary:
+- Expanded the Geoapify activities provider to query multiple categories per style, prioritize richer marketplace/culture categories over low-signal top-level labels, and return up to six activity candidates instead of a thin four-item list.
+- Added English-first activity title shaping so local-script place names can fall back to readable English anchor labels while preserving the original venue name in structured detail and notes.
+- Tightened filtering so generic chain restaurants, weak catering-only results, and street-name fragments no longer dominate the Advanced activities workspace, and added provider tests for chain filtering, English fallback, and marketplace/category prioritization.
+
+Plain-English Summary:
+- Kyoto activity suggestions now read much more like real trip anchors and much less like random nearby lunch spots.
+- Wandrix now prefers English-facing activity titles, while still keeping the local name around in the details when it is useful.
+- The activities branch now has a broader and more believable mix of food-and-culture ideas instead of collapsing into generic restaurant clutter.
+
+Files / Areas Touched:
+- `backend/app/services/providers/activities.py`
+- `backend/tests/test_activities_provider.py`
+- `backend/tests/test_provider_enrichment.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Prevented Premature Activities Auto-Completion
+
+Technical Summary:
+- Extended `AdvancedActivityPlanningState` with a persisted `workspace_touched` flag so the planner can distinguish between auto-seeded activity state and a branch the user has actually shaped.
+- Updated `merge_activity_planning_state(...)` to mark the activities workspace as touched only after meaningful interaction such as disposition changes, rebuilds, review-resolution turns, or chat-side activity decisions, instead of treating the initial anchor selection as sufficient engagement.
+- Tightened `_finalize_activity_completion_state(...)` so activities can only complete when the schedule is ready, the branch has a real anchor, there is no unresolved review, and the workspace has genuinely been touched by the user.
+- Updated starter/frontend types and planner tests so first entry to the activities anchor stays in `advanced_activities_workspace`, while explicit shaping actions can still complete the branch and hand it back to remaining anchors.
+
+Plain-English Summary:
+- Choosing activities first no longer causes Wandrix to skip past the activities workspace and mark it done immediately.
+- The planner now waits until the user has actually shaped the activities branch before it is allowed to count as completed.
+- This makes the activities flow feel more honest: you now get the workspace first, and completion happens only after real interaction.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/schemas/trip_conversation.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Added Activities Completion And Anchor Handoff
+
+Technical Summary:
+- Extended `AdvancedActivityPlanningState` with derived completion fields so the activities branch can mark itself `completed` once it has a ready timed plan, a real anchor, and no unresolved stay or hotel review still blocking it.
+- Added completion evaluation to the planner flow after activities-driven stay and hotel review, so accepted keep-current review decisions count as resolved while thin all-`maybe` plans stay in progress.
+- Updated Advanced Planning board routing so a completed activities branch returns to the existing anchor-choice surface with activities marked completed, while unresolved review still wins and weak plans stay inside the activities workspace.
+- Updated assistant copy and runtime tests so activities can hand off to the remaining anchors without losing branch context, and so later review or weaker activity evidence can naturally pull the planner back into the workspace.
+
+Plain-English Summary:
+- The activities branch can now actually finish instead of staying open forever.
+- Once Wandrix has enough real activity structure, it marks activities as completed and brings back the remaining planning anchors so the trip can move forward.
+- If the activity plan is still too thin, or if stay or hotel review is still unresolved, Wandrix keeps the user inside the activities flow until it is genuinely ready.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/trip_conversation.py`
+- `frontend/src/types/trip-conversation.ts`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Added Review Resolution Flow For Activities-Driven Stay And Hotel Conflicts
+
+Technical Summary:
+- Extended the Advanced Planning stay state so activities-driven stay and hotel review can store accepted-review signatures and summaries without adding new public review enums.
+- Added explicit `keep_current_stay_choice` and `keep_current_hotel_choice` board actions, plus chat-side `requested_stay_option_title` and `requested_review_resolutions`, so both the board and chat can resolve review by either switching or explicitly keeping the current choice.
+- Updated the activities review reducer, assistant responses, and workspace UI so resolved review returns to `advanced_activities_workspace`, accepted review stays suppressed until the activity evidence changes materially, and the activity plan plus hidden timeline remain intact.
+- Added targeted backend tests for keep-current suppression, chat-driven stay switching, review reopening semantics, and the new understanding-prompt fields.
+
+Plain-English Summary:
+- When activities or events put the current stay or hotel under review, the planner can now handle that cleanly instead of leaving the user stuck in warning mode.
+- You can now either switch to a better-fit base or hotel, or keep the current one anyway, and the planner will remember that choice until the trip plan changes enough to make the warning meaningfully different.
+- The activities plan stays in place through all of this, so resolving review no longer knocks the trip off course.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/board_action_merge.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `backend/tests/test_planner_understanding.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Made Sidebar Chat Count Auto-Fit The Available Height
+
+Technical Summary:
+- Updated `frontend/src/components/chat/chat-sidebar.tsx` so the sidebar no longer starts from a hardcoded visible-chat count and instead uses a `ResizeObserver` on the list viewport to derive how many chat rows fit in the available height.
+- Kept `Show more` behavior intact by layering manual expansion on top of the auto-fit baseline, so the list grows naturally with the sidebar but can still be extended beyond the default fit when needed.
+
+Plain-English Summary:
+- The sidebar now shows as many chats as fit in the space it actually has.
+- If the sidebar gets taller or shorter, the default visible list adjusts with it instead of staying stuck at five rows.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Refined The Wandrix Wordmark Typography
+
+Technical Summary:
+- Updated `frontend/src/components/app/brand-wordmark.tsx` so the live brand text now uses the existing display font stack instead of the heavier `Sora`-style treatment.
+- Simplified the wordmark styling to a single `Wandrix` text run with calmer sizing and no split-color letter treatment, while keeping the current briefcase icon mark in place.
+
+Plain-English Summary:
+- The header wordmark should look more polished now.
+- I moved it away from the chunkier font treatment and made it feel cleaner, more premium, and less shouty.
+
+Files / Areas Touched:
+- `frontend/src/components/app/brand-wordmark.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Reverted The Experimental Chat Sidebar Redesign
+
+Technical Summary:
+- Restored `frontend/src/components/chat/chat-sidebar.tsx` to the earlier lightweight sidebar structure with the original recent-trip list, compact search, and existing rename/delete affordances after the redesign pass proved wrong in the real app.
+- Removed the sidebar-only destination thumbnail helper from `frontend/src/lib/destination-images.ts` so the revert does not leave behind unused support code from the abandoned sidebar iteration.
+
+Plain-English Summary:
+- I rolled the sidebar back to the version you preferred before the redesign experiment.
+- The extra sidebar styling and image treatment are gone, and the left rail is back to its original simpler behavior.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/lib/destination-images.ts`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Reverted The Custom Logo And Swapped In A Briefcase Brand Mark
+
+Technical Summary:
+- Removed the user-supplied raster lockup from the live navbar brand treatment and restored `frontend/src/components/app/brand-wordmark.tsx` to a simple code-native icon-plus-wordmark component.
+- Replaced the previous custom image approach with Lucide's `BriefcaseBusiness` icon so the Wandrix brand stays lightweight, legible, and easy to tune directly in the frontend without depending on generated logo assets.
+
+Plain-English Summary:
+- The app is back to a cleaner built-in logo treatment instead of the uploaded logo you hated.
+- The brand now uses a briefcase icon with the live Wandrix wordmark, which should feel simpler and less awkward in the header.
+
+Files / Areas Touched:
+- `frontend/src/components/app/brand-wordmark.tsx`
+- `frontend/public/images/branding/wandrix-navbar-lockup-v2.png`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Flattened The Chat Sidebar Into A Cleaner Thumbnail List
+
+Technical Summary:
+- Reworked `frontend/src/components/chat/chat-sidebar.tsx` to remove the separate `Planning now` block, keep the active conversation highlighted inside the main chat list, and render destination thumbnails for recent chats instead of letter-only placeholders.
+- Added a synchronous `getDestinationImageForPlace` helper to `frontend/src/lib/destination-images.ts` so lightweight surfaces like the sidebar can reuse Wandrix's curated destination imagery without async lookup flow.
+- Replaced the earlier bulky `New Trip` glyph with a thinner mountain-line mark and widened row content so long trip names can wrap more naturally instead of getting chopped too early.
+
+Plain-English Summary:
+- The sidebar now wastes less space and reads more cleanly.
+- Your current trip sits naturally inside the same chat list, recent conversations feel more visual, and the `New Trip` button is closer to the style you asked for.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/lib/destination-images.ts`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Adopted The New User-Supplied Wandrix Logo In The App Shell
+
+Technical Summary:
+- Added the user-provided brand lockup as `frontend/public/images/branding/wandrix-navbar-lockup-v2.png` and updated `frontend/src/components/app/brand-wordmark.tsx` to use the new asset with its correct dimensions.
+- Extended the shared brand component with a compact `BrandMonogram`, then replaced the chat sidebar's old compass-led header treatment so the app shell now uses one consistent Wandrix identity across wide and narrow brand surfaces.
+
+Plain-English Summary:
+- The app now uses your chosen Wandrix logo instead of mixing the new lockup with the older generic icon treatment.
+- The top navigation and chat sidebar should feel like the same brand system now, not two different identities stitched together.
+
+Files / Areas Touched:
+- `frontend/public/images/branding/wandrix-navbar-lockup-v2.png`
+- `frontend/src/components/app/brand-wordmark.tsx`
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Stay Review Workspaces Now Re-rank Alternatives Around Activities
+
+Technical Summary:
+- Extended the activities-to-stay review pass so strained stay directions are re-ranked around current activity and event signals instead of showing only the original brief-led stay ordering.
+- Re-ranked hotel recommendations inside hotel review mode using the same activity gravity, including stronger neighbourhood-vs-hub scoring and replacement-ready hotel copy when the selected hotel has drifted out of fit.
+- Updated stay and hotel review board copy plus assistant responses so review mode now points at the leading replacement option instead of only restating the conflict.
+
+Plain-English Summary:
+- When activities or events make the current stay choice feel wrong, Wandrix now surfaces better replacement options instead of only warning you.
+- The stay and hotel review boards now actively lean toward the alternatives that match the trip you are actually building.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Refocused The Chat Sidebar Around Active Planning
+
+Technical Summary:
+- Reworked `frontend/src/components/chat/chat-sidebar.tsx` so the left rail now behaves like a planning-first workspace instead of a mixed saved-trips shelf, with a branded header, stronger `New Trip` entry point, dedicated `Planning now` card, and a cleaner `Recent chats` list that excludes the active thread.
+- Added richer trip summary helpers for route, timing, and phase labels so the sidebar can surface real trip context from persisted trip data and the live workspace draft without introducing new API calls or changing the underlying chat-switching behavior.
+- Kept rename and delete flows intact while restyling their surrounding rows to match the calmer, more editorial travel-product direction requested for the chat experience.
+
+Plain-English Summary:
+- The chat sidebar now feels like it belongs to the live planning experience instead of acting like a second saved-trips page.
+- Your current trip gets a clearer home, recent conversations are easier to scan, and the whole left rail should read as more premium and more aligned with Wandrix's conversation-first product shape.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Activities Can Now Put Stay And Hotel Choices Under Review
+
+Technical Summary:
+- Routed the Advanced `activities` branch through the existing stay and hotel review workspaces whenever the activity or event plan puts a previously selected stay direction or hotel under visible strain.
+- Reused the planner's activity-driven compatibility overlay so review status now comes from scheduled activity blocks, essential picks, and strong event anchors, then surfaced that state through the suggestion board and assistant response layer instead of leaving it hidden inside planner state.
+- Added targeted planner merge and runtime tests covering stay review triggers, hotel-only review triggers, conservative no-review cases, and activities-driven board switching.
+
+Plain-English Summary:
+- Wandrix will now call out when the activities plan no longer fits the stay or hotel you chose earlier.
+- Instead of quietly swapping those choices, it keeps them visible, explains the conflict, and moves the board into the right review workspace so you can decide what should change.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Replaced The Navbar Brand With A Custom Compass Lockup
+
+Technical Summary:
+- Generated several custom transparent brand-lockup concepts with the built-in `image_gen` workflow, chose the cleanest compass-and-wordmark direction, and saved it as `frontend/public/images/branding/wandrix-navbar-lockup-v1.png`.
+- Reworked `frontend/src/components/app/brand-wordmark.tsx` to render the custom lockup image in the navbar instead of composing the symbol and text separately, and added `--nav-brand-chip-*` theme tokens in `frontend/src/app/globals.css` so the logo sits on a stable branded surface in both light and dark themes.
+
+Plain-English Summary:
+- The navbar now uses a more custom Wandrix logo instead of the generic icon treatment.
+- The compass and the `Wandrix` text now feel like one designed mark, and the new logo should read more cleanly across both light and dark nav themes.
+
+Files / Areas Touched:
+- `frontend/public/images/branding/wandrix-navbar-lockup-v1.png`
+- `frontend/src/components/app/brand-wordmark.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Deepened Event Planning Inside The Advanced Activities Branch
+
+Technical Summary:
+- Extended the shared activity and timeline contracts so event candidates and hidden activity timeline items can carry brochure-ready event metadata, including venue name, outbound source URL, image URL, availability text, price text, and status text.
+- Upgraded Ticketmaster normalization and Advanced activities ranking so strong fixed-time events can lead the branch more deliberately, produce event-led planner summaries, and persist richer event data through `activity_planning` into the hidden `trip_draft.timeline`.
+- Refined the activities workspace, live board, brochure route, and brochure HTML renderer to show richer event treatment with venue hierarchy, metadata chips, outbound event links, and optional event thumbnails without creating a separate events module.
+
+Plain-English Summary:
+- Events inside Advanced Planning now feel like real trip anchors instead of just extra items mixed into the activity list.
+- Wandrix can now carry event links and richer event detail from the planner all the way through to the final trip surfaces, so the finished trip can actually point back to the live event that shaped it.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/services/providers/events.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/services/brochure_service.py`
+- `backend/tests/test_events_provider.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/brochure/trip-brochure.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Replaced The Custom Navbar Mark With A Lucide Compass Icon
+
+Technical Summary:
+- Reworked `frontend/src/components/app/brand-wordmark.tsx` to replace the previous custom inline SVG mark with Lucide's `Compass` icon from the `lucide-react` package already used in the frontend.
+- Wrapped the icon in a small token-driven circular shell using the existing navbar theme variables so the mark feels cleaner and more intentional on both light and dark surfaces, and removed the negative tracking from the live text wordmark.
+
+Plain-English Summary:
+- The navbar logo now uses a cleaner, established icon instead of the old custom mark that felt off.
+- I kept the `Wandrix` text live and just swapped the symbol, so it should feel sharper and easier to live with in the actual product.
+
+Files / Areas Touched:
+- `frontend/src/components/app/brand-wordmark.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Added W-Based Navbar Logo Concepts
+
+Technical Summary:
+- Generated four additional transparent PNG navbar logo-mark concepts using the built-in `image_gen` workflow, this time centered on a legible `W` monogram rather than abstract non-letter marks.
+- Saved the new `W` variants under `frontend/public/images/logo-concepts/` as ribbon, editorial-arc, soft, and geometric-star directions for review without changing the live navbar component.
+
+Plain-English Summary:
+- I tested whether a `W`-led logo could work for Wandrix, and yes, it can.
+- There is now a new batch of `W` concepts in the project so you can react to that direction before we replace the real navbar logo.
+
+Files / Areas Touched:
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-8-ribbon-w.png`
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-9-editorial-w-arc.png`
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-10-soft-w.png`
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-11-geometric-w-star.png`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Reworked The Homepage Around Real Product Storytelling
+
+Technical Summary:
+- Replaced the earlier homepage pass in `frontend/src/app/page.tsx` with a more product-explicit layout built around real Wandrix planning screenshots instead of process-oriented placeholder messaging.
+- Reworked the hero to show the actual chat-and-board experience, removed the internal-facing homepage concept section, added a stronger step-by-step usage story, expanded the live-board proof section, upgraded supporting-view cards with richer visual previews, and changed the final CTA into concrete starter briefs.
+- Copied product reference screenshots into `frontend/public/images/homepage/` so the homepage can use stable project-local assets for the new visual storytelling.
+
+Plain-English Summary:
+- The homepage now feels much more like Wandrix itself instead of a generic landing page with nice copy.
+- It shows the real planning experience more clearly, explains the product flow with actual visuals, and ends with examples of what someone could really type to start planning.
+
+Files / Areas Touched:
+- `frontend/src/app/page.tsx`
+- `frontend/public/images/homepage/chat-suggestion-board-live.png`
+- `frontend/public/images/homepage/chat-suggestion-board-stitch-pass.png`
+- `frontend/public/images/homepage/improved-travel-planner-reference.png`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Added Non-Pin Logo Concept Directions
+
+Technical Summary:
+- Generated four additional transparent PNG navbar logo-mark concepts using the built-in `image_gen` workflow after dropping the earlier pin-led direction.
+- Saved the new options under `frontend/public/images/logo-concepts/` as route-wave, horizon-road, folded-loop, and star-route variants for review without changing the live navbar implementation.
+
+Plain-English Summary:
+- I created a new batch of logo options that move away from the map-pin look and feel more like a broader travel brand.
+- These are now in the project so you can compare cleaner directions before we swap the real navbar logo.
+
+Files / Areas Touched:
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-4-route-wave.png`
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-5-horizon-road.png`
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-6-folded-loop.png`
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-7-star-route.png`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Added Timed Activities Scheduling With A Hidden Advanced Timeline
+
+Technical Summary:
+- Extended the Advanced Planning activities branch so ranked activity and event candidates can now be scheduled into planner-owned day plans with timed blocks, unscheduled overflow, and transfer estimates.
+- Added richer activity and event normalization fields for coordinates, location labels, source metadata, dwell estimates, and fixed event timing; introduced a Mapbox-backed movement estimator with heuristic fallback; and used that data to rebuild schedules automatically inside `activity_planning`.
+- Persisted the activity schedule into the hidden `trip_draft.timeline` by replacing only activity-owned timeline blocks during Advanced Planning, kept the right side in workspace mode, expanded the activities board UI to show scheduled day sections and reserve items, and added targeted backend tests for scheduling, event geocoding, movement fallback, and hidden timeline persistence.
+
+Plain-English Summary:
+- Advanced Planning can now do more than rank activity ideas: it builds an actual draft day plan with timed stops, live events, and travel gaps between them.
+- That itinerary is being saved quietly in the trip draft for later final review, while the right side still stays in guided planning mode instead of jumping early into the final live board.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/services/providers/activities.py`
+- `backend/app/services/providers/events.py`
+- `backend/app/services/providers/movement.py`
+- `backend/tests/test_events_provider.py`
+- `backend/tests/test_movement_provider.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Added Alternate Navbar Logo Concepts
+
+Technical Summary:
+- Generated three new transparent PNG logo-mark concepts for the Wandrix navbar using the built-in `image_gen` workflow, each aimed at a cleaner and more integration-friendly brand direction than the current inline mark.
+- Saved the concept assets under `frontend/public/images/logo-concepts/` without wiring them into the navbar yet, so the direction can be chosen before changing the live brand component.
+
+Plain-English Summary:
+- I created three cleaner logo options for the navbar so you can pick a better brand direction instead of settling for the current weird one.
+- These are saved in the project and ready to drop into the site once you choose one.
+
+Files / Areas Touched:
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-1-route-mark.png`
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-2-ribbon-pin.png`
+- `frontend/public/images/logo-concepts/wandrix-logo-concept-3-horizon-star-pin.png`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Made The Green Palette The Main Wandrix Accent Theme
+
+Technical Summary:
+- Removed the old blue/gold `wandr` and `blue` accent options from `frontend/src/components/ui/accent-picker.tsx` and made the green palette the primary `Wandrix` option.
+- Updated `frontend/src/components/app/appearance-initializer.tsx` so fresh page loads now default to the green accent family and gracefully ignore the removed blue/gold theme keys.
+- Changed the default accent tokens in `frontend/src/app/globals.css` to green-based values so the product’s base appearance now matches the intended Wandrix palette even before any user preference is applied.
+
+Plain-English Summary:
+- Wandrix now defaults to the green theme instead of the old blue-and-gold one.
+- I also removed the old blue/gold Wandrix theme option so the branding stops feeling split between two identities.
+
+Files / Areas Touched:
+- `frontend/src/components/ui/accent-picker.tsx`
+- `frontend/src/components/app/appearance-initializer.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Added The Advanced Activities Workspace With Essential Maybe Pass State
+
+Technical Summary:
+- Added planner-owned `activity_planning` state, activity candidate card models, and a dedicated `advanced_activities_workspace` board mode across backend and frontend conversation contracts.
+- Implemented an Advanced Planning activities reducer that mixes Geoapify activity enrichment with normalized Ticketmaster event candidates, preserves candidate dispositions across turns, applies board/chat activity decisions, and keeps those choices confined to conversation state instead of writing them into the shared itinerary.
+- Added a dedicated activities board UI with mixed activity and event cards plus `Essential`, `Maybe`, and `Pass` controls, updated assistant copy for the activities anchor, and introduced targeted backend tests for the new reducer, runtime branch, understanding prompt guidance, and Ticketmaster normalization.
+
+Plain-English Summary:
+- Advanced Planning can now open a real activities workspace instead of falling back to generic placeholder copy.
+- The board now shows ranked things to do and live events together, and you can mark each one as essential, maybe, or pass while Wandrix keeps that shortlist organized for the next itinerary step.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/integrations/ticketmaster/client.py`
+- `backend/app/services/providers/events.py`
+- `backend/tests/test_events_provider.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Stopped Recent Trip Cache From Causing Chat Hydration Drift
+
+Technical Summary:
+- Updated `frontend/src/components/package/travel-package-workspace.tsx` so recent trips no longer hydrate from browser cache during the initial client render.
+- The workspace now starts from the same empty recent-trip state as the server render, letting the later bootstrap path fill cached trips without creating a server/client mismatch.
+
+Plain-English Summary:
+- The chat page should no longer disagree with itself on first load just because browser-cached trips were injected too early.
+- This removes the kind of hydration drift that was surfacing as a live browser warning in the sidebar.
+
+Files / Areas Touched:
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Removed The Chat Sidebar Hydration Mismatch
+
+Technical Summary:
+- Updated `frontend/src/components/chat/chat-sidebar.tsx` to replace the immediate `useSyncExternalStore` hydration flag with a mount-driven `useEffect` flag so the server render and the first client render agree.
+- This removes the live browser hydration mismatch that was causing the Next.js issue badge to appear while the chat workspace loaded.
+
+Plain-English Summary:
+- The chat sidebar should no longer trigger that browser-side hydration warning on load.
+- I changed it so the first client render matches the server output before the sidebar switches into its fully interactive state.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Fixed Theme And Accent Preferences On Fresh Page Load
+
+Technical Summary:
+- Added an appearance bootstrap script in `frontend/src/app/layout.tsx` that reads saved `theme` and `accent` values from `localStorage` before the app renders.
+- The bootstrap now applies the `dark` class, `color-scheme`, accent variables, and accent foreground color on initial page load, which fixes the mismatch where toggles worked after interaction but fresh pages reopened in the wrong appearance.
+
+Plain-English Summary:
+- Dark mode and accent preferences now come back correctly when a new page opens.
+- Before this, the toggle worked only after you clicked it in the current tab, which made the saved theme feel broken.
+
+Files / Areas Touched:
+- `frontend/src/app/layout.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Brought The Wandrix Logo Closer To The Chosen Navbar Concept
+
+Technical Summary:
+- Refined the SVG mark in `frontend/src/components/app/brand-wordmark.tsx` so the icon now uses a cleaner circular travel motif, softer sweep lines, and a warm star accent that better matches the selected concept direction.
+- Tightened the wordmark sizing and tracking so the brand lockup sits more naturally in the flatter header without feeling oversized or improvised.
+
+Plain-English Summary:
+- The logo in the app now looks much closer to the concept you actually liked.
+- I pulled it away from the more experimental mark and made it feel cleaner, rounder, and more elegant.
+
+Files / Areas Touched:
+- `frontend/src/components/app/brand-wordmark.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Flattened The Navbar Shell And Removed Nested Utility Framing
+
+Technical Summary:
+- Updated `frontend/src/components/app/app-top-nav.tsx` to remove the floating rounded shell treatment and convert the header into a full-width top band with a simpler inner layout.
+- Removed the extra grouped utility capsule around accent and theme controls, and simplified the unauthenticated `Log in` treatment so the right side now reads as one continuous header row instead of multiple nested containers.
+- Adjusted `frontend/src/components/auth/user-account-popover.tsx`, `frontend/src/components/ui/theme-toggle.tsx`, and `frontend/src/components/ui/accent-picker.tsx` so account and utility controls use lighter hover framing that matches the flatter navbar direction.
+
+Plain-English Summary:
+- I flattened the navbar so it no longer looks like a card sitting on top of the page.
+- The theme, accent, and login controls now sit more naturally in the header instead of being wrapped in extra little containers.
+- Overall the header should feel cleaner, less boxed-in, and more like part of the product.
+
+Files / Areas Touched:
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/auth/user-account-popover.tsx`
+- `frontend/src/components/ui/theme-toggle.tsx`
+- `frontend/src/components/ui/accent-picker.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Implemented The New Premium Navbar Direction In The App
+
+Technical Summary:
+- Reworked the shared navigation tokens in `frontend/src/app/globals.css` so the header now uses a warmer editorial shell, softer utility controls, refined active states, and dedicated brand colors instead of leaning on the generic accent-driven nav surface.
+- Redesigned `frontend/src/components/app/brand-wordmark.tsx`, `frontend/src/components/app/app-top-nav.tsx`, and `frontend/src/components/app/app-nav-links.tsx` to match the selected concept direction: serif Wandrix wordmark, travel-inspired mark, structured cream header shell, calmer pills, and a more premium utility cluster while preserving the current route model and auth-aware behavior.
+- Updated `frontend/src/components/auth/user-account-popover.tsx`, `frontend/src/components/ui/theme-toggle.tsx`, and `frontend/src/components/ui/accent-picker.tsx` so the account and utility controls visually belong to the new navbar treatment, and aligned the chat shell height calculation in `frontend/src/components/chat/chat-page-shell.tsx` with the shared nav-height token.
+
+Plain-English Summary:
+- The navbar in the actual app now follows the more premium direction you picked instead of the older plain app-shell look.
+- It keeps the same functionality, but the brand, active tab, and right-side controls should now feel much closer to a polished travel concierge product.
+- I also made the chat page respect the shared navbar height token so the layout stays in sync with the redesigned header.
+
+Files / Areas Touched:
+- `frontend/src/app/globals.css`
+- `frontend/src/components/app/brand-wordmark.tsx`
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/app/app-nav-links.tsx`
+- `frontend/src/components/auth/user-account-popover.tsx`
+- `frontend/src/components/ui/theme-toggle.tsx`
+- `frontend/src/components/ui/accent-picker.tsx`
+- `frontend/src/components/chat/chat-page-shell.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Added Navbar Concept Directions For Wandrix
+
+Technical Summary:
+- Reviewed the shared app shell and chat-first workspace structure in `frontend/src/components/app/app-top-nav.tsx`, `frontend/src/components/app/app-nav-links.tsx`, `frontend/src/components/chat/chat-page-shell.tsx`, and related UI snapshots to assess whether the current navbar matches the documented conversation-first travel-product direction.
+- Generated three new desktop navbar concept mockups using the built-in `image_gen` workflow, each preserving the current information architecture while pushing the visual direction toward a more premium, travel-native, concierge-style header.
+- Saved the generated concept assets into the project for direct review and future implementation reference under `frontend/public/images/navbar-concepts/`.
+
+Plain-English Summary:
+- I reviewed the current navigation and decided it is clean but still too plain for the kind of premium travel planner Wandrix wants to be.
+- To give you stronger options, I created three navbar design concepts that feel more branded, more editorial, and more in tune with the chat-plus-live-board product shape.
+- The images are now saved in the repo so you can compare them and use one as the visual reference for the real implementation.
+
+Files / Areas Touched:
+- `frontend/public/images/navbar-concepts/wandrix-navbar-concept-1-editorial-concierge.png`
+- `frontend/public/images/navbar-concepts/wandrix-navbar-concept-2-modern-concierge-luxury.png`
+- `frontend/public/images/navbar-concepts/wandrix-navbar-concept-3-product-forward.png`
+- `CHANGELOG.md`
+
+## 2026-04-23 - Added Wandrix Homepage Hero Concept Image
+
+Technical Summary:
+- Generated a new homepage hero concept image shaped around the actual Wandrix product direction rather than a generic travel scene.
+- Used the repo's homepage implementation, shared visual tokens, and current chat-plus-board screenshots as the art direction source so the image reflects the conversation-first planner layout and premium travel tone.
+- Saved the selected asset into the frontend public image path for later homepage integration as `frontend/public/images/homepage-hero-wandrix-v1.png`.
+
+Plain-English Summary:
+- We now have a homepage image concept that actually looks like it belongs to Wandrix.
+- The image shows the product as a travel-planning experience, with the chat workspace and live board feeling baked into the scene instead of looking like a random travel ad.
+- It is saved in the project so we can review it and wire it into the site when ready.
+
+Files / Areas Touched:
+- `frontend/public/images/homepage-hero-wandrix-v1.png`
+- `CHANGELOG.md`
+
 ## 2026-04-23 - Recorded The Next Advanced Planning Priority After Hotels
 
 Technical Summary:

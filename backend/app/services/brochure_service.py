@@ -476,14 +476,32 @@ def _render_timeline_item_html(item: TimelineItem, warnings: list[BrochureWarnin
         value for value in [_format_optional_datetime(item.start_at), _format_optional_datetime(item.end_at)] if value != "TBD"
     ) or escape(item.location_label or "Timing still open")
     summary = f"<p>{escape(item.summary)}</p>" if item.summary else ""
+    venue_line = (
+        f"<p><strong>Venue:</strong> {escape(item.venue_name)}</p>"
+        if item.venue_name
+        else ""
+    )
+    metadata_line = "".join(
+        f"<p>{escape(value)}</p>"
+        for value in [item.status_text, item.price_text, item.availability_text]
+        if value
+    )
+    link_line = (
+        f'<p><a href="{escape(item.source_url)}" target="_blank" rel="noopener noreferrer">Open event listing</a></p>'
+        if item.type == "event" and item.source_url
+        else ""
+    )
     return f"""
     <article class="timeline-item">
       <div class="timeline-item-head">
         <h3>{escape(item.title)}</h3>
         <span>{timing}</span>
       </div>
+      {venue_line}
       {summary}
+      {metadata_line}
       {''.join(f'<p>{escape(detail)}</p>' for detail in item.details)}
+      {link_line}
       {warning_html}
     </article>
     """

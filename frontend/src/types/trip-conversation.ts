@@ -31,6 +31,32 @@ export type PlannerStayCompatibilityStatus =
   | "fit"
   | "strained"
   | "conflicted";
+export type PlannerActivityCandidateKind = "activity" | "event";
+export type PlannerActivityDisposition = "essential" | "maybe" | "pass";
+export type PlannerActivityDaypart = "morning" | "afternoon" | "evening";
+export type PlannerReviewResolutionScope = "stay" | "hotel";
+export type PlannerActivityScheduleStatus = "none" | "ready";
+export type PlannerActivityCompletionStatus = "in_progress" | "completed";
+export type PlannerActivityTimelineBlockType = "activity" | "event" | "transfer";
+export type PlannerTripStyleSelectionStatus =
+  | "none"
+  | "selected"
+  | "review"
+  | "completed";
+export type PlannerTripStyleSubstep = "direction" | "pace" | "completed";
+export type PlannerTripPace = "slow" | "balanced" | "full";
+export type PlannerTripDirectionPrimary =
+  | "food_led"
+  | "culture_led"
+  | "nightlife_led"
+  | "outdoors_led"
+  | "balanced";
+export type PlannerTripDirectionAccent =
+  | "local"
+  | "classic"
+  | "polished"
+  | "romantic"
+  | "relaxed";
 export type PlannerHotelStyleTag =
   | "calm"
   | "central"
@@ -108,6 +134,9 @@ export type TripSuggestionBoardMode =
   | "advanced_date_resolution"
   | "advanced_anchor_choice"
   | "advanced_next_step"
+  | "advanced_trip_style_direction"
+  | "advanced_trip_style_pace"
+  | "advanced_activities_workspace"
   | "advanced_stay_choice"
   | "advanced_stay_selected"
   | "advanced_stay_review"
@@ -257,6 +286,110 @@ export type AdvancedStayHotelFilters = {
   style_filter?: PlannerHotelStyleTag | null;
 };
 
+export type AdvancedActivityCandidateCard = {
+  id: string;
+  kind: PlannerActivityCandidateKind;
+  title: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  venue_name?: string | null;
+  location_label?: string | null;
+  summary?: string | null;
+  source_label?: string | null;
+  source_url?: string | null;
+  image_url?: string | null;
+  availability_text?: string | null;
+  price_text?: string | null;
+  status_text?: string | null;
+  estimated_duration_minutes?: number | null;
+  time_label?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  recommended: boolean;
+  disposition: PlannerActivityDisposition;
+  ranking_reasons: string[];
+};
+
+export type AdvancedActivityPlacementPreference = {
+  candidate_id: string;
+  day_index?: number | null;
+  daypart?: PlannerActivityDaypart | null;
+  reserved: boolean;
+};
+
+export type AdvancedActivityTimelineBlock = {
+  id: string;
+  type: PlannerActivityTimelineBlockType;
+  candidate_id?: string | null;
+  title: string;
+  day_index: number;
+  day_label: string;
+  daypart?: PlannerActivityDaypart | null;
+  venue_name?: string | null;
+  location_label?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  summary?: string | null;
+  details: string[];
+  source_label?: string | null;
+  source_url?: string | null;
+  image_url?: string | null;
+  availability_text?: string | null;
+  price_text?: string | null;
+  status_text?: string | null;
+  fixed_time: boolean;
+  manual_override: boolean;
+};
+
+export type AdvancedActivityDayPlan = {
+  id: string;
+  day_index: number;
+  day_label: string;
+  date?: string | null;
+  blocks: AdvancedActivityTimelineBlock[];
+};
+
+export type AdvancedActivityPlanningState = {
+  recommended_candidates: AdvancedActivityCandidateCard[];
+  visible_candidates: AdvancedActivityCandidateCard[];
+  placement_preferences: AdvancedActivityPlacementPreference[];
+  essential_ids: string[];
+  maybe_ids: string[];
+  passed_ids: string[];
+  selected_event_ids: string[];
+  reserved_candidate_ids: string[];
+  workspace_summary?: string | null;
+  day_plans: AdvancedActivityDayPlan[];
+  timeline_blocks: AdvancedActivityTimelineBlock[];
+  unscheduled_candidate_ids: string[];
+  schedule_summary?: string | null;
+  schedule_notes: string[];
+  schedule_status: PlannerActivityScheduleStatus;
+  workspace_touched: boolean;
+  completion_status: PlannerActivityCompletionStatus;
+  completion_summary?: string | null;
+  completion_anchor_ids: string[];
+};
+
+export type TripStylePlanningState = {
+  substep: PlannerTripStyleSubstep;
+  recommended_primary_directions: PlannerTripDirectionPrimary[];
+  recommended_accents: PlannerTripDirectionAccent[];
+  selected_primary_direction?: PlannerTripDirectionPrimary | null;
+  selected_accent?: PlannerTripDirectionAccent | null;
+  selection_status: PlannerTripStyleSelectionStatus;
+  workspace_summary?: string | null;
+  selection_rationale?: string | null;
+  downstream_influence_summary?: string | null;
+  recommended_paces: PlannerTripPace[];
+  selected_pace?: PlannerTripPace | null;
+  pace_status: PlannerTripStyleSelectionStatus;
+  pace_rationale?: string | null;
+  pace_downstream_influence_summary?: string | null;
+  workspace_touched: boolean;
+  completion_summary?: string | null;
+};
+
 export type AdvancedStayPlanningState = {
   active_segment_id?: string | null;
   segments: AdvancedStayPlanningSegment[];
@@ -335,6 +468,33 @@ export type TripSuggestionBoardState = {
   advanced_anchor_cards?: AdvancedAnchorChoiceCard[];
   stay_cards?: AdvancedStayOptionCard[];
   hotel_cards?: AdvancedStayHotelOptionCard[];
+  activity_candidates?: AdvancedActivityCandidateCard[];
+  essential_ids?: string[];
+  maybe_ids?: string[];
+  passed_ids?: string[];
+  selected_event_ids?: string[];
+  reserved_candidate_ids?: string[];
+  activity_workspace_summary?: string | null;
+  trip_style_recommended_primaries?: PlannerTripDirectionPrimary[];
+  trip_style_recommended_accents?: PlannerTripDirectionAccent[];
+  selected_trip_style_primary?: PlannerTripDirectionPrimary | null;
+  selected_trip_style_accent?: PlannerTripDirectionAccent | null;
+  trip_style_selection_status?: PlannerTripStyleSelectionStatus | null;
+  trip_style_substep?: PlannerTripStyleSubstep | null;
+  trip_style_workspace_summary?: string | null;
+  trip_style_selection_rationale?: string | null;
+  trip_style_downstream_influence_summary?: string | null;
+  trip_style_recommended_paces?: PlannerTripPace[];
+  selected_trip_style_pace?: PlannerTripPace | null;
+  trip_style_pace_status?: PlannerTripStyleSelectionStatus | null;
+  trip_style_pace_rationale?: string | null;
+  trip_style_pace_downstream_influence_summary?: string | null;
+  trip_style_completion_summary?: string | null;
+  activity_day_plans?: AdvancedActivityDayPlan[];
+  unscheduled_activity_candidate_ids?: string[];
+  activity_schedule_summary?: string | null;
+  activity_schedule_notes?: string[];
+  activity_schedule_status?: PlannerActivityScheduleStatus;
   selected_stay_option_id?: string | null;
   stay_selection_status?: PlannerStaySelectionStatus | null;
   stay_selection_rationale?: string | null;
@@ -438,6 +598,8 @@ export type TripConversationState = {
   last_turn_summary?: string | null;
   active_goals: string[];
   advanced_date_resolution?: AdvancedDateResolutionState;
+  trip_style_planning?: TripStylePlanningState;
+  activity_planning?: AdvancedActivityPlanningState;
   stay_planning?: AdvancedStayPlanningState;
   suggestion_board: TripSuggestionBoardState;
   memory: TripConversationMemory;

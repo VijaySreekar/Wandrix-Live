@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-import { useThread, useThreadRuntime } from "@assistant-ui/react";
+import { useThreadRuntime } from "@assistant-ui/react";
 
 import type { ConversationBoardAction } from "@/types/conversation";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
@@ -11,7 +11,6 @@ type TravelPlannerBoardActionsProps = {
   pendingBoardAction: PlannerBoardActionIntent | null;
   disabled: boolean;
   onHandled: (actionId: string) => void;
-  onActionReadyForBackend: (action: ConversationBoardAction) => void;
   onDirectActionSubmit: (action: ConversationBoardAction) => Promise<string>;
 };
 
@@ -19,11 +18,9 @@ export function TravelPlannerBoardActions({
   pendingBoardAction,
   disabled,
   onHandled,
-  onActionReadyForBackend,
   onDirectActionSubmit,
 }: TravelPlannerBoardActionsProps) {
   const threadRuntime = useThreadRuntime();
-  const isRunning = useThread((state) => state.isRunning);
   const handledActionIdRef = useRef<string | null>(null);
   const submittingActionIdRef = useRef<string | null>(null);
 
@@ -36,7 +33,7 @@ export function TravelPlannerBoardActions({
       return;
     }
 
-    if (disabled || isRunning) {
+    if (disabled) {
       return;
     }
 
@@ -62,6 +59,18 @@ export function TravelPlannerBoardActions({
       stay_segment_id: pendingBoardAction.stay_segment_id,
       stay_hotel_id: pendingBoardAction.stay_hotel_id,
       stay_hotel_name: pendingBoardAction.stay_hotel_name,
+      activity_candidate_id: pendingBoardAction.activity_candidate_id,
+      activity_candidate_title: pendingBoardAction.activity_candidate_title,
+      activity_candidate_kind: pendingBoardAction.activity_candidate_kind,
+      activity_candidate_disposition:
+        pendingBoardAction.activity_candidate_disposition,
+      activity_target_day_index: pendingBoardAction.activity_target_day_index,
+      activity_target_daypart: pendingBoardAction.activity_target_daypart,
+      trip_style_direction_primary:
+        pendingBoardAction.trip_style_direction_primary,
+      trip_style_direction_accent:
+        pendingBoardAction.trip_style_direction_accent,
+      trip_style_pace: pendingBoardAction.trip_style_pace,
       stay_hotel_max_nightly_rate:
         pendingBoardAction.stay_hotel_max_nightly_rate,
       stay_hotel_area_filter: pendingBoardAction.stay_hotel_area_filter,
@@ -86,46 +95,12 @@ export function TravelPlannerBoardActions({
       budget_gbp: pendingBoardAction.budget_gbp,
     };
 
-    if (
-      pendingBoardAction.type === "finalize_quick_plan" ||
-      pendingBoardAction.type === "reopen_plan"
-    ) {
-      if (submittingActionIdRef.current === pendingBoardAction.action_id) {
-        return;
-      }
-
-      submittingActionIdRef.current = pendingBoardAction.action_id;
-
-      void onDirectActionSubmit(backendAction)
-        .then((assistantMessage) => {
-          threadRuntime.append({
-            role: "assistant",
-            content: [{ type: "text", text: assistantMessage }],
-          });
-        })
-        .catch((error: unknown) => {
-          threadRuntime.append({
-            role: "assistant",
-            content: [
-              {
-                type: "text",
-                text:
-                  error instanceof Error
-                    ? error.message
-                    : "That board action could not be completed right now.",
-              },
-            ],
-          });
-        })
-        .finally(() => {
-          handledActionIdRef.current = pendingBoardAction.action_id;
-          onHandled(pendingBoardAction.action_id);
-          submittingActionIdRef.current = null;
-        });
+    if (submittingActionIdRef.current === pendingBoardAction.action_id) {
       return;
     }
 
-    onActionReadyForBackend(backendAction);
+    submittingActionIdRef.current = pendingBoardAction.action_id;
+
     threadRuntime.append({
       role: "user",
       content: [
@@ -134,15 +109,38 @@ export function TravelPlannerBoardActions({
           text: buildBoardSelectionMessage(pendingBoardAction),
         },
       ],
-      startRun: true,
+      startRun: false,
     });
-    handledActionIdRef.current = pendingBoardAction.action_id;
-    onHandled(pendingBoardAction.action_id);
+
+    void onDirectActionSubmit(backendAction)
+      .then((assistantMessage) => {
+        threadRuntime.append({
+          role: "assistant",
+          content: [{ type: "text", text: assistantMessage }],
+        });
+      })
+      .catch((error: unknown) => {
+        threadRuntime.append({
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text:
+                error instanceof Error
+                  ? error.message
+                  : "That board action could not be completed right now.",
+            },
+          ],
+        });
+      })
+      .finally(() => {
+        handledActionIdRef.current = pendingBoardAction.action_id;
+        onHandled(pendingBoardAction.action_id);
+        submittingActionIdRef.current = null;
+      });
   }, [
     disabled,
-    isRunning,
     onDirectActionSubmit,
-    onActionReadyForBackend,
     onHandled,
     pendingBoardAction,
     threadRuntime,
@@ -163,8 +161,45 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
   if (action.type === "select_advanced_anchor") {
     const anchorLabel = action.advanced_anchor
       ? action.advanced_anchor.replace("_", " ")
-      : "that anchor";
-    return `In Advanced Planning, start with ${anchorLabel} first.`;
+      : "that focus";
+    return `In Advanced Planning, start by shaping ${anchorLabel} first.`;
+  }
+
+  if (action.type === "select_trip_style_direction_primary") {
+    const primary = action.trip_style_direction_primary
+      ? action.trip_style_direction_primary.replace(/_/g, " ")
+      : "that direction";
+    return `Set the trip direction to ${primary}.`;
+  }
+
+  if (action.type === "select_trip_style_direction_accent") {
+    const accent = action.trip_style_direction_accent || "that accent";
+    return `Add a ${accent} accent to the trip direction.`;
+  }
+
+  if (action.type === "clear_trip_style_direction_accent") {
+    return "Clear the optional trip-style accent and keep the main direction only.";
+  }
+
+  if (action.type === "confirm_trip_style_direction") {
+    return "Use this as the working trip direction and shape activities around it.";
+  }
+
+  if (action.type === "keep_current_trip_style_direction") {
+    return "Keep the current trip direction anyway.";
+  }
+
+  if (action.type === "select_trip_style_pace") {
+    const pace = action.trip_style_pace || "that pace";
+    return `Set the trip pace to ${pace}.`;
+  }
+
+  if (action.type === "confirm_trip_style_pace") {
+    return "Use this pace for the trip and shape activities around it.";
+  }
+
+  if (action.type === "keep_current_trip_style_pace") {
+    return "Keep the current trip pace anyway.";
   }
 
   if (action.type === "select_date_option") {
@@ -187,6 +222,65 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
     return action.stay_hotel_name
       ? `I'd like to proceed with ${action.stay_hotel_name} as the working hotel for this trip.`
       : "I'd like to proceed with this hotel as the working hotel for this trip.";
+  }
+
+  if (action.type === "keep_current_stay_choice") {
+    return "Keep the current base anyway, even if the way this trip is taking shape is putting it under some strain.";
+  }
+
+  if (action.type === "keep_current_hotel_choice") {
+    return "Keep the current hotel anyway, even if the way this trip is taking shape is putting it under some strain.";
+  }
+
+  if (action.type === "set_activity_candidate_disposition") {
+    const title = action.activity_candidate_title || "this pick";
+    if (action.activity_candidate_disposition === "essential") {
+      return `Let ${title} help shape the trip.`;
+    }
+    if (action.activity_candidate_disposition === "pass") {
+      return `Leave ${title} out for this trip.`;
+    }
+    return `Keep ${title} in the mix for this trip.`;
+  }
+
+  if (action.type === "rebuild_activity_day_plan") {
+    return "Refresh the draft days around the current shortlist.";
+  }
+
+  if (
+    action.type === "move_activity_candidate_to_day" &&
+    action.activity_target_day_index
+  ) {
+    const title = action.activity_candidate_title || "this pick";
+    return `Move ${title} onto Day ${action.activity_target_day_index} and rebalance the rest lightly around it.`;
+  }
+
+  if (action.type === "move_activity_candidate_earlier") {
+    const title = action.activity_candidate_title || "this pick";
+    return `Move ${title} earlier in the day.`;
+  }
+
+  if (action.type === "move_activity_candidate_later") {
+    const title = action.activity_candidate_title || "this pick";
+    return `Move ${title} later in the day.`;
+  }
+
+  if (
+    action.type === "pin_activity_candidate_daypart" &&
+    action.activity_target_daypart
+  ) {
+    const title = action.activity_candidate_title || "this pick";
+    return `Pin ${title} to the ${action.activity_target_daypart}.`;
+  }
+
+  if (action.type === "send_activity_candidate_to_reserve") {
+    const title = action.activity_candidate_title || "this pick";
+    return `Save ${title} for later instead of forcing it into the active day plan.`;
+  }
+
+  if (action.type === "restore_activity_candidate_from_reserve") {
+    const title = action.activity_candidate_title || "this pick";
+    return `Bring ${title} back into the active plan.`;
   }
 
   if (action.type === "set_stay_hotel_filters") {

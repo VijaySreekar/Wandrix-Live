@@ -61,39 +61,11 @@ const RECENT_TRIPS_REFRESH_TIMEOUT_MS = 15000;
 const WORKSPACE_BOOTSTRAP_TIMEOUT_MS = 12000;
 const CHAT_ROUTE = "/chat";
 const NEW_CHAT_ROUTE = "/chat/new";
-let recentTripsRouteMemory:
-  | {
-      userId: string;
-      trips: TripListItemResponse[];
-    }
-  | null = null;
-
-function getInitialRecentTrips(initialUserId?: string) {
-  if (!initialUserId) {
-    return [] as TripListItemResponse[];
-  }
-
-  if (recentTripsRouteMemory?.userId === initialUserId) {
-    return recentTripsRouteMemory.trips;
-  }
-
-  if (typeof window === "undefined") {
-    return [] as TripListItemResponse[];
-  }
-
-  return sortRecentTripsByActivity(
-    filterMeaningfulRecentTrips(
-      readRecentTripsCache(getRecentTripsCacheKey(initialUserId)),
-    ),
-  );
-}
 
 export function TravelPackageWorkspace({
   initialMode = "default",
-  initialUserId,
 }: {
   initialMode?: "default" | "new";
-  initialUserId?: string;
 }) {
   const [supabase] = useState(() => createSupabaseBrowserClient());
   const router = useRouter();
@@ -106,9 +78,7 @@ export function TravelPackageWorkspace({
   const [workspace, setWorkspace] = useState<PlannerWorkspaceState | null>(() =>
     initialMode === "new" ? buildEphemeralWorkspace(null) : null,
   );
-  const [recentTrips, setRecentTrips] = useState<TripListItemResponse[]>(() =>
-    getInitialRecentTrips(initialUserId),
-  );
+  const [recentTrips, setRecentTrips] = useState<TripListItemResponse[]>([]);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(initialMode !== "new");
   const [isCreatingTrip, setIsCreatingTrip] = useState(false);
@@ -165,13 +135,7 @@ export function TravelPackageWorkspace({
 
   useEffect(() => {
     recentTripsRef.current = recentTrips;
-    if (initialUserId) {
-      recentTripsRouteMemory = {
-        userId: initialUserId,
-        trips: recentTrips,
-      };
-    }
-  }, [initialUserId, recentTrips]);
+  }, [recentTrips]);
 
   useEffect(() => {
     workspaceTripIdRef.current = workspace?.trip.trip_id ?? null;

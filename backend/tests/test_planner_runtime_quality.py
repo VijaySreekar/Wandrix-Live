@@ -2,12 +2,14 @@ import json
 from pathlib import Path
 
 from app.graph.nodes import bootstrap
+from app.graph.planner import conversation_state
 from app.graph.planner import runner
 from app.graph.planner.conversation_state import build_conversation_state
 from app.graph.planner.turn_models import (
     ConversationOptionCandidate,
     ProposedTimelineItem,
     QuickPlanDraft,
+    RequestedReviewResolution,
     TripFieldConfidenceUpdate,
     TripFieldSourceUpdate,
     TripTurnUpdate,
@@ -689,6 +691,106 @@ def test_select_advanced_anchor_moves_advanced_flow_forward(monkeypatch) -> None
     assert sum(1 for card in stay_cards if card["recommended"]) == 1
     assert all(card["strategy_type"] == "single_base" for card in stay_cards)
     assert "four stay strategies" in result["assistant_response"].lower()
+
+
+def test_trip_style_anchor_opens_direction_workspace_and_completion_returns_to_anchor_choice(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    anchor_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_anchor_trip_style",
+                "type": "select_advanced_anchor",
+                "advanced_anchor": "trip_style",
+            },
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-22",
+                    "end_date": "2027-03-27",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "activity_styles": ["culture"],
+                    "custom_style": "slow temple mornings and market-heavy afternoons",
+                    "selected_modules": {
+                        "flights": True,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "choose_anchor",
+                },
+            },
+        }
+    )
+
+    anchor_board = anchor_result["trip_draft"]["conversation"]["suggestion_board"]
+    assert anchor_board["mode"] == "advanced_trip_style_direction"
+    assert anchor_board["selected_trip_style_primary"] is None
+    assert "main character" in anchor_board["subtitle"].lower()
+
+    confirm_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_confirm_trip_style",
+                "type": "confirm_trip_style_direction",
+                "trip_style_direction_primary": "food_led",
+                "trip_style_direction_accent": "relaxed",
+            },
+            "trip_draft": anchor_result["trip_draft"],
+        }
+    )
+
+    conversation = confirm_result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+
+    assert conversation["trip_style_planning"]["selection_status"] == "selected"
+    assert conversation["trip_style_planning"]["substep"] == "pace"
+    assert conversation["trip_style_planning"]["selected_primary_direction"] == "food_led"
+    assert board["mode"] == "advanced_trip_style_pace"
+    assert board["selected_trip_style_primary"] == "food_led"
+    assert board["trip_style_recommended_paces"]
+
+    pace_result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_confirm_trip_style_pace",
+                "type": "confirm_trip_style_pace",
+                "trip_style_pace": "slow",
+            },
+            "trip_draft": confirm_result["trip_draft"],
+        }
+    )
+
+    conversation = pace_result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+
+    assert conversation["trip_style_planning"]["selection_status"] == "completed"
+    assert conversation["trip_style_planning"]["substep"] == "completed"
+    assert conversation["trip_style_planning"]["selected_pace"] == "slow"
+    assert board["mode"] == "advanced_anchor_choice"
+    recommended_card = next(
+        card for card in board["advanced_anchor_cards"] if card["recommended"]
+    )
+    assert recommended_card["id"] == "activities"
+    assert "activities" in pace_result["assistant_response"].lower()
 
 
 def test_advanced_mode_with_exact_dates_skips_date_resolution(monkeypatch) -> None:
@@ -2064,6 +2166,800 @@ def test_non_stay_advanced_anchor_keeps_generic_next_step(monkeypatch) -> None:
     assert conversation["advanced_anchor"] == "trip_style"
     assert conversation["suggestion_board"]["mode"] == "advanced_next_step"
     assert "trip style first" in result["assistant_response"].lower()
+
+
+def test_activities_anchor_initially_stays_in_workspace_until_user_shapes_it(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Music | Jazz | Blue Note Kyoto, Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": runner.datetime(2027, 3, 24, 19, 30, tzinfo=runner.timezone.utc),
+                "end_at": runner.datetime(2027, 3, 24, 22, 0, tzinfo=runner.timezone.utc),
+            }
+        ],
+    )
+
+    expected_module_outputs = _sample_dense_activity_outputs()
+
+    def _fake_build_module_outputs(
+        configuration,
+        previous_configuration,
+        existing_module_outputs,
+        allowed_modules,
+    ):
+        assert allowed_modules == {"activities", "weather"}
+        return expected_module_outputs
+
+    monkeypatch.setattr(runner, "build_module_outputs", _fake_build_module_outputs)
+
+    existing_timeline = [
+        {
+            "id": "timeline_keep_me",
+            "type": "note",
+            "title": "Existing timeline stays put",
+            "status": "draft",
+        }
+    ]
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_anchor_activities",
+                "type": "select_advanced_anchor",
+                "advanced_anchor": "activities",
+            },
+            "trip_draft": {
+                "title": "Kyoto Food Escape",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "selected_modules": {
+                        "flights": True,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": existing_timeline,
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "choose_anchor",
+                },
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+    activity_planning = conversation["activity_planning"]
+
+    assert conversation["advanced_anchor"] == "activities"
+    assert board["mode"] == "advanced_activities_workspace"
+    assert activity_planning["workspace_touched"] is False
+    assert activity_planning["completion_status"] == "in_progress"
+    assert activity_planning["completion_summary"] is None
+    timeline = result["trip_draft"]["timeline"]
+    assert timeline[0]["id"] == "timeline_keep_me"
+    assert any(item["source_module"] == "activities" for item in timeline)
+    assert any(item["type"] == "event" for item in timeline)
+    event_item = next(item for item in timeline if item["type"] == "event")
+    assert event_item["source_url"] == "https://example.com/jazz"
+    assert all(
+        item["id"] != "timeline_keep_me" or item["title"] == "Existing timeline stays put"
+        for item in timeline
+    )
+    assert "strongest time-specific moment" in board["subtitle"].lower()
+    assert "strongest time-specific moment" in result["assistant_response"].lower()
+
+
+def test_activities_anchor_stays_in_workspace_when_plan_is_still_thin(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: TripModuleOutputs(
+            activities=[
+                ActivityDetail(
+                    id="activity_walk",
+                    title="Temple garden walk",
+                    category="tourism.sights",
+                    location_label="Higashiyama, Kyoto",
+                    time_label="Morning",
+                )
+            ]
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_anchor_activities",
+                "type": "select_advanced_anchor",
+                "advanced_anchor": "activities",
+            },
+            "trip_draft": {
+                "title": "Kyoto Quiet Escape",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "choose_anchor",
+                },
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+
+    assert conversation["advanced_anchor"] == "activities"
+    assert conversation["activity_planning"]["completion_status"] == "in_progress"
+    assert board["mode"] == "advanced_activities_workspace"
+    assert board["activity_workspace_summary"]
+    assert {candidate["kind"] for candidate in board["activity_candidates"]} == {"activity"}
+
+
+def test_stay_and_activities_can_both_show_as_completed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Late jazz set in Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": runner.datetime(2027, 3, 24, 20, 0, tzinfo=runner.timezone.utc),
+                "end_at": runner.datetime(2027, 3, 24, 22, 0, tzinfo=runner.timezone.utc),
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: TripModuleOutputs(),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "trip_draft": {
+                "title": "Kyoto Finished Base",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-24",
+                    "end_date": "2027-03-24",
+                    "travel_window": "late March",
+                    "trip_length": "1 night",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                    "conversation": {
+                        "planning_mode": "advanced",
+                        "planning_mode_status": "selected",
+                        "advanced_step": "anchor_flow",
+                        "advanced_anchor": "activities",
+                        "activity_planning": {
+                            "workspace_touched": True,
+                        },
+                        "stay_planning": {
+                            "recommended_stay_options": [
+                                {
+                                    "id": "stay_food_forward",
+                                "segment_id": "segment_primary",
+                                "strategy_type": "single_base",
+                                "title": "Food-forward neighbourhood base",
+                                "summary": "Choose a neighbourhood-led base built around food and evening walks.",
+                                "area_label": "Dining-led Kyoto pockets",
+                                "areas": [],
+                                "best_for": ["Food and evening structure"],
+                                "tradeoffs": ["Less purely practical than a station-led base"],
+                                "recommended": True,
+                            }
+                        ],
+                        "selected_stay_option_id": "stay_food_forward",
+                        "selected_stay_direction": "Food-forward neighbourhood base",
+                        "selection_status": "selected",
+                        "compatibility_status": "fit",
+                        "selected_hotel_id": "hotel_gion_house",
+                        "selected_hotel_name": "Gion House Hotel",
+                        "hotel_selection_status": "selected",
+                        "hotel_compatibility_status": "fit",
+                    },
+                },
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+    statuses = {
+        card["id"]: card["status"] for card in board["advanced_anchor_cards"]
+    }
+
+    assert board["mode"] == "advanced_anchor_choice"
+    assert statuses["stay"] == "completed"
+    assert statuses["activities"] == "completed"
+
+
+def test_activities_anchor_switches_into_stay_review_when_activity_plan_conflicts(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Late jazz set in Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": runner.datetime(2027, 3, 24, 20, 0, tzinfo=runner.timezone.utc),
+                "end_at": runner.datetime(2027, 3, 24, 22, 0, tzinfo=runner.timezone.utc),
+            }
+        ],
+    )
+
+    def _fake_build_module_outputs(
+        configuration,
+        previous_configuration,
+        existing_module_outputs,
+        allowed_modules,
+    ):
+        assert allowed_modules == {"activities", "weather"}
+        return TripModuleOutputs()
+
+    monkeypatch.setattr(runner, "build_module_outputs", _fake_build_module_outputs)
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "trip_draft": {
+                "title": "Kyoto Night Trip",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-24",
+                    "end_date": "2027-03-24",
+                    "travel_window": "late March",
+                    "trip_length": "1 night",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "activities",
+                    "stay_planning": {
+                        "recommended_stay_options": [
+                            {
+                                "id": "stay_quiet_local",
+                                "segment_id": "segment_primary",
+                                "strategy_type": "single_base",
+                                "title": "Quieter local base",
+                                "summary": "Choose a calmer local area so the trip starts and ends more gently.",
+                                "area_label": "Calmer residential pockets",
+                                "areas": [],
+                                "best_for": ["Relaxed pacing and easier mornings"],
+                                "tradeoffs": ["Daily travel can need more planning"],
+                                "recommended": True,
+                            }
+                        ],
+                        "selected_stay_option_id": "stay_quiet_local",
+                        "selected_stay_direction": "Quieter local base",
+                        "selection_status": "selected",
+                        "compatibility_status": "fit",
+                    },
+                },
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+    stay_planning = result["trip_draft"]["conversation"]["stay_planning"]
+
+    assert board["mode"] == "advanced_stay_review"
+    assert stay_planning["selection_status"] == "needs_review"
+    assert "Kyoto Jazz Night" in stay_planning["compatibility_notes"][0]
+    assert "re-ranked the stay directions" in board["subtitle"]
+    assert "Food-forward neighbourhood base" in board["subtitle"]
+    assert "activities are still leading" in result["assistant_response"].lower()
+    assert "silently replacing" in result["assistant_response"].lower()
+
+
+def test_activities_anchor_switches_into_hotel_review_when_only_hotel_fit_weakens(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+
+    def _fake_build_module_outputs(
+        configuration,
+        previous_configuration,
+        existing_module_outputs,
+        allowed_modules,
+    ):
+        assert allowed_modules == {"activities", "weather"}
+        return TripModuleOutputs(
+            hotels=_sample_hotel_outputs().hotels,
+            activities=[
+                ActivityDetail(
+                    id="activity_market",
+                    title="Nishiki Market tasting walk",
+                    category="catering.restaurant",
+                    location_label="Nishiki Market, Kyoto",
+                    time_label="Evening",
+                )
+            ]
+        )
+
+    monkeypatch.setattr(runner, "build_module_outputs", _fake_build_module_outputs)
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_market_essential",
+                "type": "set_activity_candidate_disposition",
+                "activity_candidate_id": "activity_market",
+                "activity_candidate_title": "Nishiki Market tasting walk",
+                "activity_candidate_disposition": "essential",
+            },
+            "trip_draft": {
+                "title": "Kyoto Food Trip",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "activities",
+                    "stay_planning": {
+                        "recommended_stay_options": [
+                            {
+                                "id": "stay_food_forward",
+                                "segment_id": "segment_primary",
+                                "strategy_type": "single_base",
+                                "title": "Food-forward neighbourhood base",
+                                "summary": "Choose a neighbourhood-led base built around food and evening walks.",
+                                "area_label": "Dining-led Kyoto pockets",
+                                "areas": [],
+                                "best_for": ["Food and evening structure"],
+                                "tradeoffs": ["Less purely practical than a station-led base"],
+                                "recommended": True,
+                            }
+                        ],
+                        "selected_stay_option_id": "stay_food_forward",
+                        "selected_stay_direction": "Food-forward neighbourhood base",
+                        "selection_status": "selected",
+                        "compatibility_status": "fit",
+                        "selected_hotel_id": "hotel_station_stay",
+                        "selected_hotel_name": "Kyoto Station Stay",
+                        "hotel_selection_status": "selected",
+                        "hotel_compatibility_status": "fit",
+                        "selected_hotel_card": {
+                            "id": "hotel_station_stay",
+                            "hotel_name": "Kyoto Station Stay",
+                            "area": "Central Kyoto Station",
+                            "summary": "A practical station hotel.",
+                            "why_it_fits": "Easy for transport-heavy movement.",
+                        },
+                    },
+                },
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+    stay_planning = result["trip_draft"]["conversation"]["stay_planning"]
+
+    assert board["mode"] == "advanced_stay_hotel_review"
+    assert stay_planning["selection_status"] == "selected"
+    assert stay_planning["hotel_selection_status"] == "needs_review"
+    assert "Nishiki Market tasting walk" in stay_planning["hotel_compatibility_notes"][0]
+    assert "re-ranked the hotel options" in board["subtitle"]
+    assert stay_planning["recommended_hotels"][0]["hotel_name"] != "Kyoto Station Stay"
+    assert "hotel visible" in result["assistant_response"].lower()
+
+
+def test_keep_current_stay_review_returns_to_activities_workspace(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Late jazz set in Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": runner.datetime(2027, 3, 24, 20, 0, tzinfo=runner.timezone.utc),
+                "end_at": runner.datetime(2027, 3, 24, 22, 0, tzinfo=runner.timezone.utc),
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: TripModuleOutputs(),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_keep_stay",
+                "type": "keep_current_stay_choice",
+            },
+            "trip_draft": {
+                "title": "Kyoto Night Trip",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-24",
+                    "end_date": "2027-03-24",
+                    "travel_window": "late March",
+                    "trip_length": "1 night",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "activities",
+                    "stay_planning": {
+                        "recommended_stay_options": [
+                            {
+                                "id": "stay_quiet_local",
+                                "segment_id": "segment_primary",
+                                "strategy_type": "single_base",
+                                "title": "Quieter local base",
+                                "summary": "Choose a calmer local area so the trip starts and ends more gently.",
+                                "area_label": "Calmer residential pockets",
+                                "areas": [],
+                                "best_for": ["Relaxed pacing and easier mornings"],
+                                "tradeoffs": ["Daily travel can need more planning"],
+                                "recommended": True,
+                            }
+                        ],
+                        "selected_stay_option_id": "stay_quiet_local",
+                        "selected_stay_direction": "Quieter local base",
+                        "selection_status": "needs_review",
+                        "compatibility_status": "conflicted",
+                    },
+                },
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+    stay_planning = result["trip_draft"]["conversation"]["stay_planning"]
+
+    assert board["mode"] == "advanced_anchor_choice"
+    assert stay_planning["selection_status"] == "selected"
+    assert stay_planning["compatibility_status"] == "fit"
+    assert result["trip_draft"]["conversation"]["activity_planning"]["completion_status"] == "completed"
+    assert "keep quieter local base as the working base" in result["assistant_response"].lower()
+    assert any(item["source_module"] == "activities" for item in result["trip_draft"]["timeline"])
+
+
+def test_chat_keep_current_hotel_review_returns_to_activities_workspace(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            requested_activity_decisions=[
+                {
+                    "candidate_title": "Nishiki Market tasting walk",
+                    "disposition": "essential",
+                }
+            ],
+            requested_review_resolutions=[RequestedReviewResolution(scope="hotel")],
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: TripModuleOutputs(
+            hotels=_sample_hotel_outputs().hotels,
+            activities=[
+                ActivityDetail(
+                    id="activity_market",
+                    title="Nishiki Market tasting walk",
+                    category="catering.restaurant",
+                    location_label="Nishiki Market, Kyoto",
+                    time_label="Evening",
+                )
+            ],
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Keep the current hotel.",
+            "trip_draft": {
+                "title": "Kyoto Food Trip",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "travel_window": "late March",
+                    "trip_length": "5 nights",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "activities",
+                    "stay_planning": {
+                        "recommended_stay_options": [
+                            {
+                                "id": "stay_food_forward",
+                                "segment_id": "segment_primary",
+                                "strategy_type": "single_base",
+                                "title": "Food-forward neighbourhood base",
+                                "summary": "Choose a neighbourhood-led base built around food and evening walks.",
+                                "area_label": "Dining-led Kyoto pockets",
+                                "areas": [],
+                                "best_for": ["Food and evening structure"],
+                                "tradeoffs": ["Less purely practical than a station-led base"],
+                                "recommended": True,
+                            }
+                        ],
+                        "selected_stay_option_id": "stay_food_forward",
+                        "selected_stay_direction": "Food-forward neighbourhood base",
+                        "selection_status": "selected",
+                        "compatibility_status": "fit",
+                        "selected_hotel_id": "hotel_station_stay",
+                        "selected_hotel_name": "Kyoto Station Stay",
+                        "hotel_selection_status": "needs_review",
+                        "hotel_compatibility_status": "strained",
+                        "selected_hotel_card": {
+                            "id": "hotel_station_stay",
+                            "hotel_name": "Kyoto Station Stay",
+                            "area": "Central Kyoto Station",
+                            "summary": "A practical station hotel.",
+                            "why_it_fits": "Easy for transport-heavy movement.",
+                        },
+                    },
+                },
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+    stay_planning = result["trip_draft"]["conversation"]["stay_planning"]
+
+    assert board["mode"] == "advanced_activities_workspace"
+    assert stay_planning["hotel_selection_status"] == "selected"
+    assert stay_planning["hotel_compatibility_status"] == "fit"
+    assert result["trip_draft"]["conversation"]["activity_planning"]["completion_status"] == "in_progress"
+    assert "keep kyoto station stay as the working hotel" in result["assistant_response"].lower()
+
+
+def test_chat_switching_stay_direction_from_review_returns_to_activities(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            requested_stay_option_title="Food-forward neighbourhood base",
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Late jazz set in Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": runner.datetime(2027, 3, 24, 20, 0, tzinfo=runner.timezone.utc),
+                "end_at": runner.datetime(2027, 3, 24, 22, 0, tzinfo=runner.timezone.utc),
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        runner,
+        "build_module_outputs",
+        lambda *_, **__: TripModuleOutputs(hotels=_sample_hotel_outputs().hotels),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Switch to Food-forward neighbourhood base.",
+            "trip_draft": {
+                "title": "Kyoto Night Trip",
+                "configuration": {
+                    "to_location": "Kyoto",
+                    "start_date": "2027-03-24",
+                    "end_date": "2027-03-24",
+                    "travel_window": "late March",
+                    "trip_length": "1 night",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "advanced",
+                    "planning_mode_status": "selected",
+                    "advanced_step": "anchor_flow",
+                    "advanced_anchor": "activities",
+                    "stay_planning": {
+                        "recommended_stay_options": [
+                            {
+                                "id": "stay_quiet_local",
+                                "segment_id": "segment_primary",
+                                "strategy_type": "single_base",
+                                "title": "Quieter local base",
+                                "summary": "Choose a calmer local area so the trip starts and ends more gently.",
+                                "area_label": "Calmer residential pockets",
+                                "areas": [],
+                                "best_for": ["Relaxed pacing and easier mornings"],
+                                "tradeoffs": ["Daily travel can need more planning"],
+                                "recommended": False,
+                            },
+                            {
+                                "id": "stay_food_forward",
+                                "segment_id": "segment_primary",
+                                "strategy_type": "single_base",
+                                "title": "Food-forward neighbourhood base",
+                                "summary": "Choose a neighbourhood-led base built around food and evening walks.",
+                                "area_label": "Dining-led Kyoto pockets",
+                                "areas": [],
+                                "best_for": ["Food and evening structure"],
+                                "tradeoffs": ["Less purely practical than a station-led base"],
+                                "recommended": True,
+                            },
+                        ],
+                        "selected_stay_option_id": "stay_quiet_local",
+                        "selected_stay_direction": "Quieter local base",
+                        "selection_status": "needs_review",
+                        "compatibility_status": "conflicted",
+                    },
+                },
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+    stay_planning = result["trip_draft"]["conversation"]["stay_planning"]
+
+    assert board["mode"] == "advanced_anchor_choice"
+    assert stay_planning["selected_stay_option_id"] == "stay_food_forward"
+    assert stay_planning["compatibility_status"] == "fit"
+    assert result["trip_draft"]["conversation"]["activity_planning"]["completion_status"] == "completed"
+    assert "switched the working stay direction" in result["assistant_response"].lower()
 
 
 def test_advanced_mode_allows_flexible_departure_to_reach_anchor_choice(monkeypatch) -> None:

@@ -202,6 +202,43 @@ def test_understanding_prompt_teaches_budget_nuance(monkeypatch) -> None:
     )
 
 
+def test_understanding_prompt_teaches_review_resolution_semantics(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="Keep this base anyway.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert "requested_stay_option_title" in prompt
+    assert "requested_review_resolutions" in prompt
+    assert (
+        "If the user is in a stay review flow and clearly names one of the visible stay directions they want instead, set requested_stay_option_title to that stay-direction title."
+        in prompt
+    )
+    assert (
+        "If the user is in a stay or hotel review flow and explicitly says to keep the current stay or keep the current hotel anyway, return that in requested_review_resolutions with scope set to stay or hotel."
+        in prompt
+    )
+    assert 'User: "Switch to Food-forward neighbourhood base."' in prompt
+    assert 'User: "Keep this base anyway."' in prompt
+    assert 'User: "Keep the current hotel."' in prompt
+
+
 def test_understanding_prompt_teaches_traveller_composition_nuance(monkeypatch) -> None:
     captured: dict = {}
     monkeypatch.setattr(
@@ -314,7 +351,97 @@ def test_understanding_prompt_teaches_module_scope_narrowing(monkeypatch) -> Non
         'If the user says something like "stay first, flights later", treat that as sequencing guidance. Prefer requested_advanced_anchor over turning flights off unless the user clearly said flights are out of scope.'
         in prompt
     )
+    assert (
+        "If the user is already in the Advanced activities workspace and clearly says to make an activity or event essential, keep it as a maybe, or pass on it, return that in requested_activity_decisions."
+        in prompt
+    )
+    assert (
+        "Only return requested_activity_decisions when the latest user turn names one visible activity or event clearly enough to match later. Do not guess between similarly named candidates."
+        in prompt
+    )
+    assert (
+        "If the user is already in the Advanced activities workspace and clearly asks to move a visible activity or event to another day, move it earlier or later in the day, pin it to morning/afternoon/evening, save it for later, or bring it back into the plan, return that in requested_activity_schedule_edits."
+        in prompt
+    )
+    assert (
+        "Use action move_to_day for instructions like \"move this to day 2\", pin_daypart for instructions like \"put this in the evening\", move_earlier or move_later for relative timing changes, reserve for \"save that for later\", and restore for \"bring that back into the plan\"."
+        in prompt
+    )
     assert 'User: "I already booked flights. Just help me with what to do in Kyoto."' in prompt
+
+
+def test_understanding_prompt_teaches_activity_schedule_edit_semantics(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="Move the market walk to day 2 and put the Gion evening walk in the evening.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert "requested_activity_schedule_edits" in prompt
+    assert (
+        "Only return requested_activity_schedule_edits when the latest user turn names one visible candidate clearly enough to match later. Do not guess between similarly named options."
+        in prompt
+    )
+    assert 'User: "Move the market walk to day 2."' in prompt
+    assert 'User: "Put the Gion evening walk in the evening."' in prompt
+    assert 'User: "Save that jazz show for later."' in prompt
+
+
+def test_understanding_prompt_teaches_trip_style_direction_semantics(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="Make this more food-led and local.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert "requested_trip_style_direction_updates" in prompt
+    assert "requested_trip_style_pace_updates" in prompt
+    assert (
+        "If the user is already in the Advanced trip-style Direction workspace and clearly chooses a main trip character like food-led, culture-led, nightlife-led, outdoors-led, or balanced, return that in requested_trip_style_direction_updates with action select_primary."
+        in prompt
+    )
+    assert (
+        "Direction workspace vocabulary is different from intake trip-style fields."
+        in prompt
+    )
+    assert 'User: "Make this more food-led and local."' in prompt
+    assert 'User: "Use that trip direction."' in prompt
+    assert (
+        "Pace vocabulary is only slow, balanced, or full."
+        in prompt
+    )
+    assert 'User: "Keep the days slower with more open time."' in prompt
+    assert 'User: "Balanced is good, lock that in."' in prompt
 
 
 def test_understanding_prompt_teaches_destination_option_preservation(monkeypatch) -> None:

@@ -13,6 +13,7 @@ import {
   Clock,
   CloudSun,
   Download,
+  ExternalLink,
   Loader2,
   MapPin,
   Plane,
@@ -487,14 +488,42 @@ function BrochureEventRow({ item, warnings }: { item: TimelineItem; warnings: Br
           <span className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em]" style={{ background: bg, color: text }}>{label}</span>
         </div>
 
+        {item.type === "event" && item.image_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.image_url}
+            alt={item.title}
+            className="mt-3 h-24 w-full max-w-[13rem] rounded-lg object-cover"
+          />
+        )}
+
         {item.location_label && (
           <div className="mt-1 flex items-center gap-1 text-xs text-foreground/46">
             <MapPin className="h-3 w-3 shrink-0" />
-            <span className="truncate">{item.location_label}</span>
+            <span className="truncate">
+              {item.venue_name && item.type === "event"
+                ? `${item.venue_name} · ${item.location_label}`
+                : item.location_label}
+            </span>
           </div>
         )}
 
         {item.summary && <p className="mt-1.5 text-xs leading-relaxed text-foreground/52">{item.summary}</p>}
+
+        {(item.status_text || item.price_text || item.availability_text) && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {[item.status_text, item.price_text, item.availability_text]
+              .filter(Boolean)
+              .map((detail) => (
+                <span
+                  key={detail}
+                  className="rounded-full bg-[color:var(--planner-board-soft)] px-2 py-0.5 text-[10px] font-medium text-foreground/58"
+                >
+                  {detail}
+                </span>
+              ))}
+          </div>
+        )}
 
         {item.details.length > 0 && (
           <ul className="mt-2 space-y-1">
@@ -504,6 +533,18 @@ function BrochureEventRow({ item, warnings }: { item: TimelineItem; warnings: Br
               </li>
             ))}
           </ul>
+        )}
+
+        {item.type === "event" && item.source_url && (
+          <a
+            href={item.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[color:var(--accent)] transition hover:underline"
+          >
+            {item.source_label ? `Open on ${item.source_label}` : "Open event listing"}
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
         )}
 
         {warnings.length > 0 && (

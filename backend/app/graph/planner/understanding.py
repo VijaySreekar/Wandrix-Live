@@ -102,10 +102,37 @@ Rules:
 - Do not leave all modules active by default when the user clearly narrowed the scope.
 - If the user is already in Advanced Planning and says something like "stay first", "start with hotels", "let's do flights first", or "activities first", set requested_advanced_anchor to the matching anchor.
 - If the user says something like "stay first, flights later", treat that as sequencing guidance. Prefer requested_advanced_anchor over turning flights off unless the user clearly said flights are out of scope.
+- If the user is already in the Advanced trip-style Direction workspace and clearly chooses a main trip character like food-led, culture-led, nightlife-led, outdoors-led, or balanced, return that in requested_trip_style_direction_updates with action select_primary.
+- If the user adds an optional accent like local, classic, polished, romantic, or relaxed, return that in requested_trip_style_direction_updates with action select_accent.
+- If the user clearly removes the accent, return action clear_accent.
+- If the user clearly commits to the chosen Direction, such as "use that", "lock that in", or "let's go with that direction", also return action confirm.
+- Only return requested_trip_style_direction_updates when the latest turn makes the direction choice clear enough to map to one primary or one accent without guessing.
+- If the user is already in the Advanced trip-style Pace workspace and clearly chooses how full the days should feel, return requested_trip_style_pace_updates with action select_pace.
+- Pace vocabulary is only slow, balanced, or full. Map relaxed, easy, lower-friction, and more open time to slow; packed, maximize, see as much as possible, and full days to full; middle-ground or not too empty/not too packed to balanced.
+- If the user clearly commits to the chosen Pace, such as "use that pace", "lock it in", or "balanced is good", also return requested_trip_style_pace_updates with action confirm.
+- If the user says to keep the current pace anyway, return action keep_current.
+- Only return requested_trip_style_pace_updates when the latest turn clearly concerns day fullness or pacing, not when it is just a generic trip vibe.
 - If the user is already looking at hotel recommendations inside a selected stay direction and clearly names one of those hotels as the one they want to proceed with, set requested_stay_hotel_name to that hotel name.
 - Only set requested_stay_hotel_name when the choice is clear from the latest turn. Do not guess between several hotel names.
+- If the user is in a stay review flow and clearly names one of the visible stay directions they want instead, set requested_stay_option_title to that stay-direction title.
+- Only set requested_stay_option_title when the choice is clearly one visible stay direction from the latest turn. Do not guess between several similar titles.
+- If the user is in a stay or hotel review flow and explicitly says to keep the current stay or keep the current hotel anyway, return that in requested_review_resolutions with scope set to stay or hotel.
+- Only return requested_review_resolutions for explicit keep-current language such as keep this anyway, keep the current base, or keep the current hotel.
+- If the user is already in the Advanced activities workspace and clearly says to make an activity or event essential, keep it as a maybe, or pass on it, return that in requested_activity_decisions.
+- Each requested_activity_decision should include candidate_title, optional candidate_kind, and disposition.
+- Only return requested_activity_decisions when the latest user turn names one visible activity or event clearly enough to match later. Do not guess between similarly named candidates.
+- If the user is already in the Advanced activities workspace and clearly asks to move a visible activity or event to another day, move it earlier or later in the day, pin it to morning/afternoon/evening, save it for later, or bring it back into the plan, return that in requested_activity_schedule_edits.
+- Each requested_activity_schedule_edit should include action, candidate_title, optional candidate_kind, optional target_day_index, and optional target_daypart.
+- Use action move_to_day for instructions like "move this to day 2", pin_daypart for instructions like "put this in the evening", move_earlier or move_later for relative timing changes, reserve for "save that for later", and restore for "bring that back into the plan".
+- Only return requested_activity_schedule_edits when the latest user turn names one visible candidate clearly enough to match later. Do not guess between similarly named options.
+- Do not try to reinterpret fixed-time event moves as freeform scheduling. If the user wants to keep or remove a fixed-time event, use reserve or restore rather than inventing a new time.
 - Use activity_styles for recognized preset trip directions like food, culture, relaxed, luxury, romantic, family, adventure, outdoors, or nightlife.
 - If the user describes a style or vibe that matters but does not fit cleanly into those preset labels, preserve that nuance in custom_style instead of dropping it.
+- Direction workspace vocabulary is different from intake trip-style fields. Intake fields still use activity_styles and custom_style, but requested_trip_style_direction_updates should use the planner-owned Direction vocabulary:
+  - primary: food_led, culture_led, nightlife_led, outdoors_led, balanced
+  - accent: local, classic, polished, romantic, relaxed
+- Pace workspace vocabulary is planner-owned too:
+  - pace: slow, balanced, full
 - Keep open_question_updates short, useful, and structured.
 - Prefer open_question_updates over the legacy open_questions string list.
 - For each open_question_update, include question, field, step, priority, and why whenever you can.
@@ -166,8 +193,40 @@ Ambiguity examples:
   Good result: keep both destinations alive in mentioned_options instead of forcing one place into to_location.
 - User: "Stay first, flights later."
   Good result: keep requested_advanced_anchor on stay instead of acting like flights must either happen now or disappear entirely.
+- User: "Make this more food-led and local."
+  Good result: add requested_trip_style_direction_updates for select_primary food_led and select_accent local.
+- User: "Keep it classic Kyoto, not nightlife-heavy."
+  Good result: prefer a culture-led or balanced primary only if the choice is clear, and add select_accent classic without guessing beyond the visible Direction vocabulary.
+- User: "Use that trip direction."
+  Good result: add a confirm action only when the current Direction context already makes the target clear.
+- User: "Keep the days slower with more open time."
+  Good result: if the user is in the Pace workspace, add requested_trip_style_pace_updates with action select_pace and pace slow.
+- User: "Let's make it packed, I want to see as much as possible."
+  Good result: if the user is in the Pace workspace, add requested_trip_style_pace_updates with action select_pace and pace full.
+- User: "Balanced is good, lock that in."
+  Good result: if the user is in the Pace workspace, add requested_trip_style_pace_updates with action select_pace and pace balanced, plus a confirm action.
 - User: "Let's go with Cross Hotel Kyoto."
   Good result: if that hotel is one of the visible stay recommendations, set requested_stay_hotel_name to Cross Hotel Kyoto.
+- User: "Switch to Food-forward neighbourhood base."
+  Good result: if that stay direction is one of the visible review options, set requested_stay_option_title to Food-forward neighbourhood base.
+- User: "Keep this base anyway."
+  Good result: add requested_review_resolutions with scope stay.
+- User: "Keep the current hotel."
+  Good result: add requested_review_resolutions with scope hotel.
+- User: "Make the Gion evening walk essential."
+  Good result: add a requested_activity_decision for that candidate with disposition essential.
+- User: "Pass on that jazz show."
+  Good result: add a requested_activity_decision for that event with disposition pass only if the event reference is clear from context.
+- User: "Move the market walk to day 2."
+  Good result: add a requested_activity_schedule_edit with action move_to_day and target_day_index 2.
+- User: "Put the Gion evening walk in the evening."
+  Good result: add a requested_activity_schedule_edit with action pin_daypart and target_daypart evening.
+- User: "Move that earlier."
+  Good result: add a requested_activity_schedule_edit with action move_earlier only if the activity reference is clear from context.
+- User: "Save that jazz show for later."
+  Good result: add a requested_activity_schedule_edit with action reserve only if the event reference is clear.
+- User: "Bring Nishiki Market back into the plan."
+  Good result: add a requested_activity_schedule_edit with action restore only if the candidate reference is clear.
 
 Allowed field keys:
 ["from_location", "from_location_flexible", "to_location", "start_date", "end_date", "travel_window", "trip_length", "weather_preference", "budget_posture", "budget_gbp", "adults", "children", "travelers_flexible", "activity_styles", "custom_style", "selected_modules"]

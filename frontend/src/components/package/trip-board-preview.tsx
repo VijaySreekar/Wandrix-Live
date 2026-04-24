@@ -54,6 +54,7 @@ export function TripBoardPreview({
       "advanced_date_resolution",
       "advanced_anchor_choice",
       "advanced_next_step",
+      "advanced_activities_workspace",
       "advanced_stay_choice",
       "advanced_stay_selected",
       "advanced_stay_review",

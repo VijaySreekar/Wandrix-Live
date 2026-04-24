@@ -13,6 +13,8 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useComposer,
+  useComposerRuntime,
   useThread,
   useLocalRuntime,
   useMessage,
@@ -183,7 +185,6 @@ export function TravelPlannerAssistant({
     messages: null,
   });
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
-  const boardActionRef = useRef<ConversationBoardAction | null>(null);
 
   const tripId = activeTripId ?? workspace?.trip.trip_id ?? null;
   const hasActiveWorkspace = Boolean(
@@ -364,11 +365,9 @@ export function TravelPlannerAssistant({
           onEnsurePersistedTrip,
           onActivatePersistedTrip,
           profileContext,
-          pendingBoardAction: boardActionRef.current,
+          pendingBoardAction: null,
           onDraftUpdated,
         });
-
-        boardActionRef.current = null;
 
         if (abortSignal.aborted) {
           return;
@@ -386,7 +385,6 @@ export function TravelPlannerAssistant({
       onEnsurePersistedTrip,
       onDraftUpdated,
       profileContext,
-      boardActionRef,
       tripId,
       workspace,
       workspaceError,
@@ -407,9 +405,6 @@ export function TravelPlannerAssistant({
       pendingBoardAction={pendingBoardAction}
       requestedTripId={requestedTripId}
       onBoardActionHandled={onBoardActionHandled}
-      onBoardActionReadyForBackend={(action) => {
-        boardActionRef.current = action;
-      }}
       onDirectBoardActionSubmit={async (action) => {
         return await buildAssistantReply({
           activeTripId: tripId,
@@ -442,7 +437,6 @@ function TravelPlannerAssistantRuntime({
   pendingBoardAction,
   requestedTripId,
   onBoardActionHandled,
-  onBoardActionReadyForBackend,
   onDirectBoardActionSubmit,
 }: {
   adapter: ChatModelAdapter;
@@ -457,7 +451,6 @@ function TravelPlannerAssistantRuntime({
   pendingBoardAction: PlannerBoardActionIntent | null;
   requestedTripId: string | null;
   onBoardActionHandled: (actionId: string) => void;
-  onBoardActionReadyForBackend: (action: ConversationBoardAction) => void;
   onDirectBoardActionSubmit: (action: ConversationBoardAction) => Promise<string>;
 }) {
   const hydratedMessages = useMemo(
@@ -485,7 +478,6 @@ function TravelPlannerAssistantRuntime({
         pendingBoardAction={pendingBoardAction}
         disabled={isBootstrapping || isSwitchingTrips || !hasWorkspace || hasError}
         onHandled={onBoardActionHandled}
-        onActionReadyForBackend={onBoardActionReadyForBackend}
         onDirectActionSubmit={onDirectBoardActionSubmit}
       />
       <section className="relative flex h-full min-h-0 flex-col bg-[color:var(--chat-pane-bg)]">
@@ -1114,7 +1106,12 @@ function Composer({
   disabledPlaceholder: string;
 }) {
   const messages = useThread((state) => state.messages);
+  const isRunning = useThread((state) => state.isRunning);
+  const composerRuntime = useComposerRuntime({ optional: true });
+  const composerIsEmpty = useComposer((state) => state.isEmpty);
   const isEmptyThread = messages.length === 0;
+  const sendDisabled = disabled || isRunning || composerIsEmpty || !composerRuntime;
+  const showCancel = Boolean(composerRuntime && isRunning);
 
   return (
     <ComposerPrimitive.Root className="border-t border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)] px-4 pb-4 pt-3 sm:px-8">
@@ -1136,25 +1133,29 @@ function Composer({
                 className="min-h-12 max-h-40 w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
               />
             </div>
-            <ComposerPrimitive.Send asChild>
+            <button
+              type="button"
+              disabled={sendDisabled}
+              onClick={() => {
+                composerRuntime?.send();
+              }}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[linear-gradient(135deg,var(--accent),var(--accent2))] text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-55"
+              aria-label="Send message"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+            {showCancel ? (
               <button
                 type="button"
-                disabled={disabled}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[linear-gradient(135deg,var(--accent),var(--accent2))] text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-55"
-                aria-label="Send message"
-              >
-                <ArrowUp className="h-4 w-4" />
-              </button>
-            </ComposerPrimitive.Send>
-            <ComposerPrimitive.Cancel asChild>
-              <button
-                type="button"
+                onClick={() => {
+                  composerRuntime?.cancel();
+                }}
                 className="h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-foreground transition-colors hover:bg-[color:var(--chat-rail-surface)] disabled:hidden"
                 aria-label="Stop generating"
               >
                 <span className="h-4 w-4 rounded-[0.2rem] bg-current" />
               </button>
-            </ComposerPrimitive.Cancel>
+            ) : null}
           </div>
         </div>
       </div>

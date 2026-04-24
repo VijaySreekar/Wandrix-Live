@@ -32,8 +32,8 @@ export async function ChatPageShell({
     "Traveler";
 
   return (
-    <main className="chat-workspace-shell h-[calc(100vh-4.75rem)] overflow-hidden">
-      <TravelPackageWorkspace initialMode={initialMode} initialUserId={user.id} />
+    <main className="chat-workspace-shell h-[calc(100vh-var(--nav-height))] overflow-hidden">
+      <TravelPackageWorkspace initialMode={initialMode} />
       <OnboardingDialog
         userId={user.id}
         initialEmail={user.email ?? ""}

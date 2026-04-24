@@ -25,6 +25,9 @@ from app.schemas.trip_conversation import (
     PlannerHotelSortOrder,
     PlannerHotelStyleTag,
     PlannerAdvancedAnchor,
+    PlannerTripPace,
+    PlannerTripDirectionAccent,
+    PlannerTripDirectionPrimary,
     PlannerChecklistItem,
     PlanningModeChoiceCard,
     PlannerAdvancedStep,
@@ -105,6 +108,45 @@ def build_suggestion_board_state(
         and advanced_step == "anchor_flow"
         and advanced_anchor is not None
     ):
+        if advanced_anchor == "activities":
+            stay_planning = current.stay_planning
+            if (
+                stay_planning.selection_status == "needs_review"
+                or stay_planning.compatibility_status in {"strained", "conflicted"}
+                or (
+                    stay_planning.selected_hotel_id
+                    and (
+                        stay_planning.hotel_selection_status == "needs_review"
+                        or stay_planning.hotel_compatibility_status
+                        in {"strained", "conflicted"}
+                    )
+                )
+            ):
+                return _build_advanced_stay_board_state(
+                    current=current,
+                    configuration=configuration,
+                )
+            if current.activity_planning.completion_status == "completed":
+                return _build_advanced_activities_completed_state(
+                    current=current,
+                    configuration=configuration,
+                )
+            return _build_advanced_activities_board_state(current=current, configuration=configuration)
+        if advanced_anchor == "trip_style":
+            if current.trip_style_planning.substep == "completed":
+                return _build_advanced_trip_style_completed_state(
+                    current=current,
+                    configuration=configuration,
+                )
+            if current.trip_style_planning.substep == "pace":
+                return _build_advanced_trip_style_pace_board_state(
+                    current=current,
+                    configuration=configuration,
+                )
+            return _build_advanced_trip_style_board_state(
+                current=current,
+                configuration=configuration,
+            )
         if advanced_anchor == "stay":
             return _build_advanced_stay_board_state(
                 current=current,
@@ -400,10 +442,10 @@ def _build_advanced_anchor_choice_state(
     )
     return TripSuggestionBoardState(
         mode="advanced_anchor_choice",
-        title="Choose what should lead the trip first",
+        title="Choose what to shape first",
         subtitle=(
             f"The brief for {destination} is strong enough now. "
-            "Pick the first Advanced Planning anchor. Wandrix recommends one starting point, but you can choose any of the four."
+            "Pick the first part of the trip to shape in more depth. Wandrix recommends one starting point, but you can choose any of the four."
         ),
         advanced_anchor_cards=_build_advanced_anchor_cards(
             recommended_anchor,
@@ -422,12 +464,285 @@ def _build_advanced_anchor_selected_state(
     anchor_title = _advanced_anchor_title(advanced_anchor)
     return TripSuggestionBoardState(
         mode="advanced_next_step",
-        title=f"{anchor_title} will lead this trip first",
+        title=f"{anchor_title} will shape this trip first",
         subtitle=(
             f"Advanced Planning is now centered on {anchor_title.lower()} for {destination}. "
-            "The next step is building the first deeper flow around that choice."
+            "The next step is turning that into the first deeper planning pass."
         ),
         own_choice_prompt=None,
+    )
+
+
+def _build_advanced_trip_style_board_state(
+    *,
+    current: TripConversationState,
+    configuration: TripConfiguration,
+) -> TripSuggestionBoardState:
+    destination = configuration.to_location or "this trip"
+    trip_style_planning = current.trip_style_planning
+    selected_primary = trip_style_planning.selected_primary_direction
+    selected_accent = trip_style_planning.selected_accent
+
+    subtitle = (
+        f"Choose the main character for {destination} before we open activities in depth. "
+        "The primary direction decides what Wandrix should push to the top, and the optional accent changes how those picks should feel."
+    )
+    if selected_primary:
+        subtitle = (
+            f"{destination} is currently leaning {_trip_direction_primary_label(selected_primary)}"
+            f"{f' with a {_trip_direction_accent_label(selected_accent)} accent' if selected_accent else ''}. "
+            "You can keep refining that here, then confirm it when the trip character feels right."
+        )
+
+    return TripSuggestionBoardState(
+        mode="advanced_trip_style_direction",
+        title="Set The Trip Character",
+        subtitle=subtitle,
+        trip_style_recommended_primaries=trip_style_planning.recommended_primary_directions,
+        trip_style_recommended_accents=trip_style_planning.recommended_accents,
+        selected_trip_style_primary=selected_primary,
+        selected_trip_style_accent=selected_accent,
+        trip_style_selection_status=trip_style_planning.selection_status,
+        trip_style_substep=trip_style_planning.substep,
+        trip_style_workspace_summary=trip_style_planning.workspace_summary,
+        trip_style_selection_rationale=trip_style_planning.selection_rationale,
+        trip_style_downstream_influence_summary=trip_style_planning.downstream_influence_summary,
+        trip_style_completion_summary=trip_style_planning.completion_summary,
+        own_choice_prompt=None,
+    )
+
+
+def _build_advanced_trip_style_pace_board_state(
+    *,
+    current: TripConversationState,
+    configuration: TripConfiguration,
+) -> TripSuggestionBoardState:
+    destination = configuration.to_location or "this trip"
+    trip_style_planning = current.trip_style_planning
+    selected_primary = trip_style_planning.selected_primary_direction
+    selected_accent = trip_style_planning.selected_accent
+    direction_label = (
+        _trip_direction_primary_label(selected_primary)
+        if selected_primary
+        else "balanced"
+    )
+    accent_line = (
+        f" with a {_trip_direction_accent_label(selected_accent)} accent"
+        if selected_accent
+        else ""
+    )
+    return TripSuggestionBoardState(
+        mode="advanced_trip_style_pace",
+        title="Set The Day Pace",
+        subtitle=(
+            f"The trip character is already {direction_label}{accent_line}. "
+            f"Now choose how full the days in {destination} should feel before Activities opens."
+        ),
+        trip_style_recommended_primaries=trip_style_planning.recommended_primary_directions,
+        trip_style_recommended_accents=trip_style_planning.recommended_accents,
+        selected_trip_style_primary=selected_primary,
+        selected_trip_style_accent=selected_accent,
+        trip_style_selection_status=trip_style_planning.selection_status,
+        trip_style_substep=trip_style_planning.substep,
+        trip_style_workspace_summary=trip_style_planning.workspace_summary,
+        trip_style_selection_rationale=trip_style_planning.selection_rationale,
+        trip_style_downstream_influence_summary=trip_style_planning.downstream_influence_summary,
+        trip_style_recommended_paces=trip_style_planning.recommended_paces,
+        selected_trip_style_pace=trip_style_planning.selected_pace,
+        trip_style_pace_status=trip_style_planning.pace_status,
+        trip_style_pace_rationale=trip_style_planning.pace_rationale,
+        trip_style_pace_downstream_influence_summary=(
+            trip_style_planning.pace_downstream_influence_summary
+        ),
+        trip_style_completion_summary=trip_style_planning.completion_summary,
+        own_choice_prompt=None,
+    )
+
+
+def _build_advanced_trip_style_completed_state(
+    *,
+    current: TripConversationState,
+    configuration: TripConfiguration,
+) -> TripSuggestionBoardState:
+    completed_anchors = _resolve_completed_advanced_anchors(current=current)
+    recommended_anchor = _recommend_advanced_anchor_after_trip_style(
+        configuration=configuration,
+        current=current,
+    )
+    completion_summary = (
+        current.trip_style_planning.completion_summary
+        or "The trip character is now clear enough to shape the next branch."
+    )
+    recommended_anchor_title = _advanced_anchor_title(recommended_anchor)
+    return TripSuggestionBoardState(
+        mode="advanced_anchor_choice",
+        title="What should we plan next?",
+        subtitle=(
+            f"{completion_summary.rstrip('.')} "
+            "The board is back to the remaining planning choices now that this part of the trip feels settled. "
+            f"Wandrix now recommends {recommended_anchor_title.lower()} as the next best move."
+        ),
+        advanced_anchor_cards=_build_advanced_anchor_cards(
+            recommended_anchor,
+            completed_anchors=completed_anchors,
+        ),
+        own_choice_prompt=None,
+    )
+
+
+def _build_advanced_activities_board_state(
+    *,
+    current: TripConversationState,
+    configuration: TripConfiguration,
+) -> TripSuggestionBoardState:
+    destination = configuration.to_location or "this trip"
+    activity_planning = current.activity_planning
+    stay_label = current.stay_planning.selected_hotel_name or current.stay_planning.selected_stay_direction
+    pace_label = (
+        _trip_pace_label(current.trip_style_planning.selected_pace)
+        if current.trip_style_planning.pace_status == "completed"
+        else None
+    )
+    lead_event = next(
+        (
+            candidate
+            for candidate in activity_planning.visible_candidates
+            if candidate.kind == "event" and candidate.start_at is not None
+        ),
+        None,
+    )
+    subtitle = (
+        f"Wandrix is narrowing {destination} down to the moments that feel most worth building around. "
+        "Use the board to show what should lead the trip, what should stay in the mix, and what does not belong."
+    )
+    if stay_label:
+        subtitle = (
+            f"Wandrix is narrowing {destination} down to the moments that feel most worth building around, using {stay_label} as extra context where it helps. "
+            "Use the board to show what should lead the trip, what should stay in the mix, and what does not belong."
+        )
+    if any(candidate.kind == "event" for candidate in activity_planning.recommended_candidates):
+        subtitle += " Live events are mixed in when they genuinely fit the trip window."
+    if pace_label:
+        subtitle += f" The confirmed {pace_label.lower()} pace is shaping how many flexible ideas get placed into each day."
+    if lead_event and activity_planning.visible_candidates:
+        if activity_planning.visible_candidates[0].id == lead_event.id:
+            subtitle = (
+                f"{lead_event.title} is currently the strongest time-specific moment in {destination}, "
+                "so Wandrix is shaping the shortlist around it. Keep it if it belongs at the heart of the trip, or leave it out and the rest of the shortlist will rebalance."
+            )
+
+    return TripSuggestionBoardState(
+        mode="advanced_activities_workspace",
+        title="Pick The Experiences That Matter Most",
+        subtitle=subtitle,
+        activity_candidates=activity_planning.recommended_candidates,
+        essential_ids=activity_planning.essential_ids,
+        maybe_ids=activity_planning.maybe_ids,
+        passed_ids=activity_planning.passed_ids,
+        selected_event_ids=activity_planning.selected_event_ids,
+        reserved_candidate_ids=activity_planning.reserved_candidate_ids,
+        activity_workspace_summary=activity_planning.workspace_summary,
+        activity_day_plans=activity_planning.day_plans,
+        unscheduled_activity_candidate_ids=activity_planning.unscheduled_candidate_ids,
+        activity_schedule_summary=activity_planning.schedule_summary,
+        activity_schedule_notes=activity_planning.schedule_notes,
+        activity_schedule_status=activity_planning.schedule_status,
+        own_choice_prompt=None,
+    )
+
+
+def _build_advanced_activities_completed_state(
+    *,
+    current: TripConversationState,
+    configuration: TripConfiguration,
+) -> TripSuggestionBoardState:
+    completed_anchors = _resolve_completed_advanced_anchors(current=current)
+    recommended_anchor = _recommend_advanced_anchor_after_activities(
+        configuration=configuration,
+        current=current,
+    )
+    completion_summary = (
+        current.activity_planning.completion_summary
+        or "The main experiences are now in place, so the trip can move forward."
+    )
+    recommended_anchor_title = _advanced_anchor_title(recommended_anchor)
+    return TripSuggestionBoardState(
+        mode="advanced_anchor_choice",
+        title="What should we plan next?",
+        subtitle=(
+            f"{completion_summary.rstrip('.')} "
+            "The board is back to the remaining planning choices now that this part of the trip feels settled. "
+            f"Wandrix now recommends {recommended_anchor_title.lower()} as the next best move."
+        ),
+        advanced_anchor_cards=_build_advanced_anchor_cards(
+            recommended_anchor,
+            completed_anchors=completed_anchors,
+        ),
+        own_choice_prompt=None,
+    )
+
+
+def _recommend_advanced_anchor_after_activities(
+    *,
+    configuration: TripConfiguration,
+    current: TripConversationState,
+) -> PlannerAdvancedAnchor:
+    completed_anchors = {"activities"}
+    if current.stay_planning.selected_hotel_id:
+        completed_anchors.add("stay")
+    if current.trip_style_planning.substep == "completed":
+        completed_anchors.add("trip_style")
+
+    active_modules = [
+        name
+        for name, enabled in configuration.selected_modules.model_dump(mode="json").items()
+        if enabled
+    ]
+    trip_length_text = (configuration.trip_length or "").lower()
+    has_short_trip_signal = any(
+        signal in trip_length_text for signal in ["weekend", "3 day", "3-night", "3 night"]
+    )
+    route_is_soft = not configuration.from_location
+    route_is_explicitly_flexible = has_flexible_origin(configuration)
+    hotels_active = "hotels" in active_modules
+    flights_active = "flights" in active_modules
+    activities_active = "activities" in active_modules
+
+    ranked_candidates: list[PlannerAdvancedAnchor] = []
+    if activities_active and configuration.custom_style:
+        ranked_candidates.append("trip_style")
+    if flights_active and not route_is_explicitly_flexible and (route_is_soft or has_short_trip_signal):
+        ranked_candidates.append("flight")
+    if hotels_active and "stay" not in completed_anchors:
+        ranked_candidates.append("stay")
+    ranked_candidates.extend(["stay", "trip_style", "flight", "activities"])
+
+    for candidate in ranked_candidates:
+        if candidate not in completed_anchors:
+            return candidate
+    return "trip_style"
+
+
+def _recommend_advanced_anchor_after_trip_style(
+    *,
+    configuration: TripConfiguration,
+    current: TripConversationState,
+) -> PlannerAdvancedAnchor:
+    completed_anchors = {"trip_style"}
+    if current.stay_planning.selected_hotel_id:
+        completed_anchors.add("stay")
+    if current.activity_planning.completion_status == "completed":
+        completed_anchors.add("activities")
+
+    if configuration.selected_modules.activities and "activities" not in completed_anchors:
+        return "activities"
+    if configuration.selected_modules.hotels and "stay" not in completed_anchors:
+        return "stay"
+    if configuration.selected_modules.flights and not has_flexible_origin(configuration):
+        return "flight"
+    return _recommend_advanced_anchor(
+        configuration=configuration,
+        completed_anchors=completed_anchors,
     )
 
 
@@ -853,11 +1168,11 @@ def _build_advanced_anchor_cards(
         AdvancedAnchorChoiceCard(
             id="activities",
             title="Activities",
-            description="Lead with the concrete things you want to do, then shape timing and stay around those anchors.",
+            description="Start with the experiences that matter most, then let timing and stay adjust around them.",
             bullets=[
-                "Best when must-do experiences drive the trip",
+                "Best when must-do moments should shape the trip",
                 "Useful for events, museum-heavy trips, or food-led routes",
-                "Lets the itinerary cluster around real anchors first",
+                "Lets the days come together around real priorities first",
             ],
             status="completed"
             if "activities" in completed_anchors
@@ -871,7 +1186,7 @@ def _build_advanced_anchor_cards(
             else None,
             cta_label="Completed"
             if "activities" in completed_anchors
-            else "Start with activities",
+            else "Start with experiences",
         ),
     ]
     available_cards = [card for card in cards if card.status == "available"]
@@ -905,14 +1220,14 @@ def _recommend_advanced_anchor(
         ranked_candidates.append("activities")
     if activities_active and configuration.custom_style:
         ranked_candidates.append("trip_style")
+    if activities_active:
+        ranked_candidates.append("trip_style")
     if flights_active and not route_is_explicitly_flexible and (route_is_soft or has_short_trip_signal):
         ranked_candidates.append("flight")
     if hotels_active and not flights_active:
         ranked_candidates.append("stay")
     if hotels_active and not activities_active:
         ranked_candidates.append("stay")
-    if activities_active:
-        ranked_candidates.append("trip_style")
     ranked_candidates.extend(["stay", "activities", "trip_style", "flight"])
 
     for candidate in ranked_candidates:
@@ -927,8 +1242,13 @@ def _resolve_completed_advanced_anchors(
 ) -> set[PlannerAdvancedAnchor]:
     completed: set[PlannerAdvancedAnchor] = set()
     stay_planning = current.stay_planning
+    activity_planning = current.activity_planning
     if stay_planning.selected_hotel_id:
         completed.add("stay")
+    if current.trip_style_planning.substep == "completed":
+        completed.add("trip_style")
+    if activity_planning.completion_status == "completed":
+        completed.add("activities")
     return completed
 
 
@@ -982,7 +1302,15 @@ def _build_advanced_stay_board_state(
         "strained",
         "conflicted",
     }:
-        title = "The current stay direction needs review"
+        review_lead = next(
+            (
+                card.title
+                for card in stay_cards
+                if card.recommended and card.id != stay_planning.selected_stay_option_id
+            ),
+            None,
+        )
+        title = "This base needs a second look"
         subtitle = (
             stay_planning.compatibility_notes[0]
             if stay_planning.compatibility_notes
@@ -990,6 +1318,8 @@ def _build_advanced_stay_board_state(
                 f"The selected stay direction for {destination} is still saved, but newer planning evidence means it should be reviewed before Wandrix goes deeper."
             )
         )
+        if review_lead:
+            subtitle = f"{subtitle.rstrip('.')} Wandrix has re-ranked the stay directions, led now by {review_lead}."
         return TripSuggestionBoardState(
             mode="advanced_stay_review",
             title=title,
@@ -1003,11 +1333,24 @@ def _build_advanced_stay_board_state(
             stay_planning.hotel_selection_status == "needs_review"
             or stay_planning.hotel_compatibility_status in {"strained", "conflicted"}
         ) and stay_planning.selected_hotel_id:
+            review_hotel_lead = next(
+                (
+                    hotel.hotel_name
+                    for hotel in stay_planning.recommended_hotels
+                    if hotel.recommended and hotel.id != stay_planning.selected_hotel_id
+                ),
+                None,
+            )
             return TripSuggestionBoardState(
                 mode="advanced_stay_hotel_review",
-                title=f"{selected_card.title} still leads, but the hotel needs review",
+                title=f"{selected_card.title} still leads, but the hotel needs a second look",
                 subtitle=(
-                    stay_planning.hotel_compatibility_notes[0]
+                    (
+                        f"{stay_planning.hotel_compatibility_notes[0].rstrip('.')} "
+                        f"Wandrix has re-ranked the hotel options, led now by {review_hotel_lead}."
+                    )
+                    if stay_planning.hotel_compatibility_notes and review_hotel_lead
+                    else stay_planning.hotel_compatibility_notes[0]
                     if stay_planning.hotel_compatibility_notes
                     else (
                         f"The selected hotel inside {selected_card.title.lower()} should be reviewed before Wandrix keeps building deeper around it."
@@ -1121,6 +1464,34 @@ def _advanced_anchor_title(anchor: PlannerAdvancedAnchor) -> str:
         "trip_style": "Trip Style",
         "activities": "Activities",
     }[anchor]
+
+
+def _trip_direction_primary_label(primary: PlannerTripDirectionPrimary) -> str:
+    return {
+        "food_led": "food-led",
+        "culture_led": "culture-led",
+        "nightlife_led": "nightlife-led",
+        "outdoors_led": "outdoors-led",
+        "balanced": "balanced",
+    }[primary]
+
+
+def _trip_direction_accent_label(accent: PlannerTripDirectionAccent) -> str:
+    return {
+        "local": "local",
+        "classic": "classic",
+        "polished": "polished",
+        "romantic": "romantic",
+        "relaxed": "relaxed",
+    }[accent]
+
+
+def _trip_pace_label(pace: PlannerTripPace) -> str:
+    return {
+        "slow": "Slow",
+        "balanced": "Balanced",
+        "full": "Full",
+    }[pace]
 
 
 def _hotel_fit_score(

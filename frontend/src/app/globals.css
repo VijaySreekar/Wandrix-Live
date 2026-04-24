@@ -12,13 +12,13 @@
   --panel-border: rgba(15, 23, 42, 0.08);
   --panel-strong: #ffffff;
   --muted: oklch(0.97 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent2: #f4b400;
+  --accent: #059669;
+  --accent2: #84cc16;
   --accent-foreground: oklch(0.205 0 0);
-  --accent-strong: #1e40af;
-  --accent-soft: rgba(29, 78, 216, 0.1);
-  --brand-ocean: #1d4ed8;
-  --brand-sun: #f4b400;
+  --accent-strong: #047857;
+  --accent-soft: rgba(5, 150, 105, 0.12);
+  --brand-ocean: #059669;
+  --brand-sun: #84cc16;
   --glass-panel: rgba(255, 255, 255, 0.8);
   --glass-panel-strong: rgba(255, 255, 255, 0.9);
   --glass-border: rgba(15, 23, 42, 0.08);
@@ -31,7 +31,7 @@
   --sidebar-text: #111827;
   --sidebar-muted-text: #5b6472;
   --sidebar-active-bg: #ffffff;
-  --sidebar-icon-active-bg: rgba(29, 78, 216, 0.1);
+  --sidebar-icon-active-bg: rgba(5, 150, 105, 0.1);
   --chat-size-body: 1.0625rem;
   --chat-size-meta: 0.975rem;
   --chat-line-body: 1.7;
@@ -43,13 +43,32 @@
   --chat-pane-bg: rgba(250, 250, 247, 0.96);
   --chat-shadow-soft: 0 10px 24px -20px rgba(15, 23, 42, 0.2);
   --chat-shadow-card: 0 8px 18px -16px rgba(15, 23, 42, 0.18);
-  --nav-surface: color-mix(in srgb, var(--background) 94%, var(--accent) 6%);
-  --nav-surface-strong: color-mix(
-    in srgb,
-    var(--background) 91%,
-    var(--accent) 9%
-  );
-  --nav-height: 4.75rem;
+  --nav-shell: #fffdf8;
+  --nav-shell-strong: #fffaf0;
+  --nav-border: rgba(179, 152, 112, 0.22);
+  --nav-border-strong: rgba(152, 123, 80, 0.28);
+  --nav-divider: rgba(179, 152, 112, 0.18);
+  --nav-shadow: 0 20px 60px -30px rgba(92, 72, 46, 0.28);
+  --nav-link: rgba(33, 39, 41, 0.88);
+  --nav-hover: rgba(196, 168, 125, 0.08);
+  --nav-active-bg: #f5ead8;
+  --nav-active-text: #1b1f22;
+  --nav-active-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --nav-brand-mark: #16695e;
+  --nav-brand-text: #18332f;
+  --nav-brand-chip-bg: rgba(255, 248, 236, 0.96);
+  --nav-brand-chip-border: rgba(179, 152, 112, 0.24);
+  --nav-login-bg: #f7eddc;
+  --nav-login-text: #1f2f2c;
+  --nav-utility-shell: rgba(255, 251, 242, 0.92);
+  --nav-utility-border: rgba(179, 152, 112, 0.22);
+  --nav-utility-hover: rgba(196, 168, 125, 0.12);
+  --nav-utility-icon: rgba(35, 41, 44, 0.8);
+  --nav-avatar-bg: linear-gradient(135deg, #f6e8c7, #efd39b);
+  --nav-avatar-text: #4e3b1d;
+  --nav-surface: var(--nav-shell);
+  --nav-surface-strong: var(--nav-shell-strong);
+  --nav-height: 5rem;
   --planner-board-bg: #f3f4f4;
   --planner-board-card: #ffffff;
   --planner-board-card-hover: #fbfcfc;
@@ -192,12 +211,31 @@
   --chat-pane-bg: #090909;
   --chat-shadow-soft: 0 12px 28px -24px rgba(0, 0, 0, 0.45);
   --chat-shadow-card: 0 8px 18px -16px rgba(0, 0, 0, 0.45);
-  --nav-surface: color-mix(in srgb, var(--background) 95%, var(--accent) 5%);
-  --nav-surface-strong: color-mix(
-    in srgb,
-    var(--background) 90%,
-    var(--accent) 10%
-  );
+  --nav-shell: rgba(18, 20, 20, 0.94);
+  --nav-shell-strong: rgba(23, 26, 26, 0.98);
+  --nav-border: rgba(210, 187, 145, 0.16);
+  --nav-border-strong: rgba(210, 187, 145, 0.22);
+  --nav-divider: rgba(210, 187, 145, 0.14);
+  --nav-shadow: 0 24px 64px -36px rgba(0, 0, 0, 0.72);
+  --nav-link: rgba(244, 241, 235, 0.86);
+  --nav-hover: rgba(210, 187, 145, 0.1);
+  --nav-active-bg: rgba(210, 187, 145, 0.14);
+  --nav-active-text: #fbf7ee;
+  --nav-active-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --nav-brand-mark: #7cd6cb;
+  --nav-brand-text: #f7f2e8;
+  --nav-brand-chip-bg: rgba(255, 247, 232, 0.94);
+  --nav-brand-chip-border: rgba(210, 187, 145, 0.28);
+  --nav-login-bg: rgba(210, 187, 145, 0.14);
+  --nav-login-text: #fbf7ee;
+  --nav-utility-shell: rgba(25, 28, 28, 0.94);
+  --nav-utility-border: rgba(210, 187, 145, 0.14);
+  --nav-utility-hover: rgba(210, 187, 145, 0.12);
+  --nav-utility-icon: rgba(247, 242, 232, 0.86);
+  --nav-avatar-bg: linear-gradient(135deg, #5a4a2e, #b69257);
+  --nav-avatar-text: #fff4df;
+  --nav-surface: var(--nav-shell);
+  --nav-surface-strong: var(--nav-shell-strong);
   --planner-board-bg: #111615;
   --planner-board-card: #181f1e;
   --planner-board-card-hover: #1b2322;

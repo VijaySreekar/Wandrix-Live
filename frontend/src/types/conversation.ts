@@ -1,5 +1,12 @@
 import type {
   PlannerAdvancedAnchor,
+  PlannerActivityCandidateKind,
+  PlannerActivityDaypart,
+  PlannerActivityDisposition,
+  PlannerTripPace,
+  PlannerTripDirectionAccent,
+  PlannerTripDirectionPrimary,
+  PlannerReviewResolutionScope,
   ChatPlannerPhase,
   CheckpointConversationMessage,
 } from "@/types/trip-conversation";
@@ -48,6 +55,24 @@ export type ConversationBoardAction = {
     | "confirm_working_dates"
     | "select_stay_option"
     | "select_stay_hotel"
+    | "keep_current_stay_choice"
+    | "keep_current_hotel_choice"
+    | "set_activity_candidate_disposition"
+    | "rebuild_activity_day_plan"
+    | "move_activity_candidate_to_day"
+    | "move_activity_candidate_earlier"
+    | "move_activity_candidate_later"
+    | "pin_activity_candidate_daypart"
+    | "send_activity_candidate_to_reserve"
+    | "restore_activity_candidate_from_reserve"
+    | "select_trip_style_direction_primary"
+    | "select_trip_style_direction_accent"
+    | "clear_trip_style_direction_accent"
+    | "confirm_trip_style_direction"
+    | "keep_current_trip_style_direction"
+    | "select_trip_style_pace"
+    | "confirm_trip_style_pace"
+    | "keep_current_trip_style_pace"
     | "set_stay_hotel_filters"
     | "set_stay_hotel_sort"
     | "set_stay_hotel_page"
@@ -63,6 +88,16 @@ export type ConversationBoardAction = {
   stay_segment_id?: string | null;
   stay_hotel_id?: string | null;
   stay_hotel_name?: string | null;
+  activity_candidate_id?: string | null;
+  activity_candidate_title?: string | null;
+  activity_candidate_kind?: PlannerActivityCandidateKind | null;
+  activity_candidate_disposition?: PlannerActivityDisposition | null;
+  activity_target_day_index?: number | null;
+  activity_target_daypart?: PlannerActivityDaypart | null;
+  trip_style_direction_primary?: PlannerTripDirectionPrimary | null;
+  trip_style_direction_accent?: PlannerTripDirectionAccent | null;
+  trip_style_pace?: PlannerTripPace | null;
+  review_resolution_scope?: PlannerReviewResolutionScope | null;
   stay_hotel_max_nightly_rate?: number | null;
   stay_hotel_area_filter?: string | null;
   stay_hotel_style_filter?: string | null;

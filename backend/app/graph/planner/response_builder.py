@@ -120,6 +120,8 @@ def build_assistant_response(
                 conversation=conversation,
                 greeting_name=greeting_name,
                 action=action,
+                llm_update=llm_update,
+                fallback_text=fallback_text,
             )
         )
 
@@ -546,15 +548,34 @@ def _build_advanced_anchor_flow_response(
     conversation: TripConversationState,
     greeting_name: str | None,
     action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
+    fallback_text: str | None,
 ) -> str:
     greeting_prefix = f"Perfect, {greeting_name}. " if greeting_name else "Perfect. "
     destination = configuration.to_location or "this trip"
+    if conversation.advanced_anchor == "activities":
+        return _build_advanced_activities_response(
+            configuration=configuration,
+            conversation=conversation,
+            greeting_prefix=greeting_prefix,
+            action=action,
+            llm_update=llm_update,
+            fallback_text=fallback_text,
+        )
     if conversation.advanced_anchor == "stay":
         return _build_advanced_stay_response(
             configuration=configuration,
             conversation=conversation,
             greeting_prefix=greeting_prefix,
             action=action,
+        )
+    if conversation.advanced_anchor == "trip_style":
+        return _build_advanced_trip_style_response(
+            configuration=configuration,
+            conversation=conversation,
+            greeting_prefix=greeting_prefix,
+            action=action,
+            llm_update=llm_update,
         )
     advanced_anchor = conversation.advanced_anchor
     anchor_label = (
@@ -563,6 +584,371 @@ def _build_advanced_anchor_flow_response(
     return (
         f"{greeting_prefix}We'll lead {destination} with {anchor_label} first. "
         "I'll keep this in Advanced Planning mode and use that choice as the first deeper planning path."
+    )
+
+
+def _build_advanced_trip_style_response(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    greeting_prefix: str,
+    action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
+) -> str:
+    destination = configuration.to_location or "this trip"
+    trip_style_planning = conversation.trip_style_planning
+    primary = trip_style_planning.selected_primary_direction
+    accent = trip_style_planning.selected_accent
+    primary_label = (
+        _trip_direction_primary_label(primary) if primary else "balanced"
+    )
+    accent_line = (
+        f" with a {_trip_direction_accent_label(accent)} accent" if accent else ""
+    )
+
+    if action and action.type == "select_trip_style_direction_primary" and primary:
+        return (
+            f"{greeting_prefix}I’ve moved {destination} toward a {primary_label} direction. "
+            "You can still add or change the accent before confirming it as the working trip character."
+        )
+
+    if action and action.type == "select_trip_style_direction_accent" and accent:
+        return (
+            f"{greeting_prefix}I added a { _trip_direction_accent_label(accent) } accent to the trip direction. "
+            "That will change how activities are ranked once you confirm this working character."
+        )
+
+    if action and action.type == "clear_trip_style_direction_accent":
+        return (
+            f"{greeting_prefix}I cleared the optional accent, so the trip is back to a cleaner {primary_label} direction. "
+            "You can leave it that way or add another accent before confirming."
+        )
+
+    if (
+        action and action.type in {"confirm_trip_style_direction", "keep_current_trip_style_direction"}
+    ) or any(update.action in {"confirm", "keep_current"} for update in llm_update.requested_trip_style_direction_updates):
+        influence_line = (
+            f" {trip_style_planning.downstream_influence_summary}"
+            if trip_style_planning.downstream_influence_summary
+            else ""
+        )
+        return (
+            f"{greeting_prefix}{destination} is now set as a {primary_label}{accent_line} trip.{influence_line} "
+            "Next, choose the day pace so Activities knows whether to keep the days slow, balanced, or full."
+        )
+
+    if action and action.type == "select_trip_style_pace":
+        pace_label = _trip_pace_label(trip_style_planning.selected_pace)
+        return (
+            f"{greeting_prefix}I set the working pace to {pace_label.lower()}. "
+            "That will shape how many flexible activity ideas Wandrix auto-places into each day."
+        )
+
+    if (
+        action and action.type in {"confirm_trip_style_pace", "keep_current_trip_style_pace"}
+    ) or any(update.action in {"confirm", "keep_current"} for update in llm_update.requested_trip_style_pace_updates):
+        next_anchor = _recommend_advanced_anchor_after_trip_style(
+            configuration=configuration,
+            conversation=conversation,
+        )
+        next_anchor_label = next_anchor.replace("_", " ")
+        pace_label = _trip_pace_label(trip_style_planning.selected_pace).lower()
+        pace_line = (
+            f" {trip_style_planning.pace_downstream_influence_summary}"
+            if trip_style_planning.pace_downstream_influence_summary
+            else ""
+        )
+        return (
+            f"{greeting_prefix}{destination} is now set as a {primary_label}{accent_line} trip at a {pace_label} pace.{pace_line} "
+            f"The board is back to the remaining planning choices now, and the cleanest next move is {next_anchor_label}."
+        )
+
+    if trip_style_planning.substep == "pace":
+        pace_line = (
+            f" {trip_style_planning.pace_rationale}"
+            if trip_style_planning.pace_rationale
+            else ""
+        )
+        return (
+            f"{greeting_prefix}The direction is set as {primary_label}{accent_line}. "
+            f"Now we’re choosing how full the days should feel before Activities opens.{pace_line}"
+        )
+
+    if primary and trip_style_planning.selection_status in {"selected", "completed"}:
+        influence_line = (
+            f" {trip_style_planning.downstream_influence_summary}"
+            if trip_style_planning.downstream_influence_summary
+            else ""
+        )
+        return (
+            f"{greeting_prefix}We’re deciding what kind of trip {destination} should feel like before the activities branch gets deeper. "
+            f"Right now it is leaning {primary_label}{accent_line}.{influence_line} "
+            "Use the board to lock the main direction first, then add an accent only if it genuinely changes how the days should feel."
+        )
+
+    return (
+        f"{greeting_prefix}We’re setting the character of {destination} before we open activities in depth. "
+        "Pick the main direction first, add an accent only if it matters, and then confirm it so Wandrix can rank the experiences around that feel."
+    )
+
+
+def _build_advanced_activities_response(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    greeting_prefix: str,
+    action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
+    fallback_text: str | None,
+) -> str:
+    destination = configuration.to_location or "this trip"
+    activity_planning = conversation.activity_planning
+    stay_planning = conversation.stay_planning
+    visible_candidates = activity_planning.visible_candidates
+    essentials = [
+        candidate.title
+        for candidate in visible_candidates
+        if candidate.disposition == "essential"
+    ]
+    event_count = sum(1 for candidate in visible_candidates if candidate.kind == "event")
+    lead_event = next(
+        (
+            candidate
+            for candidate in visible_candidates
+            if candidate.kind == "event" and candidate.start_at is not None
+        ),
+        None,
+    )
+    stay_label = (
+        stay_planning.selected_hotel_name
+        or stay_planning.selected_stay_direction
+    )
+    requested_review_scopes = {
+        resolution.scope for resolution in llm_update.requested_review_resolutions
+    }
+    latest_schedule_note = (
+        activity_planning.schedule_notes[0]
+        if activity_planning.schedule_notes
+        else None
+    )
+
+    if action and action.type == "rebuild_activity_day_plan":
+        schedule_line = (
+            f" I refreshed the draft days and kept {activity_planning.schedule_summary.lower()}."
+            if activity_planning.schedule_summary
+            else ""
+        )
+        note_line = f" {latest_schedule_note}" if latest_schedule_note else ""
+        return (
+            f"{greeting_prefix}I rebuilt the activities draft around the current picks.{schedule_line}{note_line} "
+            "The board now shows what feels fixed, what is still flexible, and what is sitting in reserve."
+        )
+
+    if action and action.type in {
+        "move_activity_candidate_to_day",
+        "move_activity_candidate_earlier",
+        "move_activity_candidate_later",
+        "pin_activity_candidate_daypart",
+        "send_activity_candidate_to_reserve",
+        "restore_activity_candidate_from_reserve",
+    }:
+        title = action.activity_candidate_title or "that pick"
+        note_line = f" {latest_schedule_note}" if latest_schedule_note else ""
+        if action.type == "move_activity_candidate_to_day" and action.activity_target_day_index:
+            action_line = f"I moved {title} onto Day {action.activity_target_day_index} and rebalanced the rest of that draft lightly around it."
+        elif action.type == "pin_activity_candidate_daypart" and action.activity_target_daypart:
+            action_line = f"I pinned {title} toward the {action.activity_target_daypart} and kept the neighboring plans flexible around that choice."
+        elif action.type == "move_activity_candidate_earlier":
+            action_line = f"I pulled {title} earlier in the day and softened the surrounding timing to keep the plan workable."
+        elif action.type == "move_activity_candidate_later":
+            action_line = f"I pushed {title} later in the day and adjusted the surrounding timing so the draft still flows cleanly."
+        elif action.type == "send_activity_candidate_to_reserve":
+            action_line = f"I moved {title} into reserve so it stays visible without being forced into the active days."
+        else:
+            action_line = f"I brought {title} back into the active draft and let the rest of the day plan settle around it again."
+        return (
+            f"{greeting_prefix}{action_line}{note_line} "
+            "The board is keeping explicit edits in place while it reshapes the surrounding gaps and transfers."
+        )
+
+    if llm_update.requested_activity_schedule_edits:
+        title = llm_update.requested_activity_schedule_edits[0].candidate_title
+        note_line = f" {latest_schedule_note}" if latest_schedule_note else ""
+        return (
+            f"{greeting_prefix}I updated the draft around {title} and kept your edit as the thing to respect first.{note_line} "
+            "The board is now showing the revised day shape, reserve picks, and any fixed event timing that still has to stay locked."
+        )
+
+    if (
+        "stay" in requested_review_scopes
+        and stay_planning.selection_status == "selected"
+        and stay_planning.compatibility_status == "fit"
+    ):
+        stay_direction_label = stay_planning.selected_stay_direction or "the current stay direction"
+        return (
+            f"{greeting_prefix}Got it — I'll keep {stay_direction_label} as the working base for {destination}, even though the current trip shape had put it under review. "
+            "The rest of the plan stays intact, and I will only reopen that review if the trip changes enough to create a meaningfully different conflict."
+        )
+
+    if (
+        "hotel" in requested_review_scopes
+        and stay_planning.selected_hotel_name
+        and stay_planning.hotel_selection_status == "selected"
+        and stay_planning.hotel_compatibility_status == "fit"
+    ):
+        return (
+            f"{greeting_prefix}Got it — I'll keep {stay_planning.selected_hotel_name} as the working hotel for {destination}, even though the current trip shape had put it under review. "
+            "The rest of the plan stays intact, and I will only reopen that hotel review if later activity or event changes create a meaningfully different conflict."
+        )
+
+    if action and action.type == "keep_current_stay_choice":
+        stay_direction_label = stay_planning.selected_stay_direction or "the current stay direction"
+        return (
+            f"{greeting_prefix}Got it — I'll keep {stay_direction_label} as the working base for {destination}, even though the current trip shape is putting it under some strain. "
+            "The rest of the plan stays intact, and I will only reopen that review if the trip shifts enough to create a meaningfully different conflict."
+        )
+
+    if action and action.type == "keep_current_hotel_choice" and stay_planning.selected_hotel_name:
+        return (
+            f"{greeting_prefix}Got it — I'll keep {stay_planning.selected_hotel_name} as the working hotel for {destination}, even though the current trip shape is putting it under some strain. "
+            "The rest of the plan stays intact, and I will only reopen that hotel review if later activity or event changes create a meaningfully different conflict."
+        )
+
+    if (
+        action and action.type == "select_stay_option"
+        and stay_planning.selection_status == "selected"
+        and stay_planning.compatibility_status == "fit"
+        and stay_planning.selected_stay_direction
+    ) or (
+        llm_update.requested_stay_option_title
+        and stay_planning.selection_status == "selected"
+        and stay_planning.compatibility_status == "fit"
+        and stay_planning.selected_stay_direction
+    ):
+        return (
+            f"{greeting_prefix}I’ve switched the working stay direction to {stay_planning.selected_stay_direction} and kept the rest of the trip intact. "
+            "That clears the current stay review, so we’re back to shaping the days with the same draft plan still in place."
+        )
+
+    if (
+        (action and action.type == "select_stay_hotel")
+        or llm_update.requested_stay_hotel_name
+    ) and (
+        stay_planning.selected_hotel_name
+        and stay_planning.hotel_selection_status == "selected"
+        and stay_planning.hotel_compatibility_status == "fit"
+    ):
+        return (
+            f"{greeting_prefix}I’ve switched the working hotel to {stay_planning.selected_hotel_name} and kept the rest of the trip intact. "
+            "That clears the current hotel review, so we can keep building from the same main experiences."
+        )
+
+    if stay_planning.selection_status == "needs_review" or stay_planning.compatibility_status in {
+        "strained",
+        "conflicted",
+    }:
+        review_reason = (
+            stay_planning.compatibility_notes[0]
+            if stay_planning.compatibility_notes
+            else "the current activities plan is pulling against the saved base"
+        )
+        stay_direction_label = stay_planning.selected_stay_direction or "the current stay direction"
+        reopened_line = (
+            " again"
+            if stay_planning.accepted_stay_review_summary
+            else ""
+        )
+        return (
+            f"{greeting_prefix}The trip in {destination} is now leaning in a way that puts {stay_direction_label} under review{reopened_line} because {review_reason} "
+            "I’m keeping that stay visible instead of silently replacing it, and the board is switching into stay review so we can decide whether the base or the trip shape should move."
+        )
+
+    if (
+        stay_planning.selected_hotel_name
+        and (
+            stay_planning.hotel_selection_status == "needs_review"
+            or stay_planning.hotel_compatibility_status in {"strained", "conflicted"}
+        )
+    ):
+        review_reason = (
+            stay_planning.hotel_compatibility_notes[0]
+            if stay_planning.hotel_compatibility_notes
+            else "the current activities plan is weakening the hotel fit"
+        )
+        reopened_line = (
+            " again"
+            if stay_planning.accepted_hotel_review_summary
+            else ""
+        )
+        return (
+            f"{greeting_prefix}The trip in {destination} is now leaning in a way that puts {stay_planning.selected_hotel_name} under review{reopened_line} because {review_reason} "
+            "I’m keeping the current hotel visible instead of silently swapping it out, and the board is moving into hotel review so we can decide whether the hotel or the trip shape should change."
+        )
+
+    if activity_planning.completion_status == "completed":
+        next_anchor = _recommend_advanced_anchor_after_activities(
+            configuration=configuration,
+            conversation=conversation,
+        )
+        next_anchor_label = next_anchor.replace("_", " ")
+        completion_line = (
+            activity_planning.completion_summary
+            or "The main experiences now have enough shape for us to move on."
+        )
+        personalization_line = _build_completion_personalization_line(
+            fallback_text=fallback_text,
+            completion_summary=completion_line,
+        )
+        return (
+            f"{greeting_prefix}{completion_line}"
+            f"{' ' + personalization_line if personalization_line else ''} "
+            "The board is now back to the remaining planning choices now that this part of the trip feels settled. "
+            f"The cleanest next move is {next_anchor_label}."
+        )
+
+    stay_line = (
+        f" I am also using {stay_label} as extra context while I rank the shortlist."
+        if stay_label
+        else ""
+    )
+    event_line = (
+        f" I also mixed in {event_count} live event option{'s' if event_count != 1 else ''} where the timing fits."
+        if event_count
+        else ""
+    )
+    schedule_line = (
+        f" I have already drafted {activity_planning.schedule_summary.lower()}."
+        if activity_planning.schedule_status == "ready" and activity_planning.schedule_summary
+        else ""
+    )
+    reserve_line = (
+        f" {len(activity_planning.unscheduled_candidate_ids)} pick{'s are' if len(activity_planning.unscheduled_candidate_ids) != 1 else ' is'} still sitting in reserve instead of being forced into the day plan."
+        if activity_planning.unscheduled_candidate_ids
+        else ""
+    )
+
+    if essentials:
+        essential_text = ", ".join(essentials[:2])
+        return (
+            f"{greeting_prefix}We’re now deciding which experiences should really shape {destination}, not just collecting a loose list of ideas."
+            f"{stay_line}{event_line}{schedule_line}{reserve_line} "
+            f"So far, {essential_text} {'are' if len(essentials) > 1 else 'is'} helping lead the trip. "
+            "Use Shape trip, Keep option, Skip, and the schedule controls on the board and I’ll keep the draft days responsive to those decisions."
+        )
+
+    if lead_event and visible_candidates and visible_candidates[0].id == lead_event.id:
+        return (
+            f"{greeting_prefix}{lead_event.title} is currently acting like the strongest time-specific moment in {destination}."
+            f"{stay_line}{event_line}{schedule_line}{reserve_line} "
+            "The board is treating that event as the lead moment and clustering the supporting options around it."
+        )
+
+    candidate_count = len(visible_candidates)
+    return (
+        f"{greeting_prefix}We’re now narrowing {destination} down to the experiences most worth building around, so the trip can start taking on a real shape."
+        f"{stay_line}{event_line}{schedule_line}{reserve_line} "
+        f"The board currently has {candidate_count} strong option{'s' if candidate_count != 1 else ''}. "
+        "Use Shape trip for the strongest picks, Keep option for the ones you still want in the mix, Skip for anything that does not belong, and the schedule controls whenever you want to reshape a day directly."
     )
 
 
@@ -608,10 +994,24 @@ def _build_advanced_stay_response(
             else "newer trip decisions are putting the current stay under strain"
         )
         stay_label = selected_option.title if selected_option else "the current stay direction"
+        recommended_alternative = next(
+            (
+                option.title
+                for option in stay_planning.recommended_stay_options
+                if option.recommended and option.id != stay_planning.selected_stay_option_id
+            ),
+            None,
+        )
+        alternative_line = (
+            f" Right now, {recommended_alternative} is leading the replacement options."
+            if recommended_alternative
+            else ""
+        )
         return (
             f"{greeting_prefix}{stay_label} is still the working stay direction for {destination}, "
             f"but it needs a second look because {review_reason}. "
             "I'll keep it visible on the board, explain the tension clearly, and suggest a stronger stay strategy instead of silently replacing it."
+            f"{alternative_line}"
         )
 
     if (
@@ -623,10 +1023,24 @@ def _build_advanced_stay_response(
             if stay_planning.hotel_compatibility_notes
             else "later trip choices are putting this hotel under strain"
         )
+        recommended_hotel = next(
+            (
+                hotel.hotel_name
+                for hotel in stay_planning.recommended_hotels
+                if hotel.recommended and hotel.id != stay_planning.selected_hotel_id
+            ),
+            None,
+        )
+        alternative_line = (
+            f" Right now, {recommended_hotel} is leading the replacement options."
+            if recommended_hotel
+            else ""
+        )
         return (
             f"{greeting_prefix}{selected_hotel.hotel_name} is still the working hotel inside {selected_option.title.lower() if selected_option else 'the current stay direction'}, "
             f"but it needs review because {review_reason}. "
             "I'll keep the stay direction visible, show why the hotel fit has weakened, and suggest a better hotel inside the same strategy if needed."
+            f"{alternative_line}"
         )
 
     if selected_hotel and selected_option:
@@ -635,7 +1049,10 @@ def _build_advanced_stay_response(
             if stay_planning.hotel_selection_assumptions
             else ""
         )
-        next_anchor = _recommend_advanced_anchor_after_stay(configuration=configuration)
+        next_anchor = _recommend_advanced_anchor_after_stay(
+            configuration=configuration,
+            conversation=conversation,
+        )
         next_anchor_label = next_anchor.replace("_", " ")
         return (
             f"{greeting_prefix}{selected_hotel.hotel_name} is a strong choice inside {selected_option.title.lower()}, so I'll use it as the working hotel for now. "
@@ -1115,7 +1532,10 @@ def _requested_advanced_plan(
 def _recommend_advanced_anchor_after_stay(
     *,
     configuration: TripConfiguration,
+    conversation: TripConversationState,
 ) -> str:
+    if conversation.trip_style_planning.substep == "completed":
+        return "activities"
     if configuration.selected_modules.activities:
         if configuration.activity_styles:
             return "activities"
@@ -1125,3 +1545,121 @@ def _recommend_advanced_anchor_after_stay(
     if configuration.selected_modules.flights and not configuration.from_location_flexible:
         return "flight"
     return "trip_style"
+
+
+def _recommend_advanced_anchor_after_trip_style(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+) -> str:
+    if configuration.selected_modules.activities and conversation.activity_planning.completion_status != "completed":
+        return "activities"
+    if configuration.selected_modules.hotels and not conversation.stay_planning.selected_hotel_id:
+        return "stay"
+    if configuration.selected_modules.flights and not configuration.from_location_flexible:
+        return "flight"
+    return "activities"
+
+
+def _recommend_advanced_anchor_after_activities(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+) -> str:
+    completed_anchors = {"activities"}
+    if conversation.stay_planning.selected_hotel_id:
+        completed_anchors.add("stay")
+    if conversation.trip_style_planning.substep == "completed":
+        completed_anchors.add("trip_style")
+
+    active_modules = [
+        name
+        for name, enabled in configuration.selected_modules.model_dump(mode="json").items()
+        if enabled
+    ]
+    trip_length_text = (configuration.trip_length or "").lower()
+    has_short_trip_signal = any(
+        signal in trip_length_text for signal in ["weekend", "3 day", "3-night", "3 night"]
+    )
+    route_is_soft = not configuration.from_location
+    route_is_explicitly_flexible = bool(configuration.from_location_flexible)
+    hotels_active = "hotels" in active_modules
+    flights_active = "flights" in active_modules
+    activities_active = "activities" in active_modules
+
+    ranked_candidates: list[str] = []
+    if activities_active and configuration.custom_style:
+        ranked_candidates.append("trip_style")
+    if flights_active and not route_is_explicitly_flexible and (route_is_soft or has_short_trip_signal):
+        ranked_candidates.append("flight")
+    if hotels_active and "stay" not in completed_anchors:
+        ranked_candidates.append("stay")
+    ranked_candidates.extend(["stay", "trip_style", "flight", "activities"])
+
+    for candidate in ranked_candidates:
+        if candidate not in completed_anchors:
+            return candidate
+    return "trip_style"
+
+
+def _trip_direction_primary_label(primary: str | None) -> str:
+    return {
+        "food_led": "food-led",
+        "culture_led": "culture-led",
+        "nightlife_led": "nightlife-led",
+        "outdoors_led": "outdoors-led",
+        "balanced": "balanced",
+    }.get(primary or "", "balanced")
+
+
+def _trip_direction_accent_label(accent: str | None) -> str:
+    return {
+        "local": "local",
+        "classic": "classic",
+        "polished": "polished",
+        "romantic": "romantic",
+        "relaxed": "relaxed",
+    }.get(accent or "", "refined")
+
+
+def _trip_pace_label(pace: str | None) -> str:
+    return {
+        "slow": "Slow",
+        "balanced": "Balanced",
+        "full": "Full",
+    }.get(pace or "", "Balanced")
+
+
+def _build_completion_personalization_line(
+    *,
+    fallback_text: str | None,
+    completion_summary: str,
+) -> str | None:
+    if not fallback_text or not fallback_text.strip():
+        return None
+
+    cleaned = " ".join(fallback_text.strip().split())
+    if not cleaned:
+        return None
+
+    lowered = cleaned.lower()
+    if any(
+        phrase in lowered
+        for phrase in [
+            "activities marked completed",
+            "remaining advanced planning anchors",
+            "the cleanest next move",
+        ]
+    ):
+        return None
+
+    summary_tokens = {
+        token for token in completion_summary.lower().replace(",", " ").split() if len(token) > 4
+    }
+    cleaned_tokens = {
+        token for token in lowered.replace(",", " ").split() if len(token) > 4
+    }
+    if summary_tokens and cleaned_tokens and len(summary_tokens.intersection(cleaned_tokens)) >= 4:
+        return None
+
+    return cleaned.rstrip(".!?") + "."

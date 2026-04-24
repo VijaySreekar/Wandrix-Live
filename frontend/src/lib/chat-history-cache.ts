@@ -10,6 +10,10 @@ export type PersistedThreadMessage = {
 const CHAT_HISTORY_STORAGE_PREFIX = "wandrix:chat-history:";
 
 export function readCachedThreadMessages(tripId: string) {
+  if (typeof window === "undefined") {
+    return [] satisfies PersistedThreadMessage[];
+  }
+
   const rawValue = window.localStorage.getItem(
     `${CHAT_HISTORY_STORAGE_PREFIX}${tripId}`,
   );
@@ -67,6 +71,10 @@ export function writeCachedThreadMessages(
   tripId: string,
   messages: PersistedThreadMessage[],
 ) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
   window.localStorage.setItem(
     `${CHAT_HISTORY_STORAGE_PREFIX}${tripId}`,
     JSON.stringify(messages),
@@ -74,6 +82,10 @@ export function writeCachedThreadMessages(
 }
 
 export function removeCachedThreadMessages(tripId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
   window.localStorage.removeItem(`${CHAT_HISTORY_STORAGE_PREFIX}${tripId}`);
 }
 

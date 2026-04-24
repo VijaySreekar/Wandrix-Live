@@ -23,6 +23,7 @@ TimelineItemType = Literal[
     "transfer",
     "hotel",
     "activity",
+    "event",
     "meal",
     "weather",
     "note",
@@ -104,6 +105,19 @@ class ActivityDetail(BaseModel):
     id: str
     title: str
     category: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    venue_name: str | None = Field(default=None, max_length=160)
+    location_label: str | None = Field(default=None, max_length=240)
+    source_label: str | None = Field(default=None, max_length=80)
+    source_url: str | None = Field(default=None, max_length=1000)
+    image_url: str | None = Field(default=None, max_length=1000)
+    availability_text: str | None = Field(default=None, max_length=120)
+    price_text: str | None = Field(default=None, max_length=120)
+    status_text: str | None = Field(default=None, max_length=120)
+    estimated_duration_minutes: int | None = Field(default=None, ge=15, le=480)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
     day_label: str | None = None
     time_label: str | None = None
     notes: list[str] = Field(default_factory=list)
@@ -123,8 +137,15 @@ class TimelineItem(BaseModel):
     day_label: str | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
+    venue_name: str | None = Field(default=None, max_length=160)
     location_label: str | None = None
     summary: str | None = None
     details: list[str] = Field(default_factory=list)
+    source_label: str | None = Field(default=None, max_length=80)
+    source_url: str | None = Field(default=None, max_length=1000)
+    image_url: str | None = Field(default=None, max_length=1000)
+    availability_text: str | None = Field(default=None, max_length=120)
+    price_text: str | None = Field(default=None, max_length=120)
+    status_text: str | None = Field(default=None, max_length=120)
     source_module: PlanningModuleKey | None = None
     status: TimelineItemStatus = "draft"

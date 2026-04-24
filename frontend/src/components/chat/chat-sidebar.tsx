@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
@@ -29,6 +29,27 @@ import type { TripListItemResponse } from "@/types/trip";
 
 const INITIAL_VISIBLE = 5;
 const LOAD_MORE_COUNT = 5;
+const EXPANDED_ROW_HEIGHT = 42;
+const COLLAPSED_ROW_HEIGHT = 48;
+const SHOW_MORE_RESERVE = 38;
+let sidebarHydrated = false;
+
+function subscribeSidebarHydration(onStoreChange: () => void) {
+  if (sidebarHydrated) {
+    return () => {};
+  }
+
+  queueMicrotask(() => {
+    sidebarHydrated = true;
+    onStoreChange();
+  });
+
+  return () => {};
+}
+
+function getSidebarHydrationSnapshot() {
+  return sidebarHydrated;
+}
 
 type ChatSidebarProps = {
   activeTripId: string | null;
@@ -65,10 +86,12 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+  const [autoVisibleCount, setAutoVisibleCount] = useState(INITIAL_VISIBLE);
+  const [manualVisibleCount, setManualVisibleCount] = useState(0);
+  const listViewportRef = useRef<HTMLDivElement | null>(null);
   const isHydrated = useSyncExternalStore(
-    () => () => {},
-    () => true,
+    subscribeSidebarHydration,
+    getSidebarHydrationSnapshot,
     () => false,
   );
 
@@ -91,6 +114,7 @@ export function ChatSidebar({
     [currentTripId, isHydrated, query, recentTrips, workspace],
   );
   const currentSessionIndex = recentSessions.findIndex((session) => session.isCurrent);
+  const visibleCount = autoVisibleCount + manualVisibleCount;
   const effectiveVisibleCount =
     currentSessionIndex >= 0
       ? Math.max(visibleCount, currentSessionIndex + 1)
@@ -104,8 +128,42 @@ export function ChatSidebar({
   }
 
   function handleShowMore() {
-    setVisibleCount((prev) => prev + LOAD_MORE_COUNT);
+    setManualVisibleCount((prev) => prev + LOAD_MORE_COUNT);
   }
+
+  useEffect(() => {
+    const node = listViewportRef.current;
+    if (!node) {
+      return;
+    }
+
+    function updateVisibleCount() {
+      if (!node) {
+        return;
+      }
+
+      const availableHeight = node.clientHeight;
+      const rowHeight = collapsed ? COLLAPSED_ROW_HEIGHT : EXPANDED_ROW_HEIGHT;
+      const nextCount = Math.max(
+        1,
+        Math.floor(Math.max(availableHeight - SHOW_MORE_RESERVE, rowHeight) / rowHeight),
+      );
+
+      setAutoVisibleCount(nextCount);
+    }
+
+    updateVisibleCount();
+
+    const observer = new ResizeObserver(() => {
+      updateVisibleCount();
+    });
+
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [collapsed]);
 
   return (
     <aside
@@ -163,7 +221,7 @@ export function ChatSidebar({
               value={query}
               onChange={(event) => {
                 setQuery(event.target.value);
-                setVisibleCount(INITIAL_VISIBLE);
+                setManualVisibleCount(0);
               }}
               placeholder="Search…"
               className="w-full rounded-lg border border-[color:var(--sidebar-shell-border)] bg-[color:var(--sidebar-surface)] py-1.5 pl-8 pr-3 text-[0.8rem] text-[color:var(--sidebar-text)] outline-none placeholder:text-[color:var(--sidebar-muted-text)] focus:border-[color:var(--accent)]/30"
@@ -180,7 +238,10 @@ export function ChatSidebar({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-1">
+      <div
+        ref={listViewportRef}
+        className="min-h-0 flex-1 overflow-y-auto px-2 pt-1"
+      >
         {!collapsed ? (
           <>
             <div className="space-y-0.5">

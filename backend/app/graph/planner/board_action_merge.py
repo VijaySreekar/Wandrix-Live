@@ -5,6 +5,10 @@ from app.schemas.trip_conversation import ConversationFieldConfidence
 from app.schemas.trip_planning import TripModuleSelection
 
 from app.graph.planner.turn_models import (
+    RequestedActivityScheduleEdit,
+    RequestedReviewResolution,
+    RequestedTripStyleDirectionUpdate,
+    RequestedTripStylePaceUpdate,
     TripFieldConfidenceUpdate,
     TripFieldSourceUpdate,
     TripTurnUpdate,
@@ -38,6 +42,99 @@ def apply_board_action_updates(
     if action.type == "reopen_plan":
         merged_update = llm_update.model_copy(deep=True)
         merged_update.planner_intent = "reopen_plan"
+        return merged_update
+
+    if action.type == "keep_current_stay_choice":
+        merged_update = llm_update.model_copy(deep=True)
+        merged_update.requested_review_resolutions.append(
+            RequestedReviewResolution(scope="stay")
+        )
+        return merged_update
+
+    if action.type == "keep_current_hotel_choice":
+        merged_update = llm_update.model_copy(deep=True)
+        merged_update.requested_review_resolutions.append(
+            RequestedReviewResolution(scope="hotel")
+        )
+        return merged_update
+
+    if action.type in {
+        "select_trip_style_direction_primary",
+        "select_trip_style_direction_accent",
+        "clear_trip_style_direction_accent",
+        "confirm_trip_style_direction",
+        "keep_current_trip_style_direction",
+    }:
+        merged_update = llm_update.model_copy(deep=True)
+        action_map = {
+            "select_trip_style_direction_primary": "select_primary",
+            "select_trip_style_direction_accent": "select_accent",
+            "clear_trip_style_direction_accent": "clear_accent",
+            "confirm_trip_style_direction": "confirm",
+            "keep_current_trip_style_direction": "keep_current",
+        }
+        mapped_action = action_map.get(action.type)
+        if mapped_action is not None:
+            merged_update.requested_trip_style_direction_updates.append(
+                RequestedTripStyleDirectionUpdate(
+                    action=mapped_action,
+                    primary=action.trip_style_direction_primary,
+                    accent=action.trip_style_direction_accent,
+                )
+            )
+        return merged_update
+
+    if action.type in {
+        "select_trip_style_pace",
+        "confirm_trip_style_pace",
+        "keep_current_trip_style_pace",
+    }:
+        merged_update = llm_update.model_copy(deep=True)
+        action_map = {
+            "select_trip_style_pace": "select_pace",
+            "confirm_trip_style_pace": "confirm",
+            "keep_current_trip_style_pace": "keep_current",
+        }
+        mapped_action = action_map.get(action.type)
+        if mapped_action is not None:
+            merged_update.requested_trip_style_pace_updates.append(
+                RequestedTripStylePaceUpdate(
+                    action=mapped_action,
+                    pace=action.trip_style_pace,
+                )
+            )
+        return merged_update
+
+    if action.type in {
+        "move_activity_candidate_to_day",
+        "move_activity_candidate_earlier",
+        "move_activity_candidate_later",
+        "pin_activity_candidate_daypart",
+        "send_activity_candidate_to_reserve",
+        "restore_activity_candidate_from_reserve",
+    }:
+        merged_update = llm_update.model_copy(deep=True)
+        if action.activity_candidate_title:
+            action_map = {
+                "move_activity_candidate_to_day": "move_to_day",
+                "move_activity_candidate_earlier": "move_earlier",
+                "move_activity_candidate_later": "move_later",
+                "pin_activity_candidate_daypart": "pin_daypart",
+                "send_activity_candidate_to_reserve": "reserve",
+                "restore_activity_candidate_from_reserve": "restore",
+            }
+            mapped_action = action_map.get(action.type)
+            if mapped_action is not None:
+                merged_update.requested_activity_schedule_edits.append(
+                    RequestedActivityScheduleEdit(
+                        action=mapped_action,
+                        candidate_id=action.activity_candidate_id,
+                        candidate_title=action.activity_candidate_title,
+                        candidate_kind=action.activity_candidate_kind,
+                        target_day_index=action.activity_target_day_index,
+                        target_daypart=action.activity_target_daypart,
+                    )
+                )
         return merged_update
 
     if action.type in {"select_date_option", "pick_dates_for_me"}:

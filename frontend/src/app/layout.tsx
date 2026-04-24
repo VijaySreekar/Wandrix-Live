@@ -4,6 +4,7 @@ import {
   Geist_Mono,
   Sora, Geist } from "next/font/google";
 
+import { AppearanceInitializer } from "@/components/app/appearance-initializer";
 import { AppTopNav } from "@/components/app/app-top-nav";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ export default async function RootLayout({
       className={cn("h-full", "antialiased", cormorant.variable, geistMono.variable, sora.variable, "font-sans", geist.variable)}
     >
       <body className="min-h-full bg-background text-foreground">
+        <AppearanceInitializer />
         <div className="flex min-h-screen flex-col">
           <AppTopNav />
           <div className="flex-1">{children}</div>

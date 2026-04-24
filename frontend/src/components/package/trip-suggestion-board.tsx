@@ -7,6 +7,7 @@ import {
   CalendarRange,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
   MapPin,
 } from "lucide-react";
 
@@ -15,13 +16,18 @@ import { resolveDestinationSuggestionImage } from "@/lib/destination-images";
 import { cn } from "@/lib/utils";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type {
+  AdvancedActivityCandidateCard,
   AdvancedDateOptionCard,
   AdvancedAnchorChoiceCard,
   AdvancedStayHotelOptionCard,
   AdvancedStayOptionCard,
   DestinationSuggestionCard,
   PlanningModeChoiceCard,
+  PlannerActivityDaypart,
   PlannerHotelStyleTag,
+  PlannerTripPace,
+  PlannerTripDirectionAccent,
+  PlannerTripDirectionPrimary,
   PlannerDecisionCard,
   TripSuggestionBoardState,
 } from "@/types/trip-conversation";
@@ -159,9 +165,9 @@ export function TripSuggestionBoard({
             </p>
             <ul className="mt-5 space-y-3">
               {[
-                "The first Advanced Planning anchor is now selected.",
-                "That choice becomes the real branch between flights, stay, trip style, or activities.",
-                "The current brief still stays editable in chat if you want to adjust it before the deeper flow begins.",
+                "The first deeper planning focus is now selected.",
+                "That choice now becomes the main path between flights, stay, trip style, or experiences.",
+                "The current brief still stays editable in chat if you want to adjust it before the deeper planning begins.",
               ].map((bullet) => (
                 <li
                   key={bullet}
@@ -173,6 +179,75 @@ export function TripSuggestionBoard({
               ))}
             </ul>
           </article>
+        </div>
+      </section>
+    );
+  }
+
+  if (board.mode === "advanced_trip_style_direction") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <AdvancedTripStyleWorkspace
+            board={board}
+            disabled={disabled}
+            onAction={onAction}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  if (board.mode === "advanced_trip_style_pace") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <AdvancedTripStylePaceWorkspace
+            board={board}
+            disabled={disabled}
+            onAction={onAction}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  if (board.mode === "advanced_activities_workspace") {
+    return (
+      <section className="flex h-full flex-col bg-[var(--planner-board-bg)]">
+        <div className="border-b border-[var(--planner-board-border)] px-8 py-8">
+          <h2 className="font-display text-[2rem] font-bold tracking-[-0.03em] text-[var(--planner-board-title)]">
+            {title}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--planner-board-muted)]">
+            {subtitle}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <AdvancedActivitiesWorkspace
+            board={board}
+            disabled={disabled}
+            onAction={onAction}
+          />
         </div>
       </section>
     );
@@ -198,7 +273,11 @@ export function TripSuggestionBoard({
           {(board.mode === "advanced_stay_selected" ||
             board.mode === "advanced_stay_review") &&
           board.selected_stay_option_id ? (
-            <AdvancedStayStatusPanel board={board} />
+            <AdvancedStayStatusPanel
+              board={board}
+              disabled={disabled}
+              onAction={onAction}
+            />
           ) : null}
 
           <div className="grid gap-4">
@@ -350,6 +429,1164 @@ export function TripSuggestionBoard({
       </div>
     </section>
   );
+}
+
+function AdvancedActivitiesWorkspace({
+  board,
+  disabled,
+  onAction,
+}: {
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const candidates = board.activity_candidates ?? [];
+  const visibleCandidates = candidates.filter(
+    (candidate) => candidate.disposition !== "pass",
+  );
+  const passedCandidates = candidates.filter(
+    (candidate) => candidate.disposition === "pass",
+  );
+  const unscheduledCandidateIds = new Set(
+    board.unscheduled_activity_candidate_ids ?? [],
+  );
+  const reservedCandidateIds = new Set(board.reserved_candidate_ids ?? []);
+  const reservedCandidates = candidates.filter((candidate) =>
+    reservedCandidateIds.has(candidate.id),
+  );
+  const overflowCandidates = candidates.filter(
+    (candidate) =>
+      unscheduledCandidateIds.has(candidate.id) &&
+      !reservedCandidateIds.has(candidate.id),
+  );
+  const dayPlans = board.activity_day_plans ?? [];
+  const scheduledBlocks = dayPlans.flatMap((dayPlan) =>
+    dayPlan.blocks.filter((block) => Boolean(block.candidate_id)),
+  );
+  const scheduledBlockByCandidateId = new Map(
+    scheduledBlocks
+      .filter((block) => block.candidate_id)
+      .map((block) => [block.candidate_id as string, block]),
+  );
+  const candidateLookup = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  const activePool = visibleCandidates.filter(
+    (candidate) => !reservedCandidateIds.has(candidate.id),
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 md:grid-cols-3">
+        <ActivityWorkspaceStat
+          label="Leading picks"
+          value={(board.essential_ids ?? []).length}
+        />
+        <ActivityWorkspaceStat
+          label="In the mix"
+          value={(board.maybe_ids ?? []).length}
+        />
+        <ActivityWorkspaceStat
+          label="Left out"
+          value={(board.passed_ids ?? []).length}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4 text-sm leading-6 text-[var(--planner-board-muted)]">
+        <div className="space-y-1">
+          {board.activity_workspace_summary ? (
+            <p>{board.activity_workspace_summary}</p>
+          ) : null}
+          {board.activity_schedule_summary ? (
+            <p className="text-[var(--planner-board-muted-strong)]">
+              {board.activity_schedule_summary}
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() =>
+            onAction({
+              action_id: crypto.randomUUID(),
+              type: "rebuild_activity_day_plan",
+            })
+          }
+          className={cn(
+            "rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors",
+            disabled
+              ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+              : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+          )}
+        >
+          Refresh draft days
+        </button>
+      </div>
+
+      {board.activity_schedule_notes?.length ? (
+        <div className="space-y-2 rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            Rebalance notes
+          </p>
+          <div className="space-y-2">
+            {board.activity_schedule_notes.map((note) => (
+              <p
+                key={note}
+                className="text-sm leading-6 text-[var(--planner-board-muted)]"
+              >
+                {note}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {dayPlans.length ? (
+        <div className="space-y-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            First draft of the days
+          </p>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {dayPlans.map((dayPlan) => (
+              <ActivityDayPlanView
+                key={dayPlan.id}
+                dayPlan={dayPlan}
+                allDayPlans={dayPlans}
+                candidateLookup={candidateLookup}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {activePool.length ? (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            Candidate pool
+          </p>
+          <div className="grid gap-4">
+            {activePool.map((candidate) => (
+              <AdvancedActivityCandidateCardView
+                key={candidate.id}
+                candidate={candidate}
+                dayPlans={dayPlans}
+                scheduledBlock={scheduledBlockByCandidateId.get(candidate.id) ?? null}
+                reserved={reservedCandidateIds.has(candidate.id)}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {reservedCandidates.length ? (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            Saved for later
+          </p>
+          <div className="grid gap-4">
+            {reservedCandidates.map((candidate) => (
+              <AdvancedActivityCandidateCardView
+                key={candidate.id}
+                candidate={candidate}
+                dayPlans={dayPlans}
+                scheduledBlock={scheduledBlockByCandidateId.get(candidate.id) ?? null}
+                reserved
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {overflowCandidates.length ? (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            Still not fitting cleanly
+          </p>
+          <div className="grid gap-3">
+            {overflowCandidates.map((candidate) => (
+              <AdvancedActivityCandidateCardView
+                key={candidate.id}
+                candidate={candidate}
+                dayPlans={dayPlans}
+                scheduledBlock={scheduledBlockByCandidateId.get(candidate.id) ?? null}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {passedCandidates.length ? (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            Left out for now
+          </p>
+          <div className="grid gap-3">
+            {passedCandidates.map((candidate) => (
+              <AdvancedActivityCandidateCardView
+                key={candidate.id}
+                candidate={candidate}
+                dayPlans={dayPlans}
+                scheduledBlock={scheduledBlockByCandidateId.get(candidate.id) ?? null}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AdvancedTripStyleWorkspace({
+  board,
+  disabled,
+  onAction,
+}: {
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const recommendedPrimaries = board.trip_style_recommended_primaries ?? [];
+  const recommendedAccents = board.trip_style_recommended_accents ?? [];
+  const selectedPrimary = board.selected_trip_style_primary ?? null;
+  const selectedAccent = board.selected_trip_style_accent ?? null;
+  const primaryOptions: PlannerTripDirectionPrimary[] = [
+    "food_led",
+    "culture_led",
+    "nightlife_led",
+    "outdoors_led",
+    "balanced",
+  ];
+  const accentOptions: PlannerTripDirectionAccent[] = [
+    "local",
+    "classic",
+    "polished",
+    "romantic",
+    "relaxed",
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4 text-sm leading-6 text-[var(--planner-board-muted)]">
+        {board.trip_style_workspace_summary ? (
+          <p>{board.trip_style_workspace_summary}</p>
+        ) : null}
+        {board.trip_style_selection_rationale ? (
+          <p className="mt-2 text-[var(--planner-board-muted-strong)]">
+            {board.trip_style_selection_rationale}
+          </p>
+        ) : null}
+        {board.trip_style_downstream_influence_summary ? (
+          <p className="mt-2">{board.trip_style_downstream_influence_summary}</p>
+        ) : null}
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+          Choose the main direction
+        </p>
+        <div className="grid gap-4">
+          {primaryOptions.map((primary) => (
+            <button
+              key={primary}
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "select_trip_style_direction_primary",
+                  trip_style_direction_primary: primary,
+                })
+              }
+              className={cn(
+                "rounded-xl border px-5 py-4 text-left transition-colors",
+                selectedPrimary === primary
+                  ? "border-[color:var(--accent)] bg-[var(--planner-board-card)]"
+                  : "border-[var(--planner-board-border)] bg-[var(--planner-board-card)] hover:bg-[var(--planner-board-card-hover)]",
+                disabled ? "cursor-wait opacity-70" : "cursor-pointer",
+              )}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-display text-lg font-bold text-[var(--planner-board-text)]">
+                      {formatTripDirectionPrimaryLabel(primary)}
+                    </h3>
+                    {recommendedPrimaries.includes(primary) ? (
+                      <span className="rounded-md bg-[var(--planner-board-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--planner-board-accent-text)]">
+                        Recommended
+                      </span>
+                    ) : null}
+                    {selectedPrimary === primary ? (
+                      <span className="rounded-md border border-[color:var(--accent)] px-2 py-1 text-[11px] font-semibold text-[color:var(--accent)]">
+                        Selected
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                    {tripDirectionPrimaryDescription(primary)}
+                  </p>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+            Optional accent
+          </p>
+          {selectedAccent ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "clear_trip_style_direction_accent",
+                })
+              }
+              className={cn(
+                "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                disabled
+                  ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                  : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+              )}
+            >
+              Clear accent
+            </button>
+          ) : null}
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {accentOptions.map((accent) => (
+            <button
+              key={accent}
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "select_trip_style_direction_accent",
+                  trip_style_direction_accent: accent,
+                })
+              }
+              className={cn(
+                "rounded-xl border px-4 py-4 text-left transition-colors",
+                selectedAccent === accent
+                  ? "border-[color:var(--accent)] bg-[var(--planner-board-card)]"
+                  : "border-[var(--planner-board-border)] bg-[var(--planner-board-card)] hover:bg-[var(--planner-board-card-hover)]",
+                disabled ? "cursor-wait opacity-70" : "cursor-pointer",
+              )}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-semibold text-[var(--planner-board-text)]">
+                  {formatTripDirectionAccentLabel(accent)}
+                </p>
+                {recommendedAccents.includes(accent) ? (
+                  <span className="rounded-md bg-[var(--planner-board-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--planner-board-accent-text)]">
+                    Recommended
+                  </span>
+                ) : null}
+                {selectedAccent === accent ? (
+                  <span className="rounded-md border border-[color:var(--accent)] px-2 py-1 text-[11px] font-semibold text-[color:var(--accent)]">
+                    Selected
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                {tripDirectionAccentDescription(accent)}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+        <div className="text-sm leading-6 text-[var(--planner-board-muted)]">
+          {board.trip_style_completion_summary ? (
+            <p>{board.trip_style_completion_summary}</p>
+          ) : (
+            <p>
+              Confirm the main direction when it feels right, and Wandrix will
+              use it as the strongest input for Activities next.
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          disabled={disabled || !selectedPrimary}
+          onClick={() =>
+            onAction({
+              action_id: crypto.randomUUID(),
+              type: "confirm_trip_style_direction",
+              trip_style_direction_primary: selectedPrimary,
+              trip_style_direction_accent: selectedAccent,
+            })
+          }
+          className={cn(
+            "rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition-colors",
+            disabled || !selectedPrimary
+              ? "cursor-not-allowed border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-60"
+              : "border-[color:var(--accent)] bg-[color:var(--accent)] text-white hover:opacity-90",
+          )}
+        >
+          Confirm direction
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AdvancedTripStylePaceWorkspace({
+  board,
+  disabled,
+  onAction,
+}: {
+  board: TripSuggestionBoardState;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const recommendedPaces = board.trip_style_recommended_paces ?? [];
+  const selectedPace = board.selected_trip_style_pace ?? null;
+  const selectedPrimary = board.selected_trip_style_primary ?? null;
+  const selectedAccent = board.selected_trip_style_accent ?? null;
+  const paceOptions: PlannerTripPace[] = ["slow", "balanced", "full"];
+  const directionLabel = selectedPrimary
+    ? formatTripDirectionPrimaryLabel(selectedPrimary)
+    : "Balanced";
+  const accentLabel = selectedAccent
+    ? ` with a ${formatTripDirectionAccentLabel(selectedAccent).toLowerCase()} accent`
+    : "";
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+          Current trip character
+        </p>
+        <p className="mt-2 font-display text-xl font-bold text-[var(--planner-board-text)]">
+          {directionLabel}
+          {accentLabel}
+        </p>
+        {board.trip_style_downstream_influence_summary ? (
+          <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+            {board.trip_style_downstream_influence_summary}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+          Choose the pace
+        </p>
+        <div className="grid gap-4">
+          {paceOptions.map((pace) => (
+            <button
+              key={pace}
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "select_trip_style_pace",
+                  trip_style_pace: pace,
+                })
+              }
+              className={cn(
+                "rounded-xl border px-5 py-4 text-left transition-colors",
+                selectedPace === pace
+                  ? "border-[color:var(--accent)] bg-[var(--planner-board-card)]"
+                  : "border-[var(--planner-board-border)] bg-[var(--planner-board-card)] hover:bg-[var(--planner-board-card-hover)]",
+                disabled ? "cursor-wait opacity-70" : "cursor-pointer",
+              )}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-display text-lg font-bold text-[var(--planner-board-text)]">
+                  {formatTripPaceLabel(pace)}
+                </h3>
+                {recommendedPaces.includes(pace) ? (
+                  <span className="rounded-md bg-[var(--planner-board-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--planner-board-accent-text)]">
+                    Recommended
+                  </span>
+                ) : null}
+                {selectedPace === pace ? (
+                  <span className="rounded-md border border-[color:var(--accent)] px-2 py-1 text-[11px] font-semibold text-[color:var(--accent)]">
+                    Selected
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+                {tripPaceDescription(pace)}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
+        <div className="max-w-xl text-sm leading-6 text-[var(--planner-board-muted)]">
+          {board.trip_style_pace_rationale ? (
+            <p>{board.trip_style_pace_rationale}</p>
+          ) : (
+            <p>
+              Confirm the pace when it feels right, and Activities will inherit
+              both the trip character and day density.
+            </p>
+          )}
+          {board.trip_style_pace_downstream_influence_summary ? (
+            <p className="mt-2">{board.trip_style_pace_downstream_influence_summary}</p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          disabled={disabled || !selectedPace}
+          onClick={() =>
+            onAction({
+              action_id: crypto.randomUUID(),
+              type: "confirm_trip_style_pace",
+              trip_style_pace: selectedPace,
+            })
+          }
+          className={cn(
+            "rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition-colors",
+            disabled || !selectedPace
+              ? "cursor-not-allowed border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-60"
+              : "border-[color:var(--accent)] bg-[color:var(--accent)] text-white hover:opacity-90",
+          )}
+        >
+          Confirm pace
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ActivityDayPlanView({
+  dayPlan,
+  allDayPlans,
+  candidateLookup,
+  disabled,
+  onAction,
+}: {
+  dayPlan: NonNullable<TripSuggestionBoardState["activity_day_plans"]>[number];
+  allDayPlans: NonNullable<TripSuggestionBoardState["activity_day_plans"]>;
+  candidateLookup: Map<string, AdvancedActivityCandidateCard>;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  return (
+    <section className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-5 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="font-display text-lg font-bold text-[var(--planner-board-text)]">
+          {dayPlan.day_label}
+        </h3>
+        {dayPlan.date ? (
+          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--planner-board-muted-strong)]">
+            {new Date(dayPlan.date).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            })}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {dayPlan.blocks.length ? (
+          dayPlan.blocks.map((block) => (
+            <ActivityTimelineBlockView
+              key={block.id}
+              block={block}
+              candidate={
+                block.candidate_id ? candidateLookup.get(block.candidate_id) ?? null : null
+              }
+              allDayPlans={allDayPlans}
+              disabled={disabled}
+              onAction={onAction}
+            />
+          ))
+        ) : (
+          <p className="text-sm leading-6 text-[var(--planner-board-muted)]">
+            This day still has room to take on more shape.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ActivityTimelineBlockView({
+  block,
+  candidate,
+  allDayPlans,
+  disabled,
+  onAction,
+}: {
+  block: NonNullable<
+    NonNullable<TripSuggestionBoardState["activity_day_plans"]>[number]["blocks"]
+  >[number];
+  candidate: AdvancedActivityCandidateCard | null;
+  allDayPlans: NonNullable<TripSuggestionBoardState["activity_day_plans"]>;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const blockLabel =
+    block.type === "transfer"
+      ? "Travel"
+      : block.type === "event"
+        ? "Timed moment"
+        : "Planned stop";
+  const timingLabel =
+    block.start_at && block.end_at
+      ? `${new Date(block.start_at).toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+        })} - ${new Date(block.end_at).toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+        })}`
+      : null;
+  const tone =
+    block.type === "transfer"
+      ? "bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
+      : block.type === "event"
+        ? "bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] text-[color:var(--accent)]"
+        : "bg-[var(--planner-board-soft)] text-[var(--planner-board-accent-text)]";
+
+  return (
+    <article className="rounded-lg border border-[var(--planner-board-border)] px-4 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={cn(
+                "rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]",
+                tone,
+              )}
+            >
+              {blockLabel}
+            </span>
+            {block.fixed_time ? (
+              <span className="rounded-md border border-[var(--planner-board-border)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                Set time
+              </span>
+            ) : null}
+            {block.manual_override ? (
+              <span className="rounded-md border border-[color:var(--accent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+                Pinned
+              </span>
+            ) : null}
+          </div>
+          <h4 className="mt-2 font-semibold text-[var(--planner-board-text)]">
+            {block.title}
+          </h4>
+          <div className="mt-2 flex flex-wrap gap-3 text-xs text-[var(--planner-board-muted)]">
+            {timingLabel ? (
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarRange className="h-3.5 w-3.5" />
+                {timingLabel}
+              </span>
+            ) : null}
+            {block.location_label ? (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5" />
+                {block.location_label}
+              </span>
+            ) : null}
+          </div>
+          {block.summary ? (
+            <p className="mt-2 text-sm leading-6 text-[var(--planner-board-muted)]">
+              {block.summary}
+            </p>
+          ) : null}
+          {(block.status_text || block.price_text || block.availability_text) ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[block.status_text, block.price_text, block.availability_text]
+                .filter(Boolean)
+                .map((detail) => (
+                  <span
+                    key={detail}
+                    className="rounded-md bg-[var(--planner-board-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--planner-board-muted)]"
+                  >
+                    {detail}
+                  </span>
+                ))}
+            </div>
+          ) : null}
+          {block.type === "event" && block.source_url ? (
+            <a
+              href={block.source_url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[color:var(--accent)] hover:underline"
+            >
+              View event
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          ) : null}
+          {candidate ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {!block.fixed_time ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      onAction({
+                        action_id: crypto.randomUUID(),
+                        type: "move_activity_candidate_earlier",
+                        activity_candidate_id: candidate.id,
+                        activity_candidate_title: candidate.title,
+                        activity_candidate_kind: candidate.kind,
+                      })
+                    }
+                    className={cn(
+                      "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                      disabled
+                        ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                        : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+                    )}
+                  >
+                    Earlier
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      onAction({
+                        action_id: crypto.randomUUID(),
+                        type: "move_activity_candidate_later",
+                        activity_candidate_id: candidate.id,
+                        activity_candidate_title: candidate.title,
+                        activity_candidate_kind: candidate.kind,
+                      })
+                    }
+                    className={cn(
+                      "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                      disabled
+                        ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                        : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+                    )}
+                  >
+                    Later
+                  </button>
+                </>
+              ) : null}
+              {allDayPlans
+                .filter((plan) => plan.day_index !== block.day_index)
+                .map((plan) => (
+                  <button
+                    key={plan.id}
+                    type="button"
+                    disabled={disabled || block.fixed_time}
+                    onClick={() =>
+                      onAction({
+                        action_id: crypto.randomUUID(),
+                        type: "move_activity_candidate_to_day",
+                        activity_candidate_id: candidate.id,
+                        activity_candidate_title: candidate.title,
+                        activity_candidate_kind: candidate.kind,
+                        activity_target_day_index: plan.day_index,
+                      })
+                    }
+                    className={cn(
+                      "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                      disabled || block.fixed_time
+                        ? "cursor-not-allowed border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-60"
+                        : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+                    )}
+                  >
+                    {plan.day_label}
+                  </button>
+                ))}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() =>
+                  onAction({
+                    action_id: crypto.randomUUID(),
+                    type: "send_activity_candidate_to_reserve",
+                    activity_candidate_id: candidate.id,
+                    activity_candidate_title: candidate.title,
+                    activity_candidate_kind: candidate.kind,
+                  })
+                }
+                className={cn(
+                  "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                  disabled
+                    ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                    : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+                )}
+              >
+                Reserve
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ActivityWorkspaceStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+        {label}
+      </p>
+      <p className="mt-2 font-display text-[1.8rem] font-bold leading-none text-[var(--planner-board-text)]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function AdvancedActivityCandidateCardView({
+  candidate,
+  dayPlans,
+  scheduledBlock,
+  reserved = false,
+  disabled,
+  onAction,
+}: {
+  candidate: AdvancedActivityCandidateCard;
+  dayPlans: NonNullable<TripSuggestionBoardState["activity_day_plans"]>;
+  scheduledBlock: NonNullable<
+    NonNullable<TripSuggestionBoardState["activity_day_plans"]>[number]["blocks"]
+  >[number] | null;
+  reserved?: boolean;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}) {
+  const kindLabel = candidate.kind === "event" ? "Event" : "Activity";
+  const dispositionLabel =
+    candidate.disposition === "essential"
+      ? "Leading pick"
+      : candidate.disposition === "maybe"
+        ? "In the mix"
+        : "Left out";
+  const timingLabel = candidate.start_at
+    ? new Date(candidate.start_at).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+  const scheduleLabel = scheduledBlock
+    ? `${scheduledBlock.day_label}${scheduledBlock.daypart ? ` • ${formatDaypartLabel(scheduledBlock.daypart)}` : ""}`
+    : reserved
+      ? "Saved in reserve"
+      : null;
+  const fixedTimeLocked = candidate.kind === "event" && Boolean(candidate.start_at);
+
+  return (
+    <article className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-5 shadow-[0_1px_1px_rgba(0,0,0,0.04),0_8px_18px_rgba(0,0,0,0.04)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md bg-[var(--planner-board-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+              {kindLabel}
+            </span>
+            {candidate.recommended ? (
+              <span className="rounded-md bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+                Recommended
+              </span>
+            ) : null}
+            <span className="rounded-md border border-[var(--planner-board-border)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+              {dispositionLabel}
+            </span>
+            {scheduleLabel ? (
+              <span className="rounded-md border border-[color:var(--accent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+                {scheduleLabel}
+              </span>
+            ) : null}
+          </div>
+
+          <h3 className="mt-3 font-display text-xl font-bold tracking-[-0.02em] text-[var(--planner-board-text)]">
+            {candidate.title}
+          </h3>
+
+          {candidate.kind === "event" && candidate.venue_name ? (
+            <p className="mt-2 text-sm font-medium text-[var(--planner-board-muted-strong)]">
+              {candidate.venue_name}
+            </p>
+          ) : null}
+
+          <div className="mt-3 flex flex-wrap gap-3 text-sm text-[var(--planner-board-muted)]">
+            {candidate.location_label ? (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="h-4 w-4" />
+                {candidate.location_label}
+              </span>
+            ) : null}
+            {timingLabel ? (
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarRange className="h-4 w-4" />
+                {timingLabel}
+              </span>
+            ) : null}
+          </div>
+
+          {candidate.summary ? (
+            <p className="mt-3 text-sm leading-7 text-[var(--planner-board-muted)]">
+              {candidate.summary}
+            </p>
+          ) : null}
+
+          {fixedTimeLocked ? (
+            <p className="mt-3 text-sm leading-6 text-[var(--planner-board-muted)]">
+              This event already has a fixed time, so the planner can keep it or
+              send it to reserve, but it will not silently rewrite the slot.
+            </p>
+          ) : null}
+
+          {(candidate.status_text ||
+            candidate.price_text ||
+            candidate.availability_text) ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[candidate.status_text, candidate.price_text, candidate.availability_text]
+                .filter(Boolean)
+                .map((detail) => (
+                  <span
+                    key={detail}
+                    className="rounded-md bg-[var(--planner-board-soft)] px-3 py-1.5 text-xs font-medium text-[var(--planner-board-muted)]"
+                  >
+                    {detail}
+                  </span>
+                ))}
+            </div>
+          ) : null}
+
+          {candidate.ranking_reasons.length ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {candidate.ranking_reasons.map((reason) => (
+                <span
+                  key={reason}
+                  className="rounded-md bg-[var(--planner-board-soft)] px-3 py-1.5 text-xs font-medium text-[var(--planner-board-muted)]"
+                >
+                  {reason}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          {candidate.kind === "event" && candidate.source_url ? (
+            <a
+              href={candidate.source_url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[color:var(--accent)] hover:underline"
+            >
+              Open event listing
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {(["essential", "maybe", "pass"] as const).map((disposition) => (
+            <button
+              key={disposition}
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "set_activity_candidate_disposition",
+                  activity_candidate_id: candidate.id,
+                  activity_candidate_title: candidate.title,
+                  activity_candidate_kind: candidate.kind,
+                  activity_candidate_disposition: disposition,
+                })
+              }
+              className={cn(
+                "rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors",
+                candidate.disposition === disposition
+                  ? "border-[color:var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] text-[color:var(--accent)]"
+                  : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+                disabled ? "cursor-wait opacity-70" : "",
+              )}
+            >
+              {disposition === "essential"
+                ? "Shape trip"
+                : disposition === "maybe"
+                  ? "Keep option"
+                  : "Skip"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {candidate.disposition !== "pass" ? (
+        <div className="mt-5 space-y-4 border-t border-[var(--planner-board-border)] pt-4">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: reserved
+                    ? "restore_activity_candidate_from_reserve"
+                    : "send_activity_candidate_to_reserve",
+                  activity_candidate_id: candidate.id,
+                  activity_candidate_title: candidate.title,
+                  activity_candidate_kind: candidate.kind,
+                })
+              }
+              className={cn(
+                "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                disabled
+                  ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                  : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+              )}
+            >
+              {reserved ? "Restore" : "Save for later"}
+            </button>
+            {!fixedTimeLocked && scheduledBlock ? (
+              <>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() =>
+                    onAction({
+                      action_id: crypto.randomUUID(),
+                      type: "move_activity_candidate_earlier",
+                      activity_candidate_id: candidate.id,
+                      activity_candidate_title: candidate.title,
+                      activity_candidate_kind: candidate.kind,
+                    })
+                  }
+                  className={cn(
+                    "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                    disabled
+                      ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                      : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+                  )}
+                >
+                  Earlier
+                </button>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() =>
+                    onAction({
+                      action_id: crypto.randomUUID(),
+                      type: "move_activity_candidate_later",
+                      activity_candidate_id: candidate.id,
+                      activity_candidate_title: candidate.title,
+                      activity_candidate_kind: candidate.kind,
+                    })
+                  }
+                  className={cn(
+                    "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                    disabled
+                      ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                      : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+                  )}
+                >
+                  Later
+                </button>
+              </>
+            ) : null}
+          </div>
+
+          {!fixedTimeLocked ? (
+            <>
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                  Place on a day
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {dayPlans.map((dayPlan) => (
+                    <button
+                      key={dayPlan.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() =>
+                        onAction({
+                          action_id: crypto.randomUUID(),
+                          type: "move_activity_candidate_to_day",
+                          activity_candidate_id: candidate.id,
+                          activity_candidate_title: candidate.title,
+                          activity_candidate_kind: candidate.kind,
+                          activity_target_day_index: dayPlan.day_index,
+                        })
+                      }
+                      className={cn(
+                        "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                        scheduledBlock?.day_index === dayPlan.day_index
+                          ? "border-[color:var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] text-[color:var(--accent)]"
+                          : disabled
+                            ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                            : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+                      )}
+                    >
+                      {dayPlan.day_label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
+                  Best part of the day
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(["morning", "afternoon", "evening"] as const).map((daypart) => (
+                    <button
+                      key={daypart}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() =>
+                        onAction({
+                          action_id: crypto.randomUUID(),
+                          type: "pin_activity_candidate_daypart",
+                          activity_candidate_id: candidate.id,
+                          activity_candidate_title: candidate.title,
+                          activity_candidate_kind: candidate.kind,
+                          activity_target_daypart: daypart,
+                        })
+                      }
+                      className={cn(
+                        "rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                        scheduledBlock?.daypart === daypart
+                          ? "border-[color:var(--accent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] text-[color:var(--accent)]"
+                          : disabled
+                            ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                            : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-soft)]",
+                      )}
+                    >
+                      {formatDaypartLabel(daypart)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function formatDaypartLabel(daypart: PlannerActivityDaypart) {
+  return daypart.charAt(0).toUpperCase() + daypart.slice(1);
 }
 
 function PlanningModeOptionCard({
@@ -534,7 +1771,7 @@ function AdvancedAnchorOptionCard({
               : "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:bg-[color:color-mix(in_srgb,var(--accent)_92%,black)]",
           )}
         >
-          {card.cta_label || "Choose anchor"}
+          {card.cta_label || "Choose this focus"}
         </button>
       </div>
     </article>
@@ -617,9 +1854,13 @@ function WorkspaceNotice({
 function AdvancedStayStatusPanel({
   board,
   compact = false,
+  disabled,
+  onAction,
 }: {
   board: TripSuggestionBoardState;
   compact?: boolean;
+  disabled: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
 }) {
   const selectedCard = (board.stay_cards ?? []).find(
     (card) => card.id === board.selected_stay_option_id,
@@ -717,6 +1958,29 @@ function AdvancedStayStatusPanel({
               </ul>
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {board.mode === "advanced_stay_review" ? (
+        <div className={cn(compact ? "mt-3" : "mt-4")}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() =>
+              onAction({
+                action_id: crypto.randomUUID(),
+                type: "keep_current_stay_choice",
+              })
+            }
+            className={cn(
+              "inline-flex items-center rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors",
+              disabled
+                ? "cursor-not-allowed border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
+                : "border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-text)] hover:bg-[color:color-mix(in_srgb,var(--planner-board-soft)_62%,white)]",
+            )}
+            >
+            Keep this base anyway
+          </button>
         </div>
       ) : null}
     </article>
@@ -994,6 +2258,26 @@ function AdvancedStayHotelCardView({
           >
             {isSelected ? "Selected" : card.cta_label || "Choose this hotel"}
           </button>
+          {isReviewMode ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "keep_current_hotel_choice",
+                })
+              }
+              className={cn(
+                "inline-flex items-center rounded-md border px-3.5 py-2 text-sm font-semibold transition-colors",
+                disabled
+                  ? "cursor-not-allowed border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-muted-strong)]"
+                  : "border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] text-[var(--planner-board-text)] hover:bg-[color:color-mix(in_srgb,var(--planner-board-soft)_62%,white)]",
+              )}
+            >
+              Keep this hotel anyway
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setExpanded((current) => !current)}
@@ -1406,6 +2690,72 @@ function formatHotelStyleLabel(style: PlannerHotelStyleTag) {
       value: "Value",
     }[style] ?? style.replace("_", " ").replace(/\b\w/g, (character) => character.toUpperCase())
   );
+}
+
+function formatTripDirectionPrimaryLabel(primary: PlannerTripDirectionPrimary) {
+  return {
+    food_led: "Food-led",
+    culture_led: "Culture-led",
+    nightlife_led: "Nightlife-led",
+    outdoors_led: "Outdoors-led",
+    balanced: "Balanced",
+  }[primary];
+}
+
+function tripDirectionPrimaryDescription(primary: PlannerTripDirectionPrimary) {
+  return {
+    food_led:
+      "Let markets, tastings, dining neighborhoods, and culinary moments lead the trip shape.",
+    culture_led:
+      "Let museums, temples, galleries, heritage walks, and performances lead the trip shape.",
+    nightlife_led:
+      "Let evening districts, bars, late events, and live music pull the trip later into the day.",
+    outdoors_led:
+      "Let parks, viewpoints, open-air routes, hikes, and day trips lead the trip shape.",
+    balanced:
+      "Keep the trip broad and mixed, with no one kind of experience dominating too early.",
+  }[primary];
+}
+
+function formatTripDirectionAccentLabel(accent: PlannerTripDirectionAccent) {
+  return {
+    local: "Local",
+    classic: "Classic",
+    polished: "Polished",
+    romantic: "Romantic",
+    relaxed: "Relaxed",
+  }[accent];
+}
+
+function tripDirectionAccentDescription(accent: PlannerTripDirectionAccent) {
+  return {
+    local:
+      "Favor neighborhood-scale picks and experiences that feel closer to everyday city rhythm.",
+    classic:
+      "Keep first-time icons and signature anchors visible early in the shortlist.",
+    polished:
+      "Favor refined, design-forward, and reservation-worthy moments when choices are close.",
+    romantic:
+      "Favor scenic, intimate, and couple-friendly moments without changing the main direction.",
+    relaxed:
+      "Keep the shortlist a little lighter and easier, with less friction in how days are shaped.",
+  }[accent];
+}
+
+function formatTripPaceLabel(pace: PlannerTripPace) {
+  return {
+    slow: "Slow",
+    balanced: "Balanced",
+    full: "Full",
+  }[pace];
+}
+
+function tripPaceDescription(pace: PlannerTripPace) {
+  return {
+    slow: "Fewer anchors, more open time, and lower-friction days.",
+    balanced: "Two main moments most days, with flexible room around them.",
+    full: "Denser days, more coverage, and more willingness to use all dayparts.",
+  }[pace];
 }
 
 function normalizeAreaLabel(value: string | null | undefined) {

@@ -1,9 +1,17 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from app.schemas.trip_conversation import (
     PlannerAdvancedAnchor,
+    PlannerActivityCandidateKind,
+    PlannerActivityDaypart,
+    PlannerActivityDisposition,
+    PlannerTripPace,
+    PlannerReviewResolutionScope,
+    PlannerTripDirectionAccent,
+    PlannerTripDirectionPrimary,
     ConversationFieldConfidence,
     ConversationFieldSource,
     ConversationOptionKind,
@@ -80,6 +88,53 @@ class TripOpenQuestionUpdate(BaseModel):
     why: str | None = Field(default=None, max_length=200)
 
 
+class RequestedActivityDecision(BaseModel):
+    candidate_title: str = Field(..., min_length=1, max_length=160)
+    candidate_kind: PlannerActivityCandidateKind | None = None
+    disposition: PlannerActivityDisposition
+
+
+class RequestedActivityScheduleEdit(BaseModel):
+    action: Literal[
+        "move_to_day",
+        "move_earlier",
+        "move_later",
+        "pin_daypart",
+        "reserve",
+        "restore",
+    ]
+    candidate_title: str = Field(..., min_length=1, max_length=160)
+    candidate_kind: PlannerActivityCandidateKind | None = None
+    candidate_id: str | None = Field(default=None, max_length=160)
+    target_day_index: int | None = Field(default=None, ge=1, le=30)
+    target_daypart: PlannerActivityDaypart | None = None
+
+
+class RequestedTripStyleDirectionUpdate(BaseModel):
+    action: Literal[
+        "select_primary",
+        "select_accent",
+        "clear_accent",
+        "confirm",
+        "keep_current",
+    ]
+    primary: PlannerTripDirectionPrimary | None = None
+    accent: PlannerTripDirectionAccent | None = None
+
+
+class RequestedTripStylePaceUpdate(BaseModel):
+    action: Literal[
+        "select_pace",
+        "confirm",
+        "keep_current",
+    ]
+    pace: PlannerTripPace | None = None
+
+
+class RequestedReviewResolution(BaseModel):
+    scope: PlannerReviewResolutionScope
+
+
 class TripTurnUpdate(BaseModel):
     title: str | None = None
     from_location: str | None = None
@@ -122,6 +177,22 @@ class TripTurnUpdate(BaseModel):
     planner_intent: PlannerIntent = "none"
     requested_planning_mode: PlannerPlanningMode | None = None
     requested_advanced_anchor: PlannerAdvancedAnchor | None = None
+    requested_stay_option_title: str | None = Field(default=None, max_length=160)
     requested_stay_hotel_name: str | None = Field(default=None, max_length=160)
+    requested_trip_style_direction_updates: list[RequestedTripStyleDirectionUpdate] = Field(
+        default_factory=list
+    )
+    requested_trip_style_pace_updates: list[RequestedTripStylePaceUpdate] = Field(
+        default_factory=list
+    )
+    requested_activity_decisions: list[RequestedActivityDecision] = Field(
+        default_factory=list
+    )
+    requested_activity_schedule_edits: list[RequestedActivityScheduleEdit] = Field(
+        default_factory=list
+    )
+    requested_review_resolutions: list[RequestedReviewResolution] = Field(
+        default_factory=list
+    )
     confirmed_trip_brief: bool = False
     assistant_response: str = ""

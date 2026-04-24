@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from app.graph.planner.board_action_merge import apply_board_action_updates
+from app.graph.planner import conversation_state
 from app.graph.planner.conversation_state import (
     build_conversation_state,
     build_status,
@@ -15,6 +16,11 @@ from app.graph.planner.suggestion_board import build_suggestion_board_state
 from app.graph.planner.turn_models import (
     DestinationSuggestionCandidate,
     ConversationOptionCandidate,
+    RequestedActivityDecision,
+    RequestedActivityScheduleEdit,
+    RequestedReviewResolution,
+    RequestedTripStyleDirectionUpdate,
+    RequestedTripStylePaceUpdate,
     TripFieldConfidenceUpdate,
     TripFieldSourceUpdate,
     TripOpenQuestionUpdate,
@@ -26,7 +32,13 @@ from app.schemas.trip_conversation import (
     TripConversationState,
 )
 from app.schemas.trip_draft import TripDraftStatus
-from app.schemas.trip_planning import TripConfiguration, TripModuleOutputs
+from app.schemas.trip_planning import (
+    ActivityDetail,
+    HotelStayDetail,
+    TripConfiguration,
+    TripModuleOutputs,
+)
+from app.services.providers.movement import MovementEstimate
 
 
 def test_explicit_field_memory_stays_confirmed_when_later_turn_is_only_inferred() -> None:
@@ -257,6 +269,343 @@ def test_board_confirmed_fields_get_high_confidence_memory() -> None:
         "weather_preference",
     ]
     assert status.inferred_fields == []
+
+
+def test_board_activity_schedule_action_is_merged_into_turn_update() -> None:
+    update = apply_board_action_updates(
+        TripTurnUpdate(),
+        board_action={
+            "action_id": "action_move_market",
+            "type": "move_activity_candidate_to_day",
+            "activity_candidate_id": "activity_market",
+            "activity_candidate_title": "Nishiki Market tasting walk",
+            "activity_candidate_kind": "activity",
+            "activity_target_day_index": 2,
+        },
+    )
+
+    assert len(update.requested_activity_schedule_edits) == 1
+    edit = update.requested_activity_schedule_edits[0]
+    assert edit.action == "move_to_day"
+    assert edit.candidate_id == "activity_market"
+    assert edit.candidate_title == "Nishiki Market tasting walk"
+    assert edit.target_day_index == 2
+
+
+def test_board_trip_style_direction_action_is_merged_into_turn_update() -> None:
+    update = apply_board_action_updates(
+        TripTurnUpdate(),
+        board_action={
+            "action_id": "action_trip_style_primary",
+            "type": "select_trip_style_direction_primary",
+            "trip_style_direction_primary": "food_led",
+        },
+    )
+
+    assert len(update.requested_trip_style_direction_updates) == 1
+    direction_update = update.requested_trip_style_direction_updates[0]
+    assert direction_update.action == "select_primary"
+    assert direction_update.primary == "food_led"
+
+
+def test_board_trip_style_pace_action_is_merged_into_turn_update() -> None:
+    update = apply_board_action_updates(
+        TripTurnUpdate(),
+        board_action={
+            "action_id": "action_trip_style_pace",
+            "type": "confirm_trip_style_pace",
+            "trip_style_pace": "slow",
+        },
+    )
+
+    assert len(update.requested_trip_style_pace_updates) == 1
+    pace_update = update.requested_trip_style_pace_updates[0]
+    assert pace_update.action == "confirm"
+    assert pace_update.pace == "slow"
+
+
+def test_trip_style_direction_reorders_activity_candidates() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 22, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 27, tzinfo=timezone.utc).date(),
+        activity_styles=["culture"],
+        custom_style="slow temple mornings and market-heavy afternoons",
+        selected_modules={
+            "flights": False,
+            "weather": True,
+            "activities": True,
+            "hotels": False,
+        },
+    )
+    module_outputs = TripModuleOutputs(
+        activities=[
+            ActivityDetail(
+                id="activity_market",
+                title="Nishiki Market tasting walk",
+                location_label="Downtown Kyoto",
+                category="catering.restaurant",
+                notes=["Downtown Kyoto"],
+            ),
+            ActivityDetail(
+                id="activity_temple",
+                title="Higashiyama temple circuit",
+                location_label="Higashiyama, Kyoto",
+                category="entertainment.museum",
+                notes=["Higashiyama, Kyoto"],
+            ),
+        ]
+    )
+
+    baseline = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        brief_confirmed=True,
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert baseline.activity_planning.recommended_candidates[0].id == "activity_temple"
+
+    direction_state = build_conversation_state(
+        current=baseline,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            requested_trip_style_direction_updates=[
+                RequestedTripStyleDirectionUpdate(
+                    action="select_primary",
+                    primary="food_led",
+                ),
+                RequestedTripStyleDirectionUpdate(action="confirm"),
+            ]
+        ),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_2",
+        user_message="Make this more food-led.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        brief_confirmed=True,
+        advanced_step="anchor_flow",
+        advanced_anchor="trip_style",
+    )
+
+    reranked = build_conversation_state(
+        current=direction_state,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_3",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        brief_confirmed=True,
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert reranked.trip_style_planning.substep == "pace"
+    assert reranked.trip_style_planning.selection_status == "selected"
+    assert reranked.activity_planning.recommended_candidates[0].id == "activity_market"
+
+
+def test_trip_style_pace_changes_activity_schedule_density() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 22, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 22, tzinfo=timezone.utc).date(),
+        selected_modules={
+            "flights": False,
+            "weather": True,
+            "activities": True,
+            "hotels": False,
+        },
+    )
+    module_outputs = TripModuleOutputs(
+        activities=[
+            ActivityDetail(
+                id=f"activity_{index}",
+                title=f"Kyoto experience {index}",
+                location_label="Kyoto",
+                category="entertainment.museum",
+            )
+            for index in range(1, 5)
+        ]
+    )
+
+    def scheduled_stop_count_for_pace(pace: str) -> int:
+        current = TripConversationState.model_validate(
+            {
+                "trip_style_planning": {
+                    "substep": "completed",
+                    "selected_primary_direction": "balanced",
+                    "selection_status": "completed",
+                    "selected_pace": pace,
+                    "pace_status": "completed",
+                }
+            }
+        )
+        conversation = build_conversation_state(
+            current=current,
+            previous_configuration=configuration,
+            next_configuration=configuration,
+            llm_update=TripTurnUpdate(),
+            module_outputs=module_outputs,
+            assistant_response="",
+            turn_id=f"turn_{pace}",
+            user_message="",
+            now=now,
+            planning_mode="advanced",
+            planning_mode_status="selected",
+            brief_confirmed=True,
+            advanced_step="anchor_flow",
+            advanced_anchor="activities",
+        )
+        return sum(
+            1
+            for block in conversation.activity_planning.timeline_blocks
+            if block.type in {"activity", "event"}
+        )
+
+    assert scheduled_stop_count_for_pace("slow") == 1
+    assert scheduled_stop_count_for_pace("balanced") == 2
+    assert scheduled_stop_count_for_pace("full") == 3
+
+
+def test_trip_style_pace_preserves_fixed_events_and_manual_activity_edits(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 22, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 22, tzinfo=timezone.utc).date(),
+        selected_modules={
+            "flights": False,
+            "weather": True,
+            "activities": True,
+            "hotels": False,
+        },
+    )
+    module_outputs = TripModuleOutputs(
+        activities=[
+            ActivityDetail(
+                id="activity_market",
+                title="Nishiki Market tasting walk",
+                location_label="Kyoto",
+                category="catering.restaurant",
+            ),
+            ActivityDetail(
+                id="activity_temple",
+                title="Higashiyama temple circuit",
+                location_label="Kyoto",
+                category="entertainment.museum",
+            ),
+        ]
+    )
+    fixed_event_start = datetime(2027, 3, 22, 18, 0, tzinfo=timezone.utc)
+    event_payload = {
+        "id": "event_jazz",
+        "title": "Kyoto Jazz Night",
+        "location_label": "Kyoto",
+        "start_at": fixed_event_start,
+        "end_at": fixed_event_start.replace(hour=20),
+    }
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [event_payload],
+    )
+
+    current = TripConversationState.model_validate(
+        {
+            "trip_style_planning": {
+                "substep": "completed",
+                "selected_primary_direction": "balanced",
+                "selection_status": "completed",
+                "selected_pace": "full",
+                "pace_status": "completed",
+            },
+            "activity_planning": {
+                "placement_preferences": [
+                    {
+                        "candidate_id": "activity_market",
+                        "daypart": "morning",
+                        "reserved": False,
+                    }
+                ]
+            }
+        }
+    )
+    full_plan = build_conversation_state(
+        current=current,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_full",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        brief_confirmed=True,
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    slowed_plan = build_conversation_state(
+        current=full_plan,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            requested_trip_style_pace_updates=[
+                RequestedTripStylePaceUpdate(action="select_pace", pace="slow"),
+                RequestedTripStylePaceUpdate(action="confirm"),
+            ]
+        ),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_slow",
+        user_message="Slow it down.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        brief_confirmed=True,
+        advanced_step="anchor_flow",
+        advanced_anchor="trip_style",
+    )
+
+    fixed_event_blocks = [
+        block
+        for block in slowed_plan.activity_planning.timeline_blocks
+        if block.candidate_id == "event_jazz"
+    ]
+    assert fixed_event_blocks
+    assert fixed_event_blocks[0].fixed_time is True
+    assert fixed_event_blocks[0].start_at == fixed_event_start
+    manual_activity_blocks = [
+        block
+        for block in slowed_plan.activity_planning.timeline_blocks
+        if block.candidate_id == "activity_market"
+    ]
+    assert manual_activity_blocks
+    assert manual_activity_blocks[0].manual_override is True
+    assert "activity_temple" in slowed_plan.activity_planning.unscheduled_candidate_ids
 
 
 def test_confirmed_correction_is_recorded_and_requires_reconfirmation() -> None:
@@ -786,6 +1135,46 @@ def test_shaping_response_frames_working_shape_and_next_move() -> None:
     assert "main thing i'd confirm next" in response.lower()
 
 
+def test_completed_activities_response_can_carry_personalized_llm_copy() -> None:
+    conversation = TripConversationState.model_validate(
+        {
+            "planning_mode": "advanced",
+            "advanced_step": "anchor_flow",
+            "advanced_anchor": "activities",
+            "activity_planning": {
+                "schedule_status": "ready",
+                "completion_status": "completed",
+                "completion_summary": "Kyoto Jazz Night is now acting as a real timed anchor, and the activities plan has enough structure to move on.",
+                "completion_anchor_ids": ["ticketmaster_kyoto_jazz"],
+            },
+        }
+    )
+
+    response = build_assistant_response(
+        configuration=TripConfiguration(
+            to_location="Kyoto",
+            selected_modules={
+                "flights": True,
+                "weather": True,
+                "activities": True,
+                "hotels": True,
+            },
+        ),
+        conversation=conversation,
+        llm_update=TripTurnUpdate(),
+        brief_confirmed=True,
+        fallback_text="That jazz-led version already feels like the trip's center of gravity.",
+        profile_context={},
+        board_action=None,
+        confirmation_status="unconfirmed",
+        finalized_via=None,
+    )
+
+    assert "kyoto jazz night" in response.lower()
+    assert "center of gravity" in response.lower()
+    assert "remaining planning choices" in response.lower()
+
+
 def test_rejected_destination_is_filtered_from_future_suggestions() -> None:
     current = TripConversationState.model_validate(
         {
@@ -877,3 +1266,1311 @@ def test_reintroduced_destination_leaves_rejected_memory() -> None:
         option.value == "Prague"
         for option in conversation.memory.mentioned_options
     )
+
+
+def test_activity_workspace_board_action_updates_disposition(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "venue_name": "Blue Note Kyoto",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Music | Jazz | Blue Note Kyoto, Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "price_text": "GBP 35-85",
+                "status_text": "On Sale",
+                "start_at": datetime(2027, 3, 24, 19, 30, tzinfo=timezone.utc),
+                "end_at": None,
+            }
+        ],
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            travel_window="late March",
+            trip_length="5 nights",
+            activity_styles=["food", "culture"],
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(
+            activities=[
+                {
+                    "id": "activity_walk",
+                    "title": "Gion evening walk",
+                    "category": "tourism.sights",
+                    "time_label": "Evening",
+                    "notes": ["Gion, Kyoto"],
+                }
+            ]
+        ),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+        board_action={
+            "action_id": "action_activity_essential",
+            "type": "set_activity_candidate_disposition",
+            "activity_candidate_id": "activity_walk",
+            "activity_candidate_title": "Gion evening walk",
+            "activity_candidate_disposition": "essential",
+        },
+    )
+
+    candidate = next(
+        item
+        for item in conversation.activity_planning.recommended_candidates
+        if item.id == "activity_walk"
+    )
+    event_candidate = next(
+        item
+        for item in conversation.activity_planning.recommended_candidates
+        if item.kind == "event"
+    )
+
+    assert conversation.activity_planning.essential_ids == ["activity_walk"]
+    assert candidate.disposition == "essential"
+    assert event_candidate.venue_name == "Blue Note Kyoto"
+    assert event_candidate.price_text == "GBP 35-85"
+    assert conversation.activity_planning.workspace_touched is True
+    assert conversation.activity_planning.completion_status == "in_progress"
+    assert conversation.suggestion_board.mode == "advanced_activities_workspace"
+
+
+def test_activity_workspace_chat_decision_ignores_ambiguous_titles(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            travel_window="late March",
+            trip_length="5 nights",
+        ),
+        llm_update=TripTurnUpdate(
+            requested_activity_decisions=[
+                RequestedActivityDecision(
+                    candidate_title="Temple Walk",
+                    disposition="pass",
+                )
+            ]
+        ),
+        module_outputs=TripModuleOutputs(
+            activities=[
+                {
+                    "id": "activity_walk_1",
+                    "title": "Temple Walk",
+                    "notes": ["Higashiyama, Kyoto"],
+                },
+                {
+                    "id": "activity_walk_2",
+                    "title": "Temple Walk",
+                    "notes": ["North Kyoto"],
+                },
+            ]
+        ),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="Pass on Temple Walk.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert conversation.activity_planning.passed_ids == []
+    assert all(
+        candidate.disposition == "maybe"
+        for candidate in conversation.activity_planning.recommended_candidates
+    )
+
+
+def test_activity_workspace_disposition_changes_are_reversible(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+    base_configuration = TripConfiguration(
+        to_location="Kyoto",
+        travel_window="late March",
+        trip_length="5 nights",
+    )
+    base_outputs = TripModuleOutputs(
+        activities=[
+            {
+                "id": "activity_market",
+                "title": "Nishiki Market tasting walk",
+                "notes": ["Nishiki Market, Kyoto"],
+            }
+        ]
+    )
+
+    first_pass = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=base_configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=base_outputs,
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+        board_action={
+            "action_id": "action_pass_market",
+            "type": "set_activity_candidate_disposition",
+            "activity_candidate_id": "activity_market",
+            "activity_candidate_title": "Nishiki Market tasting walk",
+            "activity_candidate_disposition": "pass",
+        },
+    )
+    second_pass = build_conversation_state(
+        current=first_pass,
+        previous_configuration=base_configuration,
+        next_configuration=base_configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=base_outputs,
+        assistant_response="",
+        turn_id="turn_2",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+        board_action={
+            "action_id": "action_maybe_market",
+            "type": "set_activity_candidate_disposition",
+            "activity_candidate_id": "activity_market",
+            "activity_candidate_title": "Nishiki Market tasting walk",
+            "activity_candidate_disposition": "maybe",
+        },
+    )
+
+    assert first_pass.activity_planning.passed_ids == ["activity_market"]
+    assert second_pass.activity_planning.passed_ids == []
+    assert second_pass.activity_planning.maybe_ids == ["activity_market"]
+
+
+def test_activity_workspace_board_and_chat_schedule_moves_converge(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 24, tzinfo=timezone.utc).date(),
+        travel_window="late March",
+        trip_length="2 nights",
+    )
+    module_outputs = TripModuleOutputs(
+        activities=[
+            ActivityDetail(
+                id="activity_market",
+                title="Nishiki Market tasting walk",
+                category="commercial.marketplace",
+                location_label="Nishiki Market, Kyoto",
+                estimated_duration_minutes=90,
+                time_label="Afternoon",
+                notes=["Nishiki Market, Kyoto"],
+            ),
+            ActivityDetail(
+                id="activity_walk",
+                title="Gion evening walk",
+                category="tourism.sights",
+                location_label="Gion, Kyoto",
+                estimated_duration_minutes=90,
+                time_label="Evening",
+                notes=["Gion, Kyoto"],
+            ),
+        ]
+    )
+
+    seeded = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_seed",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    board_version = build_conversation_state(
+        current=seeded,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_board_move",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+        board_action={
+            "action_id": "action_move_market",
+            "type": "move_activity_candidate_to_day",
+            "activity_candidate_id": "activity_market",
+            "activity_candidate_title": "Nishiki Market tasting walk",
+            "activity_candidate_kind": "activity",
+            "activity_target_day_index": 2,
+        },
+    )
+    chat_version = build_conversation_state(
+        current=seeded,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            requested_activity_schedule_edits=[
+                RequestedActivityScheduleEdit(
+                    action="move_to_day",
+                    candidate_title="Nishiki Market tasting walk",
+                    candidate_kind="activity",
+                    target_day_index=2,
+                )
+            ]
+        ),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_chat_move",
+        user_message="Move Nishiki Market to day 2.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    board_block = next(
+        block
+        for block in board_version.activity_planning.timeline_blocks
+        if block.candidate_id == "activity_market"
+    )
+    chat_block = next(
+        block
+        for block in chat_version.activity_planning.timeline_blocks
+        if block.candidate_id == "activity_market"
+    )
+
+    assert board_block.day_index == 2
+    assert chat_block.day_index == 2
+    assert board_block.daypart == chat_block.daypart
+    assert board_version.activity_planning.placement_preferences[0].candidate_id == "activity_market"
+    assert chat_version.activity_planning.placement_preferences[0].candidate_id == "activity_market"
+
+
+def test_activity_workspace_can_reserve_and_restore_candidate(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        travel_window="late March",
+        trip_length="1 night",
+    )
+    module_outputs = TripModuleOutputs(
+        activities=[
+            ActivityDetail(
+                id="activity_market",
+                title="Nishiki Market tasting walk",
+                category="commercial.marketplace",
+                location_label="Nishiki Market, Kyoto",
+                estimated_duration_minutes=90,
+                time_label="Afternoon",
+                notes=["Nishiki Market, Kyoto"],
+            )
+        ]
+    )
+    seeded = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_seed",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+    reserved = build_conversation_state(
+        current=seeded,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_reserve",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+        board_action={
+            "action_id": "action_reserve_market",
+            "type": "send_activity_candidate_to_reserve",
+            "activity_candidate_id": "activity_market",
+            "activity_candidate_title": "Nishiki Market tasting walk",
+            "activity_candidate_kind": "activity",
+        },
+    )
+    restored = build_conversation_state(
+        current=reserved,
+        previous_configuration=configuration,
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_restore",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+        board_action={
+            "action_id": "action_restore_market",
+            "type": "restore_activity_candidate_from_reserve",
+            "activity_candidate_id": "activity_market",
+            "activity_candidate_title": "Nishiki Market tasting walk",
+            "activity_candidate_kind": "activity",
+        },
+    )
+
+    assert reserved.activity_planning.reserved_candidate_ids == ["activity_market"]
+    assert "activity_market" in reserved.activity_planning.unscheduled_candidate_ids
+    assert all(
+        block.candidate_id != "activity_market"
+        for block in reserved.activity_planning.timeline_blocks
+    )
+    assert restored.activity_planning.reserved_candidate_ids == []
+    assert any(
+        block.candidate_id == "activity_market"
+        for block in restored.activity_planning.timeline_blocks
+    )
+
+
+def test_fixed_time_event_keeps_locked_slot_when_chat_requests_move(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Late jazz set in Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": datetime(2027, 3, 23, 20, 0, tzinfo=timezone.utc),
+                "end_at": datetime(2027, 3, 23, 22, 0, tzinfo=timezone.utc),
+            }
+        ],
+    )
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 24, tzinfo=timezone.utc).date(),
+        travel_window="late March",
+        trip_length="2 nights",
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            requested_activity_schedule_edits=[
+                RequestedActivityScheduleEdit(
+                    action="move_to_day",
+                    candidate_title="Kyoto Jazz Night",
+                    candidate_kind="event",
+                    target_day_index=2,
+                )
+            ]
+        ),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_fixed_event",
+        user_message="Move Kyoto Jazz Night to day 2.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    event_block = next(
+        block
+        for block in conversation.activity_planning.timeline_blocks
+        if block.candidate_id == "ticketmaster_kyoto_jazz"
+    )
+
+    assert event_block.day_index == 1
+    assert event_block.fixed_time is True
+    assert any(
+        "fixed event time" in note.lower()
+        for note in conversation.activity_planning.schedule_notes
+    )
+
+
+def test_activity_workspace_builds_timed_day_plan_with_transfers(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "venue_name": "Blue Note Kyoto",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Music | Jazz | Blue Note Kyoto, Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "price_text": "GBP 35-85",
+                "status_text": "On Sale",
+                "latitude": 35.0036,
+                "longitude": 135.7694,
+                "estimated_duration_minutes": 120,
+                "start_at": datetime(2027, 3, 23, 19, 30, tzinfo=timezone.utc),
+                "end_at": datetime(2027, 3, 23, 21, 30, tzinfo=timezone.utc),
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        conversation_state,
+        "estimate_travel_duration_minutes",
+        lambda **kwargs: MovementEstimate(
+            minutes=24,
+            distance_meters=1800,
+            source="heuristic",
+        ),
+    )
+
+    configuration = TripConfiguration(
+        to_location="Kyoto",
+        start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        end_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+        travel_window="late March",
+        trip_length="1 night",
+    )
+    module_outputs = TripModuleOutputs(
+        activities=[
+            ActivityDetail(
+                id="activity_market",
+                title="Nishiki Market tasting walk",
+                category="catering.restaurant",
+                latitude=35.0051,
+                longitude=135.7649,
+                location_label="Nishiki Market, Kyoto",
+                source_label="Geoapify",
+                estimated_duration_minutes=90,
+                time_label="Afternoon",
+                notes=["Nishiki Market, Kyoto"],
+            ),
+            ActivityDetail(
+                id="activity_shrine",
+                title="Fushimi Inari morning walk",
+                category="tourism.sights",
+                latitude=34.9671,
+                longitude=135.7727,
+                location_label="Fushimi Inari, Kyoto",
+                source_label="Geoapify",
+                estimated_duration_minutes=120,
+                time_label="Morning",
+                notes=["Fushimi Inari, Kyoto"],
+            ),
+        ]
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(),
+        module_outputs=module_outputs,
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert conversation.activity_planning.schedule_status == "ready"
+    assert conversation.activity_planning.day_plans
+    assert any(
+        block.type == "event" for block in conversation.activity_planning.timeline_blocks
+    )
+    assert any(
+        block.type == "transfer"
+        for block in conversation.activity_planning.timeline_blocks
+    )
+    assert conversation.activity_planning.schedule_summary is not None
+    assert "Kyoto Jazz Night" in conversation.activity_planning.schedule_summary
+    assert conversation.stay_planning.compatibility_status == "fit"
+
+
+def test_activity_workspace_can_put_selected_stay_under_review(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "venue_name": "Blue Note Kyoto",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Late jazz set in Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": datetime(2027, 3, 23, 20, 0, tzinfo=timezone.utc),
+                "end_at": datetime(2027, 3, 23, 22, 0, tzinfo=timezone.utc),
+            }
+        ],
+    )
+
+    current = TripConversationState.model_validate(
+        {
+            "stay_planning": {
+                "recommended_stay_options": [
+                    {
+                        "id": "stay_quiet_local",
+                        "segment_id": "segment_primary",
+                        "strategy_type": "single_base",
+                        "title": "Quieter local base",
+                        "summary": "Choose a calmer local area so the trip starts and ends more gently.",
+                        "area_label": "Calmer residential pockets",
+                        "areas": [],
+                        "best_for": ["Relaxed pacing and easier mornings"],
+                        "tradeoffs": ["Daily travel can need more planning"],
+                        "recommended": True,
+                    }
+                ],
+                "selected_stay_option_id": "stay_quiet_local",
+                "selected_stay_direction": "Quieter local base",
+                "selection_status": "selected",
+                "compatibility_status": "fit",
+            }
+        }
+    )
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            end_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            travel_window="late March",
+            trip_length="1 night",
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert conversation.stay_planning.selection_status == "needs_review"
+    assert conversation.stay_planning.compatibility_status == "conflicted"
+    assert "Kyoto Jazz Night" in conversation.stay_planning.compatibility_notes[0]
+    assert "later nights" in conversation.stay_planning.compatibility_notes[0]
+    assert conversation.stay_planning.recommended_stay_options[0].id == "stay_food_forward"
+    assert conversation.stay_planning.recommended_stay_options[0].recommended is True
+    assert conversation.stay_planning.recommended_stay_options[0].badge == "Better fit now"
+
+
+def test_activity_workspace_can_put_selected_hotel_under_review_without_straining_stay(
+    monkeypatch,
+) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+
+    current = TripConversationState.model_validate(
+        {
+            "stay_planning": {
+                "recommended_stay_options": [
+                    {
+                        "id": "stay_food_forward",
+                        "segment_id": "segment_primary",
+                        "strategy_type": "single_base",
+                        "title": "Food-forward neighbourhood base",
+                        "summary": "Choose a neighbourhood-led base built around food and evening walks.",
+                        "area_label": "Dining-led Kyoto pockets",
+                        "areas": [],
+                        "best_for": ["Food and evening structure"],
+                        "tradeoffs": ["Less purely practical than a station-led base"],
+                        "recommended": True,
+                    }
+                ],
+                "selected_stay_option_id": "stay_food_forward",
+                "selected_stay_direction": "Food-forward neighbourhood base",
+                "selection_status": "selected",
+                "compatibility_status": "fit",
+                "selected_hotel_id": "hotel_station_stay",
+                "selected_hotel_name": "Kyoto Station Stay",
+                "hotel_selection_status": "selected",
+                "hotel_compatibility_status": "fit",
+                "selected_hotel_card": {
+                    "id": "hotel_station_stay",
+                    "hotel_name": "Kyoto Station Stay",
+                    "area": "Central Kyoto Station",
+                    "summary": "A practical station hotel.",
+                    "why_it_fits": "Easy for transport-heavy movement.",
+                },
+            }
+        }
+    )
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            travel_window="late March",
+            trip_length="5 nights",
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(
+            hotels=[
+                HotelStayDetail(
+                    id="hotel_station_stay",
+                    hotel_name="Kyoto Station Stay",
+                    area="Central Kyoto Station",
+                    notes=["Area fit: connected hub"],
+                ),
+                HotelStayDetail(
+                    id="hotel_gion_house",
+                    hotel_name="Gion House Hotel",
+                    area="Gion",
+                    notes=["Area fit: food and evening walking"],
+                ),
+            ],
+            activities=[
+                ActivityDetail(
+                    id="activity_market",
+                    title="Nishiki Market tasting walk",
+                    category="catering.restaurant",
+                    location_label="Nishiki Market, Kyoto",
+                    time_label="Evening",
+                )
+            ]
+        ),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+        board_action={
+            "action_id": "action_market_essential",
+            "type": "set_activity_candidate_disposition",
+            "activity_candidate_id": "activity_market",
+            "activity_candidate_title": "Nishiki Market tasting walk",
+            "activity_candidate_disposition": "essential",
+        },
+    )
+
+    assert conversation.stay_planning.selection_status == "selected"
+    assert conversation.stay_planning.compatibility_status == "fit"
+    assert conversation.stay_planning.hotel_selection_status == "needs_review"
+    assert conversation.stay_planning.hotel_compatibility_status == "strained"
+    assert "Kyoto Station Stay" in conversation.stay_planning.hotel_compatibility_notes[0]
+    assert "Nishiki Market tasting walk" in conversation.stay_planning.hotel_compatibility_notes[0]
+    assert conversation.stay_planning.recommended_hotels[0].hotel_name != "Kyoto Station Stay"
+    assert conversation.stay_planning.recommended_hotels[0].recommended is True
+    assert "re-ranked around Nishiki Market tasting walk" in (
+        conversation.stay_planning.hotel_results_summary or ""
+    )
+
+
+def test_activity_workspace_keeps_stay_fit_when_signals_are_weak(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+
+    current = TripConversationState.model_validate(
+        {
+            "stay_planning": {
+                "selected_stay_option_id": "stay_quiet_local",
+                "selected_stay_direction": "Quieter local base",
+                "selection_status": "selected",
+                "compatibility_status": "fit",
+            }
+        }
+    )
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            travel_window="late March",
+            trip_length="5 nights",
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(
+            activities=[
+                ActivityDetail(
+                    id="activity_temple",
+                    title="Temple garden walk",
+                    category="tourism.sights",
+                    location_label="Higashiyama, Kyoto",
+                    time_label="Morning",
+                )
+            ]
+        ),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert conversation.stay_planning.selection_status == "selected"
+    assert conversation.stay_planning.compatibility_status == "fit"
+    assert conversation.stay_planning.compatibility_notes == []
+    assert conversation.activity_planning.completion_status == "in_progress"
+    assert conversation.activity_planning.completion_summary is None
+
+
+def test_board_keep_current_stay_choice_resolves_review_without_dropping_activity_plan(
+    monkeypatch,
+) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "venue_name": "Blue Note Kyoto",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Late jazz set in Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": datetime(2027, 3, 23, 20, 0, tzinfo=timezone.utc),
+                "end_at": datetime(2027, 3, 23, 22, 0, tzinfo=timezone.utc),
+            }
+        ],
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState.model_validate(
+            {
+                "stay_planning": {
+                    "recommended_stay_options": [
+                        {
+                            "id": "stay_quiet_local",
+                            "segment_id": "segment_primary",
+                            "strategy_type": "single_base",
+                            "title": "Quieter local base",
+                            "summary": "Choose a calmer local area so the trip starts and ends more gently.",
+                            "area_label": "Calmer residential pockets",
+                            "areas": [],
+                            "best_for": ["Relaxed pacing and easier mornings"],
+                            "tradeoffs": ["Daily travel can need more planning"],
+                            "recommended": True,
+                        }
+                    ],
+                    "selected_stay_option_id": "stay_quiet_local",
+                    "selected_stay_direction": "Quieter local base",
+                    "selection_status": "selected",
+                    "compatibility_status": "fit",
+                }
+            }
+        ),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            end_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            travel_window="late March",
+            trip_length="1 night",
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+        board_action={
+            "action_id": "action_keep_stay",
+            "type": "keep_current_stay_choice",
+        },
+    )
+
+    assert conversation.stay_planning.selection_status == "selected"
+    assert conversation.stay_planning.compatibility_status == "fit"
+    assert conversation.stay_planning.accepted_stay_review_signature is not None
+    assert conversation.stay_planning.accepted_stay_review_summary is not None
+    assert conversation.activity_planning.schedule_status == "ready"
+    assert conversation.activity_planning.timeline_blocks
+    assert conversation.activity_planning.completion_status == "completed"
+
+
+def test_chat_keep_current_hotel_choice_resolves_review(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [],
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState.model_validate(
+            {
+                "stay_planning": {
+                    "recommended_stay_options": [
+                        {
+                            "id": "stay_food_forward",
+                            "segment_id": "segment_primary",
+                            "strategy_type": "single_base",
+                            "title": "Food-forward neighbourhood base",
+                            "summary": "Choose a neighbourhood-led base built around food and evening walks.",
+                            "area_label": "Dining-led Kyoto pockets",
+                            "areas": [],
+                            "best_for": ["Food and evening structure"],
+                            "tradeoffs": ["Less purely practical than a station-led base"],
+                            "recommended": True,
+                        }
+                    ],
+                    "selected_stay_option_id": "stay_food_forward",
+                    "selected_stay_direction": "Food-forward neighbourhood base",
+                    "selection_status": "selected",
+                    "compatibility_status": "fit",
+                    "selected_hotel_id": "hotel_station_stay",
+                    "selected_hotel_name": "Kyoto Station Stay",
+                    "hotel_selection_status": "selected",
+                    "hotel_compatibility_status": "fit",
+                    "selected_hotel_card": {
+                        "id": "hotel_station_stay",
+                        "hotel_name": "Kyoto Station Stay",
+                        "area": "Central Kyoto Station",
+                        "summary": "A practical station hotel.",
+                        "why_it_fits": "Easy for transport-heavy movement.",
+                    },
+                }
+            }
+        ),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            travel_window="late March",
+            trip_length="5 nights",
+        ),
+        llm_update=TripTurnUpdate(
+            requested_activity_decisions=[
+                RequestedActivityDecision(
+                    candidate_title="Nishiki Market tasting walk",
+                    disposition="essential",
+                )
+            ],
+            requested_review_resolutions=[RequestedReviewResolution(scope="hotel")],
+        ),
+        module_outputs=TripModuleOutputs(
+            hotels=[
+                HotelStayDetail(
+                    id="hotel_station_stay",
+                    hotel_name="Kyoto Station Stay",
+                    area="Central Kyoto Station",
+                    notes=["Area fit: connected hub"],
+                ),
+                HotelStayDetail(
+                    id="hotel_gion_house",
+                    hotel_name="Gion House Hotel",
+                    area="Gion",
+                    notes=["Area fit: food and evening walking"],
+                ),
+            ],
+            activities=[
+                ActivityDetail(
+                    id="activity_market",
+                    title="Nishiki Market tasting walk",
+                    category="catering.restaurant",
+                    location_label="Nishiki Market, Kyoto",
+                    time_label="Evening",
+                )
+            ],
+        ),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="Keep the current hotel.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert conversation.stay_planning.hotel_selection_status == "selected"
+    assert conversation.stay_planning.hotel_compatibility_status == "fit"
+    assert conversation.stay_planning.accepted_hotel_review_signature is not None
+    assert conversation.activity_planning.timeline_blocks
+
+
+def test_chat_switch_to_named_stay_direction_can_clear_review(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "venue_name": "Blue Note Kyoto",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Late jazz set in Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": datetime(2027, 3, 23, 20, 0, tzinfo=timezone.utc),
+                "end_at": datetime(2027, 3, 23, 22, 0, tzinfo=timezone.utc),
+            }
+        ],
+    )
+
+    current = TripConversationState.model_validate(
+        {
+            "stay_planning": {
+                "recommended_stay_options": [
+                    {
+                        "id": "stay_quiet_local",
+                        "segment_id": "segment_primary",
+                        "strategy_type": "single_base",
+                        "title": "Quieter local base",
+                        "summary": "Choose a calmer local area so the trip starts and ends more gently.",
+                        "area_label": "Calmer residential pockets",
+                        "areas": [],
+                        "best_for": ["Relaxed pacing and easier mornings"],
+                        "tradeoffs": ["Daily travel can need more planning"],
+                        "recommended": False,
+                    },
+                    {
+                        "id": "stay_food_forward",
+                        "segment_id": "segment_primary",
+                        "strategy_type": "single_base",
+                        "title": "Food-forward neighbourhood base",
+                        "summary": "Choose a neighbourhood-led base built around food and evening walks.",
+                        "area_label": "Dining-led Kyoto pockets",
+                        "areas": [],
+                        "best_for": ["Food and evening structure"],
+                        "tradeoffs": ["Less purely practical than a station-led base"],
+                        "recommended": True,
+                    },
+                ],
+                "selected_stay_option_id": "stay_quiet_local",
+                "selected_stay_direction": "Quieter local base",
+                "selection_status": "selected",
+                "compatibility_status": "fit",
+            }
+        }
+    )
+
+    conversation = build_conversation_state(
+        current=current,
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            end_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            travel_window="late March",
+            trip_length="1 night",
+        ),
+        llm_update=TripTurnUpdate(
+            requested_stay_option_title="Food-forward neighbourhood base"
+        ),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="Switch to Food-forward neighbourhood base.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert conversation.stay_planning.selected_stay_option_id == "stay_food_forward"
+    assert conversation.stay_planning.selection_status == "selected"
+    assert conversation.stay_planning.compatibility_status == "fit"
+    assert conversation.activity_planning.schedule_status == "ready"
+
+
+def test_accepted_stay_review_does_not_reopen_until_evidence_changes(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "venue_name": "Blue Note Kyoto",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Late jazz set in Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "start_at": datetime(2027, 3, 23, 20, 0, tzinfo=timezone.utc),
+                "end_at": datetime(2027, 3, 23, 22, 0, tzinfo=timezone.utc),
+            }
+        ],
+    )
+
+    accepted = build_conversation_state(
+        current=TripConversationState.model_validate(
+            {
+                "stay_planning": {
+                    "recommended_stay_options": [
+                        {
+                            "id": "stay_quiet_local",
+                            "segment_id": "segment_primary",
+                            "strategy_type": "single_base",
+                            "title": "Quieter local base",
+                            "summary": "Choose a calmer local area so the trip starts and ends more gently.",
+                            "area_label": "Calmer residential pockets",
+                            "areas": [],
+                            "best_for": ["Relaxed pacing and easier mornings"],
+                            "tradeoffs": ["Daily travel can need more planning"],
+                            "recommended": True,
+                        }
+                    ],
+                    "selected_stay_option_id": "stay_quiet_local",
+                    "selected_stay_direction": "Quieter local base",
+                    "selection_status": "selected",
+                    "compatibility_status": "fit",
+                }
+            }
+        ),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            end_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            travel_window="late March",
+            trip_length="1 night",
+        ),
+        llm_update=TripTurnUpdate(
+            requested_review_resolutions=[RequestedReviewResolution(scope="stay")]
+        ),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="Keep this base anyway.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    unchanged = build_conversation_state(
+        current=accepted,
+        previous_configuration=TripConfiguration(
+            to_location="Kyoto",
+            start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            end_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            travel_window="late March",
+            trip_length="1 night",
+        ),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            end_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            travel_window="late March",
+            trip_length="1 night",
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_2",
+        user_message="Keep going.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert unchanged.stay_planning.selection_status == "selected"
+    assert unchanged.stay_planning.compatibility_status == "fit"
+
+    reopened = build_conversation_state(
+        current=accepted,
+        previous_configuration=TripConfiguration(
+            to_location="Kyoto",
+            start_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            end_date=datetime(2027, 3, 23, tzinfo=timezone.utc).date(),
+            travel_window="late March",
+            trip_length="1 night",
+        ),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            travel_window="late March",
+            trip_length="5 nights",
+            activity_styles=["nightlife"],
+            custom_style="late-night bars and food alleys",
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(
+            activities=[
+                ActivityDetail(id="activity_1", title="Late izakaya crawl"),
+                ActivityDetail(id="activity_2", title="Cocktail bar hop"),
+                ActivityDetail(id="activity_3", title="Night market tasting route"),
+                ActivityDetail(id="activity_4", title="Evening jazz set"),
+                ActivityDetail(id="activity_5", title="After-dark food alley walk"),
+            ]
+        ),
+        assistant_response="",
+        turn_id="turn_3",
+        user_message="Now make it more nightlife-heavy.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert reopened.stay_planning.selection_status == "needs_review"
+    assert reopened.stay_planning.compatibility_status == "conflicted"
+    assert reopened.stay_planning.accepted_stay_review_summary is not None
+
+
+def test_event_candidate_can_lead_the_ranked_workspace(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        conversation_state,
+        "enrich_events_from_ticketmaster",
+        lambda configuration: [
+            {
+                "id": "ticketmaster_kyoto_jazz",
+                "kind": "event",
+                "title": "Kyoto Jazz Night",
+                "venue_name": "Blue Note Kyoto",
+                "location_label": "Blue Note Kyoto, Kyoto",
+                "summary": "Music | Jazz | Blue Note Kyoto, Kyoto",
+                "source_label": "Ticketmaster",
+                "source_url": "https://example.com/jazz",
+                "status_text": "On Sale",
+                "price_text": "GBP 35-85",
+                "start_at": datetime(2027, 3, 24, 19, 30, tzinfo=timezone.utc),
+                "end_at": datetime(2027, 3, 24, 22, 0, tzinfo=timezone.utc),
+            }
+        ],
+    )
+
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Kyoto",
+            start_date=datetime(2027, 3, 22, tzinfo=timezone.utc).date(),
+            end_date=datetime(2027, 3, 27, tzinfo=timezone.utc).date(),
+            activity_styles=["nightlife", "culture"],
+            custom_style="live jazz and late dinners",
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(
+            activities=[
+                {
+                    "id": "activity_walk",
+                    "title": "Temple walk",
+                    "category": "tourism.sights",
+                    "notes": ["Higashiyama, Kyoto"],
+                }
+            ]
+        ),
+        assistant_response="",
+        turn_id="turn_1",
+        user_message="",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="anchor_flow",
+        advanced_anchor="activities",
+    )
+
+    assert conversation.activity_planning.visible_candidates[0].kind == "event"
+    assert "Event-led around Kyoto Jazz Night" in (
+        conversation.activity_planning.workspace_summary or ""
+    )
+    assert conversation.activity_planning.completion_status == "in_progress"
+    assert conversation.activity_planning.completion_summary is None

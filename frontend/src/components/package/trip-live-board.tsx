@@ -9,6 +9,7 @@ import {
   Clock,
   CloudSun,
   Compass,
+  ExternalLink,
   MapPin,
   MapPinned,
   Plane,
@@ -29,7 +30,6 @@ import {
   DialogTrigger,
 } from "@/components/animate-ui/components/radix/dialog";
 import {
-  ActivityFeature,
   FlightCard,
   HotelSummary,
   WeatherCard,
@@ -37,6 +37,7 @@ import {
 } from "@/components/package/trip-board-cards";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
+import type { AdvancedActivityCandidateCard } from "@/types/trip-conversation";
 import type { TimelineItem } from "@/types/trip-draft";
 
 type TripLiveBoardProps = {
@@ -60,7 +61,27 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
     ) ??
     moduleOutputs.hotels[0] ??
     null;
-  const leadActivity = moduleOutputs.activities[0] ?? null;
+  const activityPlanning = conversation.activity_planning ?? {
+    visible_candidates: [],
+    schedule_summary: null,
+    workspace_summary: null,
+  };
+  const tripStylePlanning = conversation.trip_style_planning ?? null;
+  const tripStyleSummary =
+    tripStylePlanning?.selection_status === "completed"
+      ? tripStylePlanning.completion_summary ||
+        tripStylePlanning.workspace_summary ||
+        null
+      : null;
+  const leadActivityCandidate =
+    activityPlanning.visible_candidates.find(
+      (candidate) => candidate.disposition === "essential",
+    ) ??
+    activityPlanning.visible_candidates.find(
+      (candidate) => candidate.kind === "event" && Boolean(candidate.start_at),
+    ) ??
+    activityPlanning.visible_candidates[0] ??
+    null;
   const weather = moduleOutputs.weather.slice(0, 3);
   const timelineSections = useMemo(
     () => buildTimelineSections(tripDraft.timeline),
@@ -164,15 +185,16 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
                 icon={MapPinned}
                 title="Highlights"
                 subtitle={
-                  leadActivity
-                    ? "Current standout recommendation"
+                  leadActivityCandidate
+                    ? activityPlanning.schedule_summary || "Current standout recommendation"
                     : "Destination highlights still forming"
                 }
               >
-                {leadActivity ? (
-                  <ActivityFeature
-                    activity={leadActivity}
-                    destination={configuration.to_location}
+                {leadActivityCandidate ? (
+                  <LiveBoardActivityHighlight
+                    candidate={leadActivityCandidate}
+                    workspaceSummary={activityPlanning.workspace_summary}
+                    tripStyleSummary={tripStyleSummary}
                   />
                 ) : (
                   <EmptyPanel message="Local highlights will appear here as soon as activities are strong enough to elevate." />
@@ -544,10 +566,23 @@ function TimelineEventRow({
           </span>
         </div>
 
+        {item.type === "event" && item.image_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.image_url}
+            alt={item.title}
+            className="mt-3 h-24 w-full max-w-[13rem] rounded-lg object-cover"
+          />
+        ) : null}
+
         {item.location_label ? (
           <div className="mt-1.5 flex items-center gap-1 text-xs text-foreground/50">
             <MapPin className="h-3 w-3 shrink-0" />
-            <span className="truncate">{item.location_label}</span>
+            <span className="truncate">
+              {item.venue_name && item.type === "event"
+                ? `${item.venue_name} · ${item.location_label}`
+                : item.location_label}
+            </span>
           </div>
         ) : null}
 
@@ -555,6 +590,21 @@ function TimelineEventRow({
           <p className="mt-1.5 text-xs leading-relaxed text-foreground/55">
             {item.details[0]}
           </p>
+        ) : null}
+
+        {(item.status_text || item.price_text || item.availability_text) ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {[item.status_text, item.price_text, item.availability_text]
+              .filter(Boolean)
+              .map((detail) => (
+                <span
+                  key={detail}
+                  className="rounded-full bg-[color:var(--planner-board-soft)] px-2 py-0.5 text-[10px] font-medium text-foreground/60"
+                >
+                  {detail}
+                </span>
+              ))}
+          </div>
         ) : null}
 
         {item.details.length > 1 ? (
@@ -569,6 +619,18 @@ function TimelineEventRow({
               </li>
             ))}
           </ul>
+        ) : null}
+
+        {item.type === "event" && item.source_url ? (
+          <a
+            href={item.source_url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[color:var(--accent)] hover:underline"
+          >
+            {item.source_label ? `View on ${item.source_label}` : "View event"}
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
         ) : null}
       </div>
     </div>
@@ -604,6 +666,80 @@ function EmptyPanel({ message }: { message: string }) {
   return (
     <div className="rounded-xl bg-background px-5 py-4 text-sm leading-relaxed text-foreground/66">
       {message}
+    </div>
+  );
+}
+
+function LiveBoardActivityHighlight({
+  candidate,
+  workspaceSummary,
+  tripStyleSummary,
+}: {
+  candidate: AdvancedActivityCandidateCard;
+  workspaceSummary?: string | null;
+  tripStyleSummary?: string | null;
+}) {
+  const placementLabel = candidate.start_at
+    ? new Date(candidate.start_at).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : candidate.time_label || "Flexible timing";
+
+  return (
+    <div className="overflow-hidden rounded-xl bg-background">
+      <div className="border-b border-shell-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent)_16%,white),color-mix(in_srgb,var(--accent2)_10%,white))] px-4 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-lg font-semibold text-foreground">{candidate.title}</p>
+            <p className="mt-1 text-sm text-foreground/58">
+              {[candidate.kind === "event" ? "Timed moment" : "Planned stop", placementLabel]
+                .filter(Boolean)
+                .join(" • ")}
+            </p>
+          </div>
+          <span className="rounded-md border border-shell-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground/62">
+            {candidate.disposition === "essential" ? "Leading pick" : "In the mix"}
+          </span>
+        </div>
+      </div>
+      <div className="grid gap-3 px-4 py-4">
+        {candidate.location_label ? (
+          <div className="flex items-center gap-2 text-sm text-foreground/58">
+            <MapPin className="h-4 w-4 shrink-0 text-[color:var(--accent)]" />
+            <span>{candidate.location_label}</span>
+          </div>
+        ) : null}
+        {candidate.summary ? (
+          <p className="text-sm leading-7 text-foreground/66">{candidate.summary}</p>
+        ) : null}
+        {workspaceSummary ? (
+          <p className="rounded-lg border border-shell-border/70 bg-panel px-3 py-3 text-sm leading-6 text-foreground/60">
+            {workspaceSummary}
+          </p>
+        ) : null}
+        {tripStyleSummary ? (
+          <p className="rounded-lg border border-shell-border/70 bg-panel px-3 py-3 text-sm leading-6 text-foreground/60">
+            {tripStyleSummary}
+          </p>
+        ) : null}
+        {(candidate.price_text || candidate.availability_text || candidate.status_text) ? (
+          <div className="flex flex-wrap gap-2">
+            {[candidate.status_text, candidate.price_text, candidate.availability_text]
+              .filter(Boolean)
+              .map((detail) => (
+                <span
+                  key={detail}
+                  className="rounded-full bg-[color:var(--planner-board-soft)] px-2 py-0.5 text-[10px] font-medium text-foreground/60"
+                >
+                  {detail}
+                </span>
+              ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

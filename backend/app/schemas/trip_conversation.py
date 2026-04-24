@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field
 from app.schemas.trip_planning import ActivityStyle, BudgetPosture, TripModuleSelection
 
 
+calendar_date = date
+
+
 ChatPlannerPhase = Literal[
     "opening",
     "collecting_requirements",
@@ -34,6 +37,30 @@ PlannerAdvancedAnchor = Literal["flight", "stay", "trip_style", "activities"]
 PlannerStaySelectionStatus = Literal["none", "selected", "needs_review"]
 PlannerStayCompatibilityStatus = Literal["fit", "strained", "conflicted"]
 PlannerStayStrategyType = Literal["single_base", "split_stay"]
+PlannerActivityCandidateKind = Literal["activity", "event"]
+PlannerActivityDisposition = Literal["essential", "maybe", "pass"]
+PlannerActivityDaypart = Literal["morning", "afternoon", "evening"]
+PlannerReviewResolutionScope = Literal["stay", "hotel"]
+PlannerActivityScheduleStatus = Literal["none", "ready"]
+PlannerActivityCompletionStatus = Literal["in_progress", "completed"]
+PlannerActivityTimelineBlockType = Literal["activity", "event", "transfer"]
+PlannerTripStyleSelectionStatus = Literal["none", "selected", "review", "completed"]
+PlannerTripStyleSubstep = Literal["direction", "pace", "completed"]
+PlannerTripPace = Literal["slow", "balanced", "full"]
+PlannerTripDirectionPrimary = Literal[
+    "food_led",
+    "culture_led",
+    "nightlife_led",
+    "outdoors_led",
+    "balanced",
+]
+PlannerTripDirectionAccent = Literal[
+    "local",
+    "classic",
+    "polished",
+    "romantic",
+    "relaxed",
+]
 PlannerHotelStyleTag = Literal[
     "calm",
     "central",
@@ -77,6 +104,9 @@ TripSuggestionBoardMode = Literal[
     "advanced_date_resolution",
     "advanced_anchor_choice",
     "advanced_next_step",
+    "advanced_trip_style_direction",
+    "advanced_trip_style_pace",
+    "advanced_activities_workspace",
     "advanced_stay_choice",
     "advanced_stay_selected",
     "advanced_stay_review",
@@ -278,6 +308,134 @@ class AdvancedStayHotelFilters(BaseModel):
     style_filter: PlannerHotelStyleTag | None = None
 
 
+class AdvancedActivityCandidateCard(BaseModel):
+    id: str = Field(..., min_length=1, max_length=160)
+    kind: PlannerActivityCandidateKind = "activity"
+    title: str = Field(..., min_length=1, max_length=160)
+    latitude: float | None = None
+    longitude: float | None = None
+    venue_name: str | None = Field(default=None, max_length=160)
+    location_label: str | None = Field(default=None, max_length=200)
+    summary: str | None = Field(default=None, max_length=320)
+    source_label: str | None = Field(default=None, max_length=80)
+    source_url: str | None = Field(default=None, max_length=1000)
+    image_url: str | None = Field(default=None, max_length=1000)
+    availability_text: str | None = Field(default=None, max_length=120)
+    price_text: str | None = Field(default=None, max_length=120)
+    status_text: str | None = Field(default=None, max_length=120)
+    estimated_duration_minutes: int | None = Field(default=None, ge=15, le=480)
+    time_label: str | None = Field(default=None, max_length=40)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    recommended: bool = False
+    disposition: PlannerActivityDisposition = "maybe"
+    ranking_reasons: list[str] = Field(default_factory=list, max_length=4)
+
+
+class AdvancedActivityPlacementPreference(BaseModel):
+    candidate_id: str = Field(..., min_length=1, max_length=160)
+    day_index: int | None = Field(default=None, ge=1, le=30)
+    daypart: PlannerActivityDaypart | None = None
+    reserved: bool = False
+
+
+class AdvancedActivityTimelineBlock(BaseModel):
+    id: str = Field(..., min_length=1, max_length=160)
+    type: PlannerActivityTimelineBlockType
+    candidate_id: str | None = Field(default=None, max_length=160)
+    title: str = Field(..., min_length=1, max_length=160)
+    day_index: int = Field(..., ge=1, le=30)
+    day_label: str = Field(..., min_length=1, max_length=40)
+    daypart: PlannerActivityDaypart | None = None
+    venue_name: str | None = Field(default=None, max_length=160)
+    location_label: str | None = Field(default=None, max_length=240)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    summary: str | None = Field(default=None, max_length=320)
+    details: list[str] = Field(default_factory=list, max_length=6)
+    source_label: str | None = Field(default=None, max_length=80)
+    source_url: str | None = Field(default=None, max_length=1000)
+    image_url: str | None = Field(default=None, max_length=1000)
+    availability_text: str | None = Field(default=None, max_length=120)
+    price_text: str | None = Field(default=None, max_length=120)
+    status_text: str | None = Field(default=None, max_length=120)
+    fixed_time: bool = False
+    manual_override: bool = False
+
+
+class AdvancedActivityDayPlan(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    day_index: int = Field(..., ge=1, le=30)
+    day_label: str = Field(..., min_length=1, max_length=40)
+    date: calendar_date | None = None
+    blocks: list[AdvancedActivityTimelineBlock] = Field(default_factory=list, max_length=12)
+
+
+class AdvancedActivityPlanningState(BaseModel):
+    recommended_candidates: list[AdvancedActivityCandidateCard] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    visible_candidates: list[AdvancedActivityCandidateCard] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    placement_preferences: list[AdvancedActivityPlacementPreference] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    essential_ids: list[str] = Field(default_factory=list, max_length=20)
+    maybe_ids: list[str] = Field(default_factory=list, max_length=20)
+    passed_ids: list[str] = Field(default_factory=list, max_length=20)
+    selected_event_ids: list[str] = Field(default_factory=list, max_length=20)
+    reserved_candidate_ids: list[str] = Field(default_factory=list, max_length=20)
+    workspace_summary: str | None = Field(default=None, max_length=240)
+    day_plans: list[AdvancedActivityDayPlan] = Field(default_factory=list, max_length=30)
+    timeline_blocks: list[AdvancedActivityTimelineBlock] = Field(
+        default_factory=list,
+        max_length=120,
+    )
+    unscheduled_candidate_ids: list[str] = Field(default_factory=list, max_length=20)
+    schedule_summary: str | None = Field(default=None, max_length=240)
+    schedule_notes: list[str] = Field(default_factory=list, max_length=4)
+    schedule_status: PlannerActivityScheduleStatus = "none"
+    workspace_touched: bool = False
+    completion_status: PlannerActivityCompletionStatus = "in_progress"
+    completion_summary: str | None = Field(default=None, max_length=240)
+    completion_anchor_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class TripStylePlanningState(BaseModel):
+    substep: PlannerTripStyleSubstep = "direction"
+    recommended_primary_directions: list[PlannerTripDirectionPrimary] = Field(
+        default_factory=list,
+        max_length=5,
+    )
+    recommended_accents: list[PlannerTripDirectionAccent] = Field(
+        default_factory=list,
+        max_length=5,
+    )
+    selected_primary_direction: PlannerTripDirectionPrimary | None = None
+    selected_accent: PlannerTripDirectionAccent | None = None
+    selection_status: PlannerTripStyleSelectionStatus = "none"
+    workspace_summary: str | None = Field(default=None, max_length=240)
+    selection_rationale: str | None = Field(default=None, max_length=320)
+    downstream_influence_summary: str | None = Field(default=None, max_length=240)
+    recommended_paces: list[PlannerTripPace] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    selected_pace: PlannerTripPace | None = None
+    pace_status: PlannerTripStyleSelectionStatus = "none"
+    pace_rationale: str | None = Field(default=None, max_length=320)
+    pace_downstream_influence_summary: str | None = Field(
+        default=None,
+        max_length=240,
+    )
+    workspace_touched: bool = False
+    completion_summary: str | None = Field(default=None, max_length=240)
+
+
 class AdvancedStayPlanningState(BaseModel):
     active_segment_id: str | None = Field(default=None, max_length=80)
     segments: list[AdvancedStayPlanningSegment] = Field(default_factory=list)
@@ -320,6 +478,10 @@ class AdvancedStayPlanningState(BaseModel):
         max_length=10,
     )
     selected_hotel_card: AdvancedStayHotelOptionCard | None = None
+    accepted_stay_review_signature: str | None = Field(default=None, max_length=400)
+    accepted_stay_review_summary: str | None = Field(default=None, max_length=240)
+    accepted_hotel_review_signature: str | None = Field(default=None, max_length=400)
+    accepted_hotel_review_summary: str | None = Field(default=None, max_length=240)
 
 
 class TripSuggestionBoardState(BaseModel):
@@ -350,6 +512,57 @@ class TripSuggestionBoardState(BaseModel):
     )
     stay_cards: list[AdvancedStayOptionCard] = Field(default_factory=list, max_length=4)
     hotel_cards: list[AdvancedStayHotelOptionCard] = Field(default_factory=list, max_length=8)
+    activity_candidates: list[AdvancedActivityCandidateCard] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    essential_ids: list[str] = Field(default_factory=list, max_length=20)
+    maybe_ids: list[str] = Field(default_factory=list, max_length=20)
+    passed_ids: list[str] = Field(default_factory=list, max_length=20)
+    selected_event_ids: list[str] = Field(default_factory=list, max_length=20)
+    reserved_candidate_ids: list[str] = Field(default_factory=list, max_length=20)
+    activity_workspace_summary: str | None = Field(default=None, max_length=240)
+    trip_style_recommended_primaries: list[PlannerTripDirectionPrimary] = Field(
+        default_factory=list,
+        max_length=5,
+    )
+    trip_style_recommended_accents: list[PlannerTripDirectionAccent] = Field(
+        default_factory=list,
+        max_length=5,
+    )
+    selected_trip_style_primary: PlannerTripDirectionPrimary | None = None
+    selected_trip_style_accent: PlannerTripDirectionAccent | None = None
+    trip_style_selection_status: PlannerTripStyleSelectionStatus | None = None
+    trip_style_substep: PlannerTripStyleSubstep | None = None
+    trip_style_workspace_summary: str | None = Field(default=None, max_length=240)
+    trip_style_selection_rationale: str | None = Field(default=None, max_length=320)
+    trip_style_downstream_influence_summary: str | None = Field(
+        default=None,
+        max_length=240,
+    )
+    trip_style_recommended_paces: list[PlannerTripPace] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    selected_trip_style_pace: PlannerTripPace | None = None
+    trip_style_pace_status: PlannerTripStyleSelectionStatus | None = None
+    trip_style_pace_rationale: str | None = Field(default=None, max_length=320)
+    trip_style_pace_downstream_influence_summary: str | None = Field(
+        default=None,
+        max_length=240,
+    )
+    trip_style_completion_summary: str | None = Field(default=None, max_length=240)
+    activity_day_plans: list[AdvancedActivityDayPlan] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+    unscheduled_activity_candidate_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    activity_schedule_summary: str | None = Field(default=None, max_length=240)
+    activity_schedule_notes: list[str] = Field(default_factory=list, max_length=4)
+    activity_schedule_status: PlannerActivityScheduleStatus = "none"
     selected_stay_option_id: str | None = Field(default=None, max_length=80)
     stay_selection_status: PlannerStaySelectionStatus | None = None
     stay_selection_rationale: str | None = Field(default=None, max_length=320)
@@ -465,6 +678,12 @@ class TripConversationState(BaseModel):
     active_goals: list[str] = Field(default_factory=list)
     advanced_date_resolution: AdvancedDateResolutionState = Field(
         default_factory=AdvancedDateResolutionState
+    )
+    trip_style_planning: TripStylePlanningState = Field(
+        default_factory=TripStylePlanningState
+    )
+    activity_planning: AdvancedActivityPlanningState = Field(
+        default_factory=AdvancedActivityPlanningState
     )
     stay_planning: AdvancedStayPlanningState = Field(
         default_factory=AdvancedStayPlanningState

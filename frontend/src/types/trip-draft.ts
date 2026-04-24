@@ -26,6 +26,7 @@ export type TimelineItemType =
   | "transfer"
   | "hotel"
   | "activity"
+  | "event"
   | "meal"
   | "weather"
   | "note";
@@ -108,6 +109,19 @@ export type ActivityDetail = {
   id: string;
   title: string;
   category: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  venue_name?: string | null;
+  location_label?: string | null;
+  source_label?: string | null;
+  source_url?: string | null;
+  image_url?: string | null;
+  availability_text?: string | null;
+  price_text?: string | null;
+  status_text?: string | null;
+  estimated_duration_minutes?: number | null;
+  start_at?: string | null;
+  end_at?: string | null;
   day_label: string | null;
   time_label: string | null;
   notes: string[];
@@ -127,9 +141,16 @@ export type TimelineItem = {
   day_label: string | null;
   start_at: string | null;
   end_at: string | null;
+  venue_name?: string | null;
   location_label: string | null;
   summary: string | null;
   details: string[];
+  source_label?: string | null;
+  source_url?: string | null;
+  image_url?: string | null;
+  availability_text?: string | null;
+  price_text?: string | null;
+  status_text?: string | null;
   source_module: PlanningModuleKey | null;
   status: TimelineItemStatus;
 };
