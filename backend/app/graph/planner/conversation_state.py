@@ -40,6 +40,8 @@ from app.schemas.trip_conversation import (
     PlannerDecisionSource,
     PlannerDecisionStatus,
     PlannerConflictRecord,
+    PlannerConflictResolutionOption,
+    PlannerConflictSafeEdit,
     AdvancedActivityCandidateCard,
     AdvancedActivityDayPlan,
     AdvancedActivityPlacementPreference,
@@ -280,6 +282,12 @@ def build_conversation_state(
         current=conversation.activity_planning,
         stay_planning=conversation.stay_planning,
     )
+    conversation = _apply_planner_conflict_board_action(
+        conversation=conversation,
+        configuration=next_configuration,
+        module_outputs=module_outputs,
+        board_action=board_action or {},
+    )
     if record_memory:
         conversation.memory = merge_conversation_memory(
             current=current.memory,
@@ -314,6 +322,9 @@ def build_conversation_state(
         configuration=next_configuration,
         conversation=conversation,
         provider_activation=provider_activation,
+        previous_conflicts=current.planner_conflicts,
+        board_action=board_action or {},
+        now=now,
     )
     conversation.advanced_review_planning = merge_advanced_review_planning_state(
         configuration=next_configuration,
@@ -1038,6 +1049,14 @@ def _build_advanced_decision_memory_records(
             )
         )
 
+    conflict_resolution_record = _build_conflict_resolution_memory_record(
+        conversation=conversation,
+        action=action,
+        now=now,
+    )
+    if conflict_resolution_record is not None:
+        records.append(conflict_resolution_record)
+
     return records
 
 
@@ -1057,6 +1076,88 @@ def _upsert_decision_memory_record(
     if not replaced:
         merged.append(record)
     return merged[-24:]
+
+
+def _build_conflict_resolution_memory_record(
+    *,
+    conversation: TripConversationState,
+    action: ConversationBoardAction | None,
+    now: datetime,
+) -> PlannerDecisionMemoryRecord | None:
+    resolved_conflicts = [
+        conflict
+        for conflict in conversation.planner_conflicts
+        if conflict.status in {"resolved", "deferred"}
+    ]
+    if not resolved_conflicts:
+        return None
+    latest_conflict = next(
+        (
+            conflict
+            for conflict in resolved_conflicts
+            if action
+            and action.planner_conflict_id
+            and conflict.id == action.planner_conflict_id
+        ),
+        resolved_conflicts[0],
+    )
+    source: PlannerDecisionSource = (
+        "board_action"
+        if action
+        and action.type
+        in {
+            "resolve_planner_conflict",
+            "defer_planner_conflict",
+            "apply_planner_conflict_safe_edit",
+        }
+        else "system"
+    )
+    return PlannerDecisionMemoryRecord(
+        key="conflict_resolution",
+        value_summary=_conflict_resolution_memory_summary(latest_conflict),
+        source=source,
+        confidence="high" if latest_conflict.status == "resolved" else "medium",
+        status="confirmed" if latest_conflict.status == "resolved" else "working",
+        rationale=_conflict_resolution_memory_rationale(latest_conflict),
+        related_anchor=_conflict_revision_anchor(latest_conflict),
+        updated_at=now,
+    )
+
+
+def _conflict_resolution_memory_summary(conflict: PlannerConflictRecord) -> str:
+    action_label = {
+        "safe_edit": "Resolved by safe edit",
+        "resolve": "Accepted as tradeoff",
+        "defer": "Deferred as caution",
+        "review_section": "Sent to review",
+        None: "Conflict handled",
+    }.get(conflict.resolution_action, "Conflict handled")
+    summary = conflict.resolution_summary or conflict.summary
+    return f"{action_label}: {summary}"[:240]
+
+
+def _conflict_resolution_memory_rationale(conflict: PlannerConflictRecord) -> str:
+    if conflict.status == "deferred":
+        return (
+            "This tension should stay visible as a brochure caution unless the underlying evidence changes."
+        )
+    if conflict.resolution_action == "resolve":
+        return (
+            "The traveler accepted this tradeoff, so Wandrix should not keep pushing the same repair unless the evidence changes."
+        )
+    if conflict.resolution_action == "safe_edit":
+        return (
+            "A bounded planner edit was applied, so future advice should acknowledge that repair before suggesting another one."
+        )
+    return "The conflict resolution choice is part of the current planning context."
+
+
+def _conflict_revision_anchor(
+    conflict: PlannerConflictRecord,
+) -> PlannerAdvancedAnchor | None:
+    if conflict.revision_target in {"flight", "stay", "trip_style", "activities"}:
+        return conflict.revision_target
+    return None
 
 
 def _merge_decision_memory_record(
@@ -2679,6 +2780,9 @@ def build_planner_conflicts(
     configuration: TripConfiguration,
     conversation: TripConversationState,
     provider_activation: dict | None = None,
+    previous_conflicts: list[PlannerConflictRecord] | None = None,
+    board_action: dict | None = None,
+    now: datetime | None = None,
 ) -> list[PlannerConflictRecord]:
     conflicts: list[PlannerConflictRecord] = []
     conflicts.extend(
@@ -2711,8 +2815,525 @@ def build_planner_conflicts(
 
     deduped: dict[str, PlannerConflictRecord] = {}
     for conflict in conflicts:
-        deduped.setdefault(conflict.id, conflict)
-    return list(deduped.values())[:8]
+        deduped.setdefault(conflict.id, _prepare_planner_conflict(conflict))
+    return _merge_planner_conflict_resolution_state(
+        detected_conflicts=list(deduped.values())[:8],
+        previous_conflicts=previous_conflicts or [],
+        decision_memory=conversation.memory.decision_memory,
+        board_action=board_action or {},
+        now=now,
+    )[:8]
+
+
+def _apply_planner_conflict_board_action(
+    *,
+    conversation: TripConversationState,
+    configuration: TripConfiguration,
+    module_outputs: TripModuleOutputs,
+    board_action: dict,
+) -> TripConversationState:
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    if action is None or action.type != "apply_planner_conflict_safe_edit":
+        return conversation
+    safe_edit = action.planner_conflict_safe_edit or _safe_edit_for_conflict_action(
+        action=action,
+        conflicts=conversation.planner_conflicts,
+    )
+    if safe_edit is None:
+        return conversation
+    if safe_edit == "reserve_maybe_activity_extras":
+        conversation.activity_planning = _apply_activity_conflict_safe_edit(
+            activity_planning=conversation.activity_planning,
+            conflict_id=action.planner_conflict_id,
+        )
+    elif safe_edit == "keep_indoor_backup_notes":
+        conversation.activity_planning.schedule_notes = _prepend_unique_limited(
+            conversation.activity_planning.schedule_notes,
+            "Weather tension resolved by keeping covered or indoor backups visible instead of reshuffling fixed plans.",
+            limit=4,
+        )
+    elif safe_edit == "keep_flights_open":
+        conversation.flight_planning.selection_status = "kept_open"
+        conversation.flight_planning.workspace_touched = True
+        conversation.flight_planning.completion_summary = (
+            "Flights are intentionally flexible; the current plan keeps timing cautions visible."
+        )
+        conversation.flight_planning.selection_summary = (
+            conversation.flight_planning.selection_summary
+            or "Flights are being kept open as a planning choice."
+        )
+    elif safe_edit == "mark_stay_for_review":
+        conversation.stay_planning.selection_status = "needs_review"
+        if conversation.stay_planning.selected_hotel_id:
+            conversation.stay_planning.hotel_selection_status = "needs_review"
+        note = "Stay is marked for review as an accepted planning tradeoff; no hotel was changed automatically."
+        conversation.stay_planning.compatibility_notes = _prepend_unique_limited(
+            conversation.stay_planning.compatibility_notes,
+            note,
+            limit=4,
+        )
+    elif safe_edit == "defer_as_caution":
+        conversation.advanced_review_planning.review_notes = _prepend_unique_limited(
+            conversation.advanced_review_planning.review_notes,
+            "This planning tension is being carried forward as an intentional caution.",
+            limit=6,
+        )
+    return conversation
+
+
+def _safe_edit_for_conflict_action(
+    *,
+    action: ConversationBoardAction,
+    conflicts: list[PlannerConflictRecord],
+) -> PlannerConflictSafeEdit | None:
+    conflict = next(
+        (item for item in conflicts if item.id == action.planner_conflict_id),
+        None,
+    )
+    if conflict is None:
+        return None
+    option = next(
+        (
+            item
+            for item in conflict.resolution_options
+            if item.action == "safe_edit" and item.safe_edit is not None
+        ),
+        None,
+    )
+    return option.safe_edit if option else None
+
+
+def _apply_activity_conflict_safe_edit(
+    *,
+    activity_planning: AdvancedActivityPlanningState,
+    conflict_id: str | None,
+) -> AdvancedActivityPlanningState:
+    maybe_ids = set(activity_planning.maybe_ids)
+    essential_ids = set(activity_planning.essential_ids)
+    blocked_ids = set(activity_planning.selected_event_ids) | essential_ids
+    target_day_index: int | None = None
+    if conflict_id == "conflict_late_arrival_heavy_day_one":
+        target_day_index = 1
+    elif conflict_id == "conflict_early_departure_heavy_final_day":
+        last_day = _last_day_plan(activity_planning)
+        target_day_index = last_day.day_index if last_day else None
+
+    candidate_ids_to_reserve: list[str] = []
+    for block in activity_planning.timeline_blocks:
+        if block.type != "activity" or not block.candidate_id:
+            continue
+        if target_day_index is not None and block.day_index != target_day_index:
+            continue
+        if block.fixed_time or block.manual_override:
+            continue
+        if block.candidate_id not in maybe_ids or block.candidate_id in blocked_ids:
+            continue
+        if block.candidate_id not in candidate_ids_to_reserve:
+            candidate_ids_to_reserve.append(block.candidate_id)
+    if not candidate_ids_to_reserve:
+        candidate_ids_to_reserve = [
+            candidate_id
+            for candidate_id in activity_planning.maybe_ids
+            if candidate_id not in blocked_ids
+        ][:2]
+    if not candidate_ids_to_reserve:
+        activity_planning.schedule_notes = _prepend_unique_limited(
+            activity_planning.schedule_notes,
+            "No lower-priority flexible items were safe to reserve automatically, so the tension stays visible for review.",
+            limit=4,
+        )
+        return activity_planning
+
+    reserve_set = set(candidate_ids_to_reserve[:4])
+    activity_planning.reserved_candidate_ids = list(
+        dict.fromkeys([*activity_planning.reserved_candidate_ids, *reserve_set])
+    )[:20]
+    preferences = {
+        preference.candidate_id: preference
+        for preference in activity_planning.placement_preferences
+    }
+    for candidate_id in reserve_set:
+        preference = preferences.get(candidate_id) or AdvancedActivityPlacementPreference(
+            candidate_id=candidate_id
+        )
+        preference.day_index = None
+        preference.daypart = None
+        preference.reserved = True
+        preferences[candidate_id] = preference
+    activity_planning.placement_preferences = list(preferences.values())[:20]
+
+    def keep_block(block: AdvancedActivityTimelineBlock) -> bool:
+        if block.type == "transfer":
+            return False
+        return block.candidate_id not in reserve_set
+
+    activity_planning.timeline_blocks = [
+        block for block in activity_planning.timeline_blocks if keep_block(block)
+    ]
+    for day in activity_planning.day_plans:
+        day.blocks = [block for block in day.blocks if keep_block(block)]
+    activity_planning.unscheduled_candidate_ids = list(
+        dict.fromkeys([*activity_planning.unscheduled_candidate_ids, *reserve_set])
+    )[:20]
+    reserved_count = len(reserve_set)
+    noun = "idea" if reserved_count == 1 else "ideas"
+    activity_planning.schedule_notes = _prepend_unique_limited(
+        activity_planning.schedule_notes,
+        f"Conflict resolution moved {reserved_count} lower-priority {noun} into reserve without touching essentials or fixed-time events.",
+        limit=4,
+    )
+    activity_planning.schedule_summary = (
+        "The active activity plan has been lightly softened around the planning tension."
+    )
+    return activity_planning
+
+
+def _merge_planner_conflict_resolution_state(
+    *,
+    detected_conflicts: list[PlannerConflictRecord],
+    previous_conflicts: list[PlannerConflictRecord],
+    decision_memory: list[PlannerDecisionMemoryRecord],
+    board_action: dict,
+    now: datetime | None,
+) -> list[PlannerConflictRecord]:
+    action = ConversationBoardAction.model_validate(board_action) if board_action else None
+    previous_by_id = {conflict.id: conflict for conflict in previous_conflicts}
+    detected_by_id = {conflict.id: conflict for conflict in detected_conflicts}
+    action_conflict_id = (
+        action.planner_conflict_id
+        if action
+        and action.type
+        in {
+            "resolve_planner_conflict",
+            "defer_planner_conflict",
+            "apply_planner_conflict_safe_edit",
+        }
+        else None
+    )
+
+    merged: list[PlannerConflictRecord] = []
+    for conflict in detected_conflicts:
+        previous = previous_by_id.get(conflict.id)
+        if action_conflict_id == conflict.id:
+            merged.append(_apply_conflict_resolution_action(conflict, action, now))
+            continue
+        if (
+            previous
+            and previous.status in {"resolved", "deferred"}
+            and _planner_conflict_signature(previous)
+            == _planner_conflict_signature(conflict)
+        ):
+            conflict = _carry_forward_conflict_resolution(
+                conflict=conflict,
+                previous=previous,
+                decision_memory=decision_memory,
+            )
+        merged.append(conflict)
+
+    for previous in previous_conflicts:
+        if previous.id in detected_by_id:
+            continue
+        if previous.status not in {"resolved", "deferred"}:
+            continue
+        if action_conflict_id == previous.id:
+            merged.append(_apply_conflict_resolution_action(previous, action, now))
+            continue
+        merged.append(previous)
+
+    if action_conflict_id and action_conflict_id not in {conflict.id for conflict in merged}:
+        previous = previous_by_id.get(action_conflict_id)
+        if previous:
+            merged.append(_apply_conflict_resolution_action(previous, action, now))
+    return sorted(merged, key=_planner_conflict_sort_key)
+
+
+def _apply_conflict_resolution_action(
+    conflict: PlannerConflictRecord,
+    action: ConversationBoardAction | None,
+    now: datetime | None,
+) -> PlannerConflictRecord:
+    if action is None:
+        return conflict
+    resolved = conflict.model_copy(deep=True)
+    resolved.status = (
+        "deferred" if action.type == "defer_planner_conflict" else "resolved"
+    )
+    resolved.resolution_action = (
+        "defer"
+        if action.type == "defer_planner_conflict"
+        else "safe_edit"
+        if action.type == "apply_planner_conflict_safe_edit"
+        else "resolve"
+    )
+    resolved.resolved_at = now
+    resolved.resolution_summary = (
+        action.planner_conflict_resolution_summary
+        or _default_conflict_resolution_summary(
+            conflict=conflict,
+            action=resolved.resolution_action,
+            safe_edit=action.planner_conflict_safe_edit,
+        )
+    )
+    resolved.priority_score = _planner_conflict_priority_score(resolved)
+    resolved.priority_label = _planner_conflict_priority_label(resolved.priority_score)
+    resolved.proactive_summary = _planner_conflict_proactive_summary(resolved)
+    return resolved
+
+
+def _carry_forward_conflict_resolution(
+    *,
+    conflict: PlannerConflictRecord,
+    previous: PlannerConflictRecord,
+    decision_memory: list[PlannerDecisionMemoryRecord],
+) -> PlannerConflictRecord:
+    conflict.status = previous.status
+    conflict.resolution_summary = _follow_through_resolution_summary(
+        previous=previous,
+        decision_memory=decision_memory,
+    )
+    conflict.resolved_at = previous.resolved_at
+    conflict.resolution_action = previous.resolution_action
+    conflict.priority_score = _planner_conflict_priority_score(conflict)
+    conflict.priority_label = _planner_conflict_priority_label(conflict.priority_score)
+    conflict.proactive_summary = _planner_conflict_proactive_summary(conflict)
+    return conflict
+
+
+def _follow_through_resolution_summary(
+    *,
+    previous: PlannerConflictRecord,
+    decision_memory: list[PlannerDecisionMemoryRecord],
+) -> str | None:
+    base_summary = previous.resolution_summary
+    memory = next(
+        (
+            record
+            for record in decision_memory
+            if record.key == "conflict_resolution"
+        ),
+        None,
+    )
+    memory_line = (
+        "I will keep using that preference unless the plan changes materially."
+        if memory and memory.status in {"confirmed", "working"}
+        else None
+    )
+    if not base_summary:
+        return memory_line
+    if memory_line and memory_line not in base_summary:
+        return f"{base_summary} {memory_line}"[:280]
+    return base_summary
+
+
+def _default_conflict_resolution_summary(
+    *,
+    conflict: PlannerConflictRecord,
+    action: str | None,
+    safe_edit: PlannerConflictSafeEdit | None,
+) -> str:
+    if action == "defer":
+        return "Deferred as an intentional caution; I will keep it visible without pushing the same repair again unless the evidence changes."
+    if action == "safe_edit":
+        labels = {
+            "reserve_maybe_activity_extras": "Resolved by moving lower-priority flexible activities into reserve.",
+            "keep_flights_open": "Resolved by keeping flights flexible; no new flight option was invented.",
+            "mark_stay_for_review": "Resolved by marking the stay for review without changing the selected hotel.",
+            "keep_indoor_backup_notes": "Resolved by keeping indoor backup notes without moving fixed-time plans.",
+            "defer_as_caution": "Resolved by saving the tension as a caution without changing the plan.",
+        }
+        return (
+            labels.get(safe_edit or "", "Resolved by applying a safe planner edit.")
+            + " I will keep using that repair preference unless the plan changes materially."
+        )
+    return (
+        f"Accepted as a tradeoff: {conflict.summary} I will not keep pushing the same repair unless the evidence changes."
+    )
+
+
+def _planner_conflict_signature(conflict: PlannerConflictRecord) -> str:
+    return "|".join(
+        [
+            conflict.category,
+            conflict.severity,
+            conflict.summary,
+            ",".join(conflict.affected_areas),
+            ",".join(conflict.evidence),
+            ",".join(conflict.source_decision_ids),
+            conflict.suggested_repair,
+            conflict.revision_target or "",
+        ]
+    )
+
+
+def _prepare_planner_conflict(conflict: PlannerConflictRecord) -> PlannerConflictRecord:
+    conflict.priority_score = _planner_conflict_priority_score(conflict)
+    conflict.priority_label = _planner_conflict_priority_label(conflict.priority_score)
+    conflict.recommended_repair = _planner_conflict_recommended_repair(conflict)
+    conflict.why_it_matters = _planner_conflict_why_it_matters(conflict)
+    conflict.proactive_summary = _planner_conflict_proactive_summary(conflict)
+    return _with_conflict_resolution_options(conflict)
+
+
+def _with_conflict_resolution_options(
+    conflict: PlannerConflictRecord,
+) -> PlannerConflictRecord:
+    options = []
+    if conflict.revision_target in {"flight", "stay", "trip_style", "activities"}:
+        options.append(
+            PlannerConflictResolutionOption(
+                id="review_section",
+                label="Review section",
+                action="review_section",
+                description="Open the related planning workspace for a fuller human choice.",
+                revision_target=conflict.revision_target,
+            )
+        )
+    safe_edit = _safe_edit_for_conflict(conflict)
+    if safe_edit:
+        options.append(
+            PlannerConflictResolutionOption(
+                id=f"safe_edit_{safe_edit}",
+                label=_safe_edit_label(safe_edit),
+                action="safe_edit",
+                description=_safe_edit_description(safe_edit),
+                safe_edit=safe_edit,
+            )
+        )
+    options.append(
+        PlannerConflictResolutionOption(
+            id="defer",
+            label="Defer",
+            action="defer",
+            description="Keep the plan as-is and save this as an intentional caution.",
+        )
+    )
+    options.append(
+        PlannerConflictResolutionOption(
+            id="resolve",
+            label="Keep current",
+            action="resolve",
+            description="Accept the current tradeoff and mark this tension resolved.",
+        )
+    )
+    conflict.resolution_options = options[:4]
+    return conflict
+
+
+def _planner_conflict_priority_score(conflict: PlannerConflictRecord) -> int:
+    score_by_severity = {"important": 82, "warning": 64, "info": 42}
+    category_adjustment = {
+        "logistics": 8,
+        "stay_fit": 8,
+        "schedule_density": 6,
+        "style_pace": 5,
+        "weather": 3,
+        "provider_confidence": 0,
+    }
+    score = score_by_severity.get(conflict.severity, 60) + category_adjustment.get(
+        conflict.category,
+        0,
+    )
+    if conflict.status == "deferred":
+        score -= 24
+    elif conflict.status == "resolved":
+        score -= 60
+    return max(0, min(100, score))
+
+
+def _planner_conflict_priority_label(score: int) -> str:
+    if score >= 82:
+        return "resolve_first"
+    if score >= 58:
+        return "worth_resolving"
+    return "watch"
+
+
+def _planner_conflict_recommended_repair(conflict: PlannerConflictRecord) -> str:
+    repairs = {
+        "schedule_density": "Lighten the affected day by moving lower-priority flexible ideas into reserve.",
+        "style_pace": "Add or swap in one experience that clearly expresses the chosen trip character.",
+        "logistics": "Lighten the affected travel day first, then revisit flight timing only if the day still feels strained.",
+        "stay_fit": "Review the stay against the current activity center of gravity before changing hotels or the trip shape.",
+        "weather": "Keep covered or indoor backups visible for the weather-pressured outdoor plans.",
+        "provider_confidence": "Confirm the soft source detail before relying on live provider results.",
+    }
+    return repairs.get(conflict.category, conflict.suggested_repair)
+
+
+def _planner_conflict_why_it_matters(conflict: PlannerConflictRecord) -> str:
+    reasons = {
+        "schedule_density": "This protects the pace the traveler chose, so a slow trip does not quietly become a packed one.",
+        "style_pace": "This keeps the activity plan aligned with the trip character instead of drifting into generic coverage.",
+        "logistics": "Arrival and departure days shape how relaxed the trip feels at the edges.",
+        "stay_fit": "The stay should support the actual trip rhythm, not just the earlier shortlist.",
+        "weather": "Weather should add sensible backups without overriding stronger traveler choices.",
+        "provider_confidence": "Weak assumptions can make live search results look more certain than they really are.",
+    }
+    return reasons.get(conflict.category, "This is worth keeping visible before the plan is saved.")
+
+
+def _planner_conflict_proactive_summary(conflict: PlannerConflictRecord) -> str:
+    repair = conflict.recommended_repair or conflict.suggested_repair
+    if conflict.priority_label == "resolve_first":
+        prefix = "Resolve first"
+    elif conflict.priority_label == "watch":
+        prefix = "Keep an eye on this"
+    else:
+        prefix = "Worth resolving"
+    return f"{prefix}: {conflict.summary} Recommended repair: {repair}"
+
+
+def _planner_conflict_sort_key(conflict: PlannerConflictRecord) -> tuple[int, int, int, str]:
+    status_rank = {"open": 0, "deferred": 1, "resolved": 2}.get(conflict.status, 0)
+    severity_rank = {"important": 0, "warning": 1, "info": 2}.get(conflict.severity, 1)
+    return (status_rank, -conflict.priority_score, severity_rank, conflict.id)
+
+
+def _safe_edit_for_conflict(
+    conflict: PlannerConflictRecord,
+) -> PlannerConflictSafeEdit | None:
+    if conflict.category in {"schedule_density", "logistics", "style_pace"}:
+        return "reserve_maybe_activity_extras"
+    if conflict.category == "weather":
+        return "keep_indoor_backup_notes"
+    if conflict.category == "stay_fit":
+        return "mark_stay_for_review"
+    if conflict.category == "provider_confidence":
+        if "flight" in " ".join(conflict.affected_areas).lower():
+            return "keep_flights_open"
+        return "defer_as_caution"
+    return None
+
+
+def _safe_edit_label(safe_edit: PlannerConflictSafeEdit) -> str:
+    labels = {
+        "reserve_maybe_activity_extras": "Lighten plan",
+        "keep_flights_open": "Keep flights open",
+        "mark_stay_for_review": "Mark stay for review",
+        "keep_indoor_backup_notes": "Keep indoor backups",
+        "defer_as_caution": "Save caution",
+    }
+    return labels[safe_edit]
+
+
+def _safe_edit_description(safe_edit: PlannerConflictSafeEdit) -> str:
+    descriptions = {
+        "reserve_maybe_activity_extras": "Move lower-priority maybes into reserve while preserving essentials, manual edits, and fixed events.",
+        "keep_flights_open": "Keep flight timing flexible without inventing replacement options.",
+        "mark_stay_for_review": "Flag the current stay choice for review without switching hotels.",
+        "keep_indoor_backup_notes": "Keep covered or indoor backup notes visible without reshuffling the schedule.",
+        "defer_as_caution": "Carry this provider-confidence issue forward as a clear caution.",
+    }
+    return descriptions[safe_edit]
+
+
+def _prepend_unique_limited(
+    items: list[str],
+    value: str,
+    *,
+    limit: int,
+) -> list[str]:
+    return list(dict.fromkeys([value, *items]))[:limit]
 
 
 def _build_schedule_density_conflicts(
@@ -3283,7 +3904,13 @@ def _build_advanced_review_notes(
         if signal.note
         and (signal.status == "needs_review" or signal.confidence == "low")
     )
-    notes.extend(conflict.summary for conflict in (planner_conflicts or []))
+    notes.extend(
+        conflict.resolution_summary
+        if conflict.status == "deferred" and conflict.resolution_summary
+        else conflict.summary
+        for conflict in (planner_conflicts or [])
+        if conflict.status != "resolved"
+    )
     return list(dict.fromkeys(note for note in notes if note))[:6]
 
 
@@ -3327,6 +3954,8 @@ def _advanced_review_should_show_decision_signal(
 ) -> bool:
     if record.key in {"origin", "budget", "advanced_review"}:
         return False
+    if record.key == "conflict_resolution":
+        return True
     if record.key == "selected_flights":
         return configuration.selected_modules.flights
     if record.key == "selected_stay":
@@ -3356,9 +3985,10 @@ def _advanced_review_decision_sort_key(record: PlannerDecisionMemoryRecord) -> i
         "selected_stay": 8,
         "selected_activities": 9,
         "weather_context": 10,
-        "advanced_review": 11,
-        "origin": 12,
-        "budget": 13,
+        "conflict_resolution": 11,
+        "advanced_review": 12,
+        "origin": 13,
+        "budget": 14,
     }
     return order.get(record.key, 99)
 
@@ -3379,6 +4009,7 @@ def _advanced_review_decision_title(key: PlannerDecisionMemoryKey) -> str:
         "selected_activities": "Planned experiences",
         "weather_context": "Weather signal",
         "advanced_review": "Review",
+        "conflict_resolution": "Resolved tension",
     }[key]
 
 
@@ -4838,6 +5469,42 @@ def _select_preferred_activity_slot_for_candidate(
     slot_order: tuple[PlannerActivityDaypart, ...] = ("morning", "afternoon", "evening")
     best_choice: tuple[float, int, str] | None = None
 
+    if preference.day_index is not None and any(
+        day_index == preference.day_index for day_index, _, _ in day_specs
+    ):
+        target_day_slots = scheduled_slots[preference.day_index]
+        preferred_slot = preference.daypart or _default_candidate_daypart(candidate)
+        ordered_slots = (
+            preferred_slot,
+            *[slot for slot in slot_order if slot != preferred_slot],
+        )
+        for slot_key in ordered_slots:
+            if slot_key in target_day_slots:
+                continue
+            if _flight_timing_conflicts_with_slot(
+                day_index=preference.day_index,
+                slot_key=slot_key,
+                constraints=flight_constraints,
+            ):
+                return (
+                    (preference.day_index, slot_key),
+                    f"{candidate.title} is manually placed near selected flight timing, so I preserved it and flagged the pressure instead of silently moving it.",
+                )
+            weather_note = _weather_pressure_note_for_slot(
+                candidate=candidate,
+                day_index=preference.day_index,
+                slot_key=slot_key,
+                weather_context=weather_context,
+            )
+            if weather_note:
+                return (preference.day_index, slot_key), weather_note
+            if preference.daypart is not None and slot_key != preference.daypart:
+                return (
+                    (preference.day_index, slot_key),
+                    f"{candidate.title} stayed on the requested day, but I used a nearby open daypart to keep the schedule workable.",
+                )
+            return (preference.day_index, slot_key), None
+
     for day_index, _, _ in day_specs:
         occupied_slots = scheduled_slots[day_index]
         for slot_key in slot_order:
@@ -5596,7 +6263,10 @@ def merge_flight_planning_state(
         flight_planning.outbound_options = []
         flight_planning.return_options = []
     else:
-        provider_cards = _build_provider_flight_option_cards(module_outputs.flights)
+        provider_cards = _build_provider_flight_option_cards(
+            module_outputs.flights,
+            configuration=configuration,
+        )
         outbound_options = [
             card for card in provider_cards if card.direction == "outbound"
         ]
@@ -5918,10 +6588,14 @@ def _flight_missing_requirements(configuration: TripConfiguration) -> list[str]:
 
 def _build_provider_flight_option_cards(
     flights: list[FlightDetail],
+    *,
+    configuration: TripConfiguration,
 ) -> list[AdvancedFlightOptionCard]:
     cards: list[AdvancedFlightOptionCard] = []
     direction_counts = {"outbound": 0, "return": 0}
     for flight in flights:
+        if not _flight_matches_trip_date(flight=flight, configuration=configuration):
+            continue
         direction_counts[flight.direction] += 1
         index = direction_counts[flight.direction]
         cards.append(
@@ -5948,6 +6622,32 @@ def _build_provider_flight_option_cards(
             )
         )
     return cards
+
+
+def _flight_matches_trip_date(
+    *,
+    flight: FlightDetail,
+    configuration: TripConfiguration,
+) -> bool:
+    expected_date = _expected_flight_departure_date(
+        direction=flight.direction,
+        configuration=configuration,
+    )
+    if expected_date is None or flight.departure_time is None:
+        return True
+    return flight.departure_time.date() == expected_date
+
+
+def _expected_flight_departure_date(
+    *,
+    direction: str,
+    configuration: TripConfiguration,
+) -> date | None:
+    if direction == "outbound":
+        return configuration.start_date
+    if direction == "return":
+        return configuration.end_date
+    return None
 
 
 def _build_provider_flight_summary(flight: FlightDetail) -> str:

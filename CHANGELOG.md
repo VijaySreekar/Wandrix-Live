@@ -9,6 +9,148 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-24 - Smoothed Chat Trip Switching
+
+Technical Summary:
+- Moved recent-trip navigation ownership from the sidebar into the chat workspace so route changes happen after the destination workspace is hydrated.
+- Added a session-scoped workspace cache for recently opened trips and reused prefetched trip state on selection.
+- Switched recent-trip selection to an in-page browser history update so changing the `trip` query does not trigger a transient Next route refresh.
+- Cleared pending trip state once the displayed workspace and URL are aligned to avoid unnecessary bootstrap reload states.
+
+Plain-English Summary:
+- Clicking a recent chat now stays inside the current app shell while Wandrix swaps in the selected trip, instead of briefly refreshing before the chat loads.
+- The top-level Chat navigation still opens a fresh chat, while recent-session clicks now switch smoothly without a route refresh.
+
+Files / Areas Touched:
+- `frontend/src/components/chat/chat-sidebar.tsx`
+- `frontend/src/components/app/app-top-nav.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Stabilized Recent Trip Activity Times
+
+Technical Summary:
+- Updated trip-list responses to use the latest effective activity timestamp across the trip row, draft row, and draft status `last_updated_at`.
+- Hardened sidebar refresh merging so a refreshed API row cannot replace a newer visible `updated_at` with an older cached or trip-table timestamp.
+- Added backend coverage for effective trip activity timestamp selection.
+
+Plain-English Summary:
+- The recent chat list now keeps stable “last updated” times when moving between Home, Chat, and individual trips.
+- A trip that showed as updated 9 hours ago should no longer jump backward to 21 hours ago just because the sidebar refreshed.
+
+Files / Areas Touched:
+- `backend/app/services/trip_service.py`
+- `backend/tests/test_trip_service.py`
+- `frontend/src/lib/recent-trips-cache.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Fixed Advanced Review, Sidebar, Flights, and Brochure Display
+
+Technical Summary:
+- Added `advanced_review_workspace` to the chat board preview render allowlist so Advanced Review renders in the right-side board instead of falling back to the generic live board.
+- Made the chat sidebar recover from sparse one-trip recent-session state by retrying trip-list refreshes when the sidebar only has the active trip.
+- Filtered provider-backed flight options by the trip's selected outbound and return dates before they become Advanced Flight cards.
+- Anchored selected Advanced flight timeline labels to the configured trip dates so stale provider dates cannot create incorrect `Day 24`-style labels.
+- Made explicit activity day moves honor the requested day first, using another open daypart on that day before falling back elsewhere.
+- Filtered Advanced brochure snapshots and legacy brochure rendering around selected flights/stays instead of raw provider inventory.
+- Stabilized board-action chat insertion so manually appended assistant responses do not start an extra assistant-ui run.
+
+Plain-English Summary:
+- The review board now appears where travelers expect it, the left sidebar keeps showing recent sessions, and old cached flight inventory no longer leaks misleading dates into the plan.
+- Activity schedule edits better respect the user's chosen day.
+- Brochures now focus on the selected planning choices instead of showing every hotel or stale flight option returned by providers.
+- Board button responses no longer trigger an extra chat runtime pass after the backend action has already completed.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/services/brochure_service.py`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/brochure/trip-brochure.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Conflict Repair Follow-Through Memory
+
+Technical Summary:
+- Added `conflict_resolution` to planner decision memory so resolved, deferred, and safely edited planning tensions become durable planning context.
+- Stored conflict resolution outcomes as confirmed or working memory with source, rationale, related anchor, and updated timestamp.
+- Carried follow-through wording into repeated same-evidence conflicts so Wandrix respects accepted tradeoffs, deferred cautions, and safe-edit preferences until evidence materially changes.
+- Updated conflict resolution responses and Advanced Review cards to distinguish resolved-by-edit, accepted tradeoff, and deferred caution outcomes.
+- Added targeted backend coverage for conflict resolution memory creation and same-evidence follow-through behavior.
+
+Plain-English Summary:
+- Wandrix now remembers how a traveler chose to handle a planning tension instead of raising the same repair suggestion over and over.
+- If the user accepts a tradeoff, defers a caution, or applies a safe edit, the planner carries that preference forward unless the plan changes enough to make it a new issue.
+- Review cards now make it clearer whether a tension was fixed, intentionally accepted, or saved as a caution.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Proactive Conflict Repair Guidance
+
+Technical Summary:
+- Extended planner conflicts with priority score, priority label, recommended repair, why-it-matters text, and proactive summary metadata.
+- Added deterministic conflict ranking so open, higher-impact tensions surface before deferred or resolved items.
+- Updated assistant responses to mention the top open conflict after meaningful planning changes, including Quick Plan provider-confidence cases.
+- Upgraded Advanced Review and live board conflict cards to show recommended repairs and short reasoning instead of only passive warning text.
+- Updated brochure caution notes to use recommended repair language for open conflicts while preserving deferred and resolved behavior.
+- Added backend coverage for guidance metadata and proactive conflict response copy.
+
+Plain-English Summary:
+- Wandrix now does a better job of saying which planning tension matters most, why it matters, and what the cleanest repair path is.
+- After a user makes a change that creates a meaningful tension, the assistant can call it out right away instead of waiting until the final review.
+- The review board and brochure notes now read more like guided travel planning advice and less like raw diagnostics.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/services/brochure_service.py`
+- `backend/tests/test_brochure_service.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Guided Conflict Resolution
+
+Technical Summary:
+- Extended planner conflict records with open/resolved/deferred status, resolution summaries, resolution actions, timestamps, and board-rendered resolution options.
+- Added Advanced Review board actions for resolving, deferring, and applying conservative safe edits to planner conflicts.
+- Preserved conflict resolution memory across recomputation by conflict id and evidence signature, reopening conflicts only when the underlying evidence materially changes.
+- Added safe reducer edits for activity density/logistics/weather/stay/provider-confidence conflicts while preserving essentials, manual activity edits, fixed-time events, selected flights, selected stays, and finalization state.
+- Updated Advanced Review cards, live board filtering, assistant responses, and brochure caution-note generation for resolved and deferred conflict states.
+- Added targeted backend tests for conflict status persistence, safe activity edits, and brochure treatment of deferred versus resolved conflicts.
+
+Plain-English Summary:
+- Wandrix can now help travelers do something about review tensions instead of only listing them.
+- In Advanced Review, each tension can be reviewed, safely softened, deferred as an intentional caution, or accepted as resolved.
+- Deferred cautions still carry into the brochure, while resolved tensions stay out of the warning notes unless the facts change.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/services/brochure_service.py`
+- `backend/tests/test_brochure_service.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
 ## 2026-04-24 - Added Planner Conflict Detection
 
 Technical Summary:

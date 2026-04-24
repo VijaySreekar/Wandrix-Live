@@ -167,7 +167,8 @@ export type PlannerDecisionMemoryKey =
   | "selected_stay"
   | "selected_activities"
   | "weather_context"
-  | "advanced_review";
+  | "advanced_review"
+  | "conflict_resolution";
 export type PlannerDecisionSource =
   | "user_explicit"
   | "board_action"
@@ -195,6 +196,19 @@ export type PlannerConflictRevisionTarget =
   | "trip_style"
   | "activities"
   | "review";
+export type PlannerConflictStatus = "open" | "resolved" | "deferred";
+export type PlannerConflictPriority = "watch" | "worth_resolving" | "resolve_first";
+export type PlannerConflictResolutionAction =
+  | "review_section"
+  | "safe_edit"
+  | "defer"
+  | "resolve";
+export type PlannerConflictSafeEdit =
+  | "reserve_maybe_activity_extras"
+  | "keep_flights_open"
+  | "mark_stay_for_review"
+  | "keep_indoor_backup_notes"
+  | "defer_as_caution";
 
 export type ConversationOptionKind =
   | "destination"
@@ -366,6 +380,25 @@ export type PlannerConflictRecord = {
   source_decision_ids: string[];
   suggested_repair: string;
   revision_target?: PlannerConflictRevisionTarget | null;
+  priority_score?: number;
+  priority_label?: PlannerConflictPriority;
+  recommended_repair?: string | null;
+  why_it_matters?: string | null;
+  proactive_summary?: string | null;
+  status?: PlannerConflictStatus;
+  resolution_summary?: string | null;
+  resolved_at?: string | null;
+  resolution_action?: PlannerConflictResolutionAction | null;
+  resolution_options?: PlannerConflictResolutionOption[];
+};
+
+export type PlannerConflictResolutionOption = {
+  id: string;
+  label: string;
+  action: PlannerConflictResolutionAction;
+  description: string;
+  revision_target?: PlannerConflictRevisionTarget | null;
+  safe_edit?: PlannerConflictSafeEdit | null;
 };
 
 export type AdvancedDateOptionCard = {

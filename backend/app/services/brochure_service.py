@@ -34,7 +34,12 @@ from app.schemas.brochure import (
     BrochureWarning,
 )
 from app.schemas.trip_draft import TripDraft
-from app.schemas.trip_planning import ActivityDetail, HotelStayDetail, TimelineItem
+from app.schemas.trip_planning import (
+    ActivityDetail,
+    FlightDetail,
+    HotelStayDetail,
+    TimelineItem,
+)
 from app.utils.destination_images import get_destination_hero_image
 
 
@@ -180,6 +185,9 @@ def build_brochure_snapshot_payload(
         draft,
         advanced_section_summaries,
     )
+    brochure_timeline = _build_brochure_timeline(draft)
+    brochure_flights = _build_brochure_flights(draft)
+    brochure_stays = _build_brochure_stays(draft)
     hero_image = BrochureHeroImage(
         url=get_destination_hero_image(destination_label),
         alt_text=f"{destination_label or 'Destination'} hero image for brochure cover",
@@ -221,9 +229,9 @@ def build_brochure_snapshot_payload(
         flexible_items=flexible_items,
         worth_reviewing_notes=worth_reviewing_notes,
         warnings=warnings,
-        itinerary_days=_group_itinerary_days(draft.timeline),
-        flights=list(draft.module_outputs.flights),
-        stays=list(draft.module_outputs.hotels),
+        itinerary_days=_group_itinerary_days(brochure_timeline),
+        flights=brochure_flights,
+        stays=brochure_stays,
         weather=list(draft.module_outputs.weather),
         highlights=list(draft.module_outputs.activities),
         planning_notes=_build_planning_notes(draft),
@@ -243,6 +251,225 @@ def _has_advanced_brochure_context(draft: TripDraft) -> bool:
         or conversation.flight_planning.completion_summary
         or conversation.stay_planning.selected_hotel_id
     )
+
+
+def _build_brochure_timeline(draft: TripDraft) -> list[TimelineItem]:
+    if draft.conversation.planning_mode != "advanced":
+        return list(draft.timeline)
+
+    flight_planning = draft.conversation.flight_planning
+    stay_planning = draft.conversation.stay_planning
+    selected_hotel_ids = {
+        value
+        for value in [
+            stay_planning.selected_hotel_id,
+            f"timeline_{stay_planning.selected_hotel_id}"
+            if stay_planning.selected_hotel_id
+            else None,
+        ]
+        if value
+    }
+    selected_hotel_names = {
+        value.strip().lower()
+        for value in [
+            stay_planning.selected_hotel_name,
+            stay_planning.selected_hotel_card.hotel_name
+            if stay_planning.selected_hotel_card
+            else None,
+        ]
+        if value and value.strip()
+    }
+
+    timeline = [
+        item
+        for item in draft.timeline
+        if item.source_module != "flights"
+        and item.type != "flight"
+        and (
+            item.source_module != "hotels"
+            or item.type != "hotel"
+            or not selected_hotel_names
+            or item.id in selected_hotel_ids
+            or item.title.strip().lower() in selected_hotel_names
+        )
+    ]
+
+    if (
+        stay_planning.selected_hotel_card
+        and selected_hotel_names
+        and not any(
+            item.type == "hotel"
+            and item.title.strip().lower() in selected_hotel_names
+            for item in timeline
+        )
+    ):
+        hotel = stay_planning.selected_hotel_card
+        timeline.append(
+            TimelineItem(
+                id=f"timeline_{hotel.id}",
+                type="hotel",
+                title=hotel.hotel_name,
+                day_label="Arrival stay",
+                start_at=hotel.check_in,
+                end_at=hotel.check_out,
+                location_label=hotel.area,
+                summary="Selected working stay.",
+                details=[hotel.summary, hotel.why_it_fits, *hotel.tradeoffs][:6],
+                source_module="hotels",
+                status="draft",
+            )
+        )
+
+    if flight_planning.selection_status == "completed":
+        for flight in [
+            flight_planning.selected_outbound_flight,
+            flight_planning.selected_return_flight,
+        ]:
+            if flight is None:
+                continue
+            timeline.append(
+                TimelineItem(
+                    id=f"timeline_selected_{flight.id}",
+                    type="flight",
+                    title="Outbound flight"
+                    if flight.direction == "outbound"
+                    else "Return flight",
+                    day_label=_selected_flight_day_label(flight.direction, draft),
+                    start_at=flight.departure_time,
+                    end_at=flight.arrival_time,
+                    location_label=f"{flight.departure_airport} to {flight.arrival_airport}",
+                    summary=flight.duration_text or flight.summary,
+                    details=[
+                        detail
+                        for detail in [
+                            flight.summary,
+                            *flight.tradeoffs,
+                            "Working planning flight, not a booked ticket.",
+                        ]
+                        if detail
+                    ][:6],
+                    source_module="flights",
+                    status="draft",
+                )
+            )
+
+    return timeline
+
+
+def _build_brochure_flights(draft: TripDraft) -> list[FlightDetail]:
+    flight_planning = draft.conversation.flight_planning
+    if (
+        draft.conversation.planning_mode == "advanced"
+        and flight_planning.selection_status == "completed"
+    ):
+        return [
+            _flight_option_to_detail(flight)
+            for flight in [
+                flight_planning.selected_outbound_flight,
+                flight_planning.selected_return_flight,
+            ]
+            if flight is not None
+        ]
+
+    if draft.conversation.planning_mode == "advanced":
+        return [
+            flight
+            for flight in draft.module_outputs.flights
+            if _flight_detail_matches_trip_dates(flight=flight, draft=draft)
+        ]
+
+    return list(draft.module_outputs.flights)
+
+
+def _build_brochure_stays(draft: TripDraft) -> list[HotelStayDetail]:
+    stay_planning = draft.conversation.stay_planning
+    if draft.conversation.planning_mode != "advanced":
+        return list(draft.module_outputs.hotels)
+
+    if stay_planning.selected_hotel_card:
+        hotel = stay_planning.selected_hotel_card
+        return [
+            HotelStayDetail(
+                id=hotel.id,
+                hotel_name=hotel.hotel_name,
+                area=hotel.area,
+                address=hotel.address,
+                image_url=hotel.image_url,
+                source_url=hotel.source_url,
+                source_label=hotel.source_label,
+                nightly_rate_amount=hotel.nightly_rate_amount,
+                nightly_rate_currency=hotel.nightly_rate_currency,
+                nightly_tax_amount=hotel.nightly_tax_amount,
+                rate_provider_name=hotel.rate_provider_name,
+                check_in=hotel.check_in,
+                check_out=hotel.check_out,
+                notes=[hotel.summary, hotel.why_it_fits, *hotel.tradeoffs][:6],
+            )
+        ]
+
+    selected_id = stay_planning.selected_hotel_id
+    selected_name = (
+        stay_planning.selected_hotel_name.strip().lower()
+        if stay_planning.selected_hotel_name
+        else None
+    )
+    selected_hotels = [
+        hotel
+        for hotel in draft.module_outputs.hotels
+        if (selected_id and hotel.id == selected_id)
+        or (selected_name and hotel.hotel_name.strip().lower() == selected_name)
+    ]
+    return selected_hotels or list(draft.module_outputs.hotels)
+
+
+def _flight_option_to_detail(flight) -> FlightDetail:
+    return FlightDetail(
+        id=flight.id,
+        direction=flight.direction,
+        carrier=flight.carrier,
+        flight_number=flight.flight_number,
+        departure_airport=flight.departure_airport,
+        arrival_airport=flight.arrival_airport,
+        departure_time=flight.departure_time,
+        arrival_time=flight.arrival_time,
+        duration_text=flight.duration_text,
+        price_text=flight.price_text,
+        stop_count=flight.stop_count,
+        layover_summary=flight.layover_summary,
+        legs=flight.legs,
+        timing_quality=flight.timing_quality,
+        inventory_notice=flight.inventory_notice,
+        notes=[flight.summary, *flight.tradeoffs][:6],
+    )
+
+
+def _flight_detail_matches_trip_dates(
+    *,
+    flight: FlightDetail,
+    draft: TripDraft,
+) -> bool:
+    expected_date = (
+        draft.configuration.start_date
+        if flight.direction == "outbound"
+        else draft.configuration.end_date
+    )
+    if expected_date is None or flight.departure_time is None:
+        return True
+    return flight.departure_time.date() == expected_date
+
+
+def _selected_flight_day_label(direction: str, draft: TripDraft) -> str | None:
+    if not draft.configuration.start_date:
+        return None
+    if direction == "outbound":
+        return "Day 1"
+    if direction == "return" and draft.configuration.end_date:
+        day_number = max(
+            (draft.configuration.end_date - draft.configuration.start_date).days + 1,
+            1,
+        )
+        return f"Day {day_number}"
+    return None
 
 
 def _build_advanced_section_summaries(
@@ -439,8 +666,16 @@ def _build_worth_reviewing_notes(
     notes = [
         *review.review_notes,
         *[
-            f"{conflict.summary} Suggested next step: {conflict.suggested_repair}"
+            (
+                f"{conflict.summary} Resolution note: {conflict.resolution_summary}"
+                if conflict.status == "deferred" and conflict.resolution_summary
+                else (
+                    f"{conflict.summary} Recommended repair: "
+                    f"{conflict.recommended_repair or conflict.suggested_repair}"
+                )
+            )
             for conflict in draft.conversation.planner_conflicts
+            if conflict.status != "resolved"
         ],
         *[
             note
@@ -949,10 +1184,12 @@ def _group_itinerary_days(items: list[TimelineItem]) -> list[BrochureItineraryDa
 
 
 def _build_metrics(draft: TripDraft) -> list[BrochureMetric]:
+    brochure_timeline = _build_brochure_timeline(draft)
+    brochure_stays = _build_brochure_stays(draft)
     return [
         BrochureMetric(
             label="Timeline moments",
-            value=str(len(draft.timeline)),
+            value=str(len(brochure_timeline)),
             note="Saved in this brochure version.",
         ),
         BrochureMetric(
@@ -967,8 +1204,8 @@ def _build_metrics(draft: TripDraft) -> list[BrochureMetric]:
         ),
         BrochureMetric(
             label="Hotels",
-            value=str(len(draft.module_outputs.hotels)),
-            note="Stay anchors included in the final brochure state.",
+            value=str(len(brochure_stays)),
+            note="Selected stay choices included in the final brochure state.",
         ),
     ]
 
@@ -994,8 +1231,9 @@ def _build_budget_summary(draft: TripDraft) -> BrochureBudgetSummary:
 
 
 def _build_travel_summary(draft: TripDraft) -> BrochureTravelSummary:
-    transfer_count = sum(1 for item in draft.timeline if item.type == "transfer")
-    flight_count = len(draft.module_outputs.flights)
+    brochure_timeline = _build_brochure_timeline(draft)
+    transfer_count = sum(1 for item in brochure_timeline if item.type == "transfer")
+    flight_count = len(_build_brochure_flights(draft))
     detail = f"{flight_count} flight segments and {transfer_count} transfer blocks are reflected in this brochure version."
     if transfer_count >= 3:
         detail += " Movement load is fairly dense, so timing buffers matter."

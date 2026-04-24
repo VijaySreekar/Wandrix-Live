@@ -152,7 +152,7 @@ export function mergeRecentTripsForSidebarRefresh(
   );
   const preservedTrips = currentTrips.flatMap((trip) => {
     const refreshedTrip = nextTripById.get(trip.trip_id);
-    return refreshedTrip ? [refreshedTrip] : [];
+    return refreshedTrip ? [mergeRecentTripRows(trip, refreshedTrip)] : [];
   });
   const unseenTrips = sortRecentTripsByActivity(
     filteredNextTrips.filter(
@@ -161,6 +161,29 @@ export function mergeRecentTripsForSidebarRefresh(
   );
 
   return [...preservedTrips, ...unseenTrips];
+}
+
+function mergeRecentTripRows(
+  currentTrip: TripListItemResponse,
+  refreshedTrip: TripListItemResponse,
+) {
+  const currentUpdatedAt = toRecentTripTimestamp(currentTrip.updated_at);
+  const refreshedUpdatedAt = toRecentTripTimestamp(refreshedTrip.updated_at);
+  const currentCreatedAt = toRecentTripTimestamp(currentTrip.created_at);
+  const refreshedCreatedAt = toRecentTripTimestamp(refreshedTrip.created_at);
+
+  return {
+    ...currentTrip,
+    ...refreshedTrip,
+    created_at:
+      refreshedCreatedAt >= currentCreatedAt
+        ? refreshedTrip.created_at
+        : currentTrip.created_at,
+    updated_at:
+      refreshedUpdatedAt >= currentUpdatedAt
+        ? refreshedTrip.updated_at
+        : currentTrip.updated_at,
+  } satisfies TripListItemResponse;
 }
 
 export function isMeaningfulRecentTrip(trip: TripListItemResponse) {

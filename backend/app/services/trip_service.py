@@ -1,4 +1,5 @@
 from uuid import uuid4
+from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -104,7 +105,7 @@ def list_trips(
         items=[
             TripListItemResponse(
                 **_build_trip_response(trip).model_dump(),
-                updated_at=trip.updated_at,
+                updated_at=_effective_trip_updated_at(trip),
                 phase=_extract_trip_phase(trip),
                 brochure_ready=_extract_brochure_ready(trip),
                 latest_brochure_snapshot_id=_extract_latest_brochure_snapshot_id(trip),
@@ -122,6 +123,30 @@ def list_trips(
             for trip in trips
         ]
     )
+
+
+def _effective_trip_updated_at(trip) -> datetime:
+    timestamps = [trip.updated_at]
+    draft_updated_at = getattr(getattr(trip, "draft", None), "updated_at", None)
+    if isinstance(draft_updated_at, datetime):
+        timestamps.append(draft_updated_at)
+    if trip.draft and isinstance(trip.draft.status, dict):
+        status_updated_at = trip.draft.status.get("last_updated_at")
+        if isinstance(status_updated_at, str):
+            try:
+                timestamps.append(datetime.fromisoformat(status_updated_at))
+            except ValueError:
+                pass
+        elif isinstance(status_updated_at, datetime):
+            timestamps.append(status_updated_at)
+    return max(timestamps, key=_datetime_sort_value)
+
+
+def _datetime_sort_value(value: datetime) -> float:
+    try:
+        return value.timestamp()
+    except (OSError, ValueError):
+        return 0
 
 
 def get_trip_draft(

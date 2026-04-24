@@ -106,7 +106,9 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
     null;
   const weather = moduleOutputs.weather.slice(0, 3);
   const weatherPlanning = conversation.weather_planning ?? null;
-  const plannerConflicts = conversation.planner_conflicts ?? [];
+  const plannerConflicts = (conversation.planner_conflicts ?? []).filter(
+    (conflict) => (conflict.status ?? "open") !== "resolved",
+  );
   const timelineSections = useMemo(
     () => buildTimelineSections(tripDraft.timeline),
     [tripDraft.timeline],
@@ -767,8 +769,13 @@ function LiveBoardConflictList({
         >
           <p className="font-semibold text-foreground/82">{conflict.summary}</p>
           <p className="mt-1 text-xs leading-5 text-foreground/58">
-            {conflict.suggested_repair}
+            {conflict.recommended_repair || conflict.suggested_repair}
           </p>
+          {conflict.why_it_matters ? (
+            <p className="mt-1 text-xs leading-5 text-foreground/48">
+              {conflict.why_it_matters}
+            </p>
+          ) : null}
         </div>
       ))}
     </div>

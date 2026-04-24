@@ -121,6 +121,7 @@ export function TravelPlannerBoardActions({
         threadRuntime.append({
           role: "assistant",
           content: [{ type: "text", text: assistantMessage }],
+          startRun: false,
         });
       })
       .catch((error: unknown) => {
@@ -132,9 +133,10 @@ export function TravelPlannerBoardActions({
               text:
                 error instanceof Error
                   ? error.message
-                  : "That board action could not be completed right now.",
+                : "That board action could not be completed right now.",
             },
           ],
+          startRun: false,
         });
       })
       .finally(() => {
@@ -346,6 +348,18 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
       ? action.advanced_anchor.replace(/_/g, " ")
       : "that part of the trip";
     return `Review ${anchor} again before finalizing the trip.`;
+  }
+
+  if (action.type === "apply_planner_conflict_safe_edit") {
+    return "Apply the safe planner edit for this review tension.";
+  }
+
+  if (action.type === "defer_planner_conflict") {
+    return "Keep this review tension as an intentional caution.";
+  }
+
+  if (action.type === "resolve_planner_conflict") {
+    return "Mark this review tension as resolved.";
   }
 
   if (action.type === "finalize_quick_plan") {

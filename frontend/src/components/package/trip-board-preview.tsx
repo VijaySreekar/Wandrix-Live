@@ -65,6 +65,7 @@ export function TripBoardPreview({
       "advanced_stay_hotel_choice",
       "advanced_stay_hotel_selected",
       "advanced_stay_hotel_review",
+      "advanced_review_workspace",
     ].includes(suggestionBoard.mode)
   ) {
     return (

@@ -10,6 +10,7 @@ import type {
   PlannerTripDirectionAccent,
   PlannerTripDirectionPrimary,
   PlannerReviewResolutionScope,
+  PlannerConflictSafeEdit,
   ChatPlannerPhase,
   CheckpointConversationMessage,
 } from "@/types/trip-conversation";
@@ -89,6 +90,9 @@ export type ConversationBoardAction = {
     | "set_stay_hotel_page"
     | "reset_stay_hotel_filters"
     | "revise_advanced_review_section"
+    | "resolve_planner_conflict"
+    | "defer_planner_conflict"
+    | "apply_planner_conflict_safe_edit"
     | "finalize_advanced_plan"
     | "finalize_quick_plan"
     | "reopen_plan";
@@ -115,6 +119,9 @@ export type ConversationBoardAction = {
   trip_style_tradeoff_axis?: PlannerTripStyleTradeoffAxis | null;
   trip_style_tradeoff_value?: PlannerTripStyleTradeoffChoice | null;
   review_resolution_scope?: PlannerReviewResolutionScope | null;
+  planner_conflict_id?: string | null;
+  planner_conflict_safe_edit?: PlannerConflictSafeEdit | null;
+  planner_conflict_resolution_summary?: string | null;
   stay_hotel_max_nightly_rate?: number | null;
   stay_hotel_area_filter?: string | null;
   stay_hotel_style_filter?: string | null;

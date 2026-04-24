@@ -201,6 +201,7 @@ PlannerDecisionMemoryKey = Literal[
     "selected_activities",
     "weather_context",
     "advanced_review",
+    "conflict_resolution",
 ]
 PlannerDecisionSource = Literal[
     "user_explicit",
@@ -232,6 +233,21 @@ PlannerConflictRevisionTarget = Literal[
     "trip_style",
     "activities",
     "review",
+]
+PlannerConflictStatus = Literal["open", "resolved", "deferred"]
+PlannerConflictPriority = Literal["watch", "worth_resolving", "resolve_first"]
+PlannerConflictResolutionAction = Literal[
+    "review_section",
+    "safe_edit",
+    "defer",
+    "resolve",
+]
+PlannerConflictSafeEdit = Literal[
+    "reserve_maybe_activity_extras",
+    "keep_flights_open",
+    "mark_stay_for_review",
+    "keep_indoor_backup_notes",
+    "defer_as_caution",
 ]
 
 ConversationOptionKind = Literal[
@@ -428,6 +444,15 @@ class AdvancedReviewDecisionSignal(BaseModel):
     related_anchor: PlannerAdvancedAnchor | None = None
 
 
+class PlannerConflictResolutionOption(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    label: str = Field(..., min_length=1, max_length=80)
+    action: PlannerConflictResolutionAction
+    description: str = Field(..., min_length=1, max_length=220)
+    revision_target: PlannerConflictRevisionTarget | None = None
+    safe_edit: PlannerConflictSafeEdit | None = None
+
+
 class PlannerConflictRecord(BaseModel):
     id: str = Field(..., min_length=1, max_length=120)
     severity: PlannerConflictSeverity = "warning"
@@ -438,6 +463,19 @@ class PlannerConflictRecord(BaseModel):
     source_decision_ids: list[str] = Field(default_factory=list, max_length=6)
     suggested_repair: str = Field(..., min_length=1, max_length=220)
     revision_target: PlannerConflictRevisionTarget | None = None
+    priority_score: int = Field(default=50, ge=0, le=100)
+    priority_label: PlannerConflictPriority = "worth_resolving"
+    recommended_repair: str | None = Field(default=None, max_length=240)
+    why_it_matters: str | None = Field(default=None, max_length=260)
+    proactive_summary: str | None = Field(default=None, max_length=280)
+    status: PlannerConflictStatus = "open"
+    resolution_summary: str | None = Field(default=None, max_length=280)
+    resolved_at: datetime | None = None
+    resolution_action: PlannerConflictResolutionAction | None = None
+    resolution_options: list[PlannerConflictResolutionOption] = Field(
+        default_factory=list,
+        max_length=4,
+    )
 
 
 class AdvancedReviewPlanningState(BaseModel):

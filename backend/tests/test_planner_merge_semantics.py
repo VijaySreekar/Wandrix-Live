@@ -1574,6 +1574,60 @@ def test_completed_activities_response_can_carry_personalized_llm_copy() -> None
     assert "remaining planning choices" in response.lower()
 
 
+def test_activity_change_response_mentions_top_proactive_conflict() -> None:
+    conversation = TripConversationState.model_validate(
+        {
+            "planning_mode": "advanced",
+            "advanced_step": "anchor_flow",
+            "advanced_anchor": "activities",
+            "trip_style_planning": {"selected_pace": "slow"},
+            "activity_planning": {
+                "schedule_status": "ready",
+                "completion_status": "completed",
+                "completion_summary": "The activities plan is drafted.",
+                "day_plans": [
+                    {
+                        "id": "day_1",
+                        "day_index": 1,
+                        "day_label": "Day 1",
+                        "blocks": [
+                            {"id": "b1", "type": "activity", "title": "Temple", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "b2", "type": "activity", "title": "Market", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "b3", "type": "event", "title": "Dinner", "day_index": 1, "day_label": "Day 1"},
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+    conversation.planner_conflicts = conversation_state.build_planner_conflicts(
+        configuration=TripConfiguration(to_location="Kyoto"),
+        conversation=conversation,
+    )
+
+    response = build_assistant_response(
+        configuration=TripConfiguration(
+            to_location="Kyoto",
+            selected_modules={"activities": True},
+        ),
+        conversation=conversation,
+        llm_update=TripTurnUpdate(),
+        brief_confirmed=True,
+        fallback_text=None,
+        profile_context={},
+        board_action={
+            "action_id": "action_rebuild",
+            "type": "rebuild_activity_day_plan",
+        },
+        confirmation_status="unconfirmed",
+        finalized_via=None,
+    )
+
+    assert "worth resolving" in response.lower() or "resolve first" in response.lower()
+    assert "recommended repair" in response.lower()
+    assert "why it matters" in response.lower()
+
+
 def test_rejected_destination_is_filtered_from_future_suggestions() -> None:
     current = TripConversationState.model_validate(
         {
@@ -3811,6 +3865,12 @@ def test_planner_conflicts_detect_slow_pace_dense_activity_days() -> None:
 
     assert conflicts[0].category == "schedule_density"
     assert conflicts[0].revision_target == "activities"
+    assert conflicts[0].status == "open"
+    assert any(option.action == "safe_edit" for option in conflicts[0].resolution_options)
+    assert conflicts[0].priority_label in {"worth_resolving", "resolve_first"}
+    assert conflicts[0].recommended_repair
+    assert "pace" in (conflicts[0].why_it_matters or "")
+    assert "Recommended repair" in (conflicts[0].proactive_summary or "")
     assert "slow pace" in conflicts[0].summary
 
 
@@ -3894,3 +3954,162 @@ def test_advanced_review_includes_planner_conflict_notes() -> None:
 
     assert review.readiness_status == "needs_review"
     assert any("slow pace" in note for note in review.review_notes)
+
+
+def test_planner_conflict_resolution_status_persists_until_evidence_changes() -> None:
+    conversation = TripConversationState.model_validate(
+        {
+            "trip_style_planning": {"selected_pace": "slow"},
+            "activity_planning": {
+                "completion_status": "completed",
+                "day_plans": [
+                    {
+                        "id": "day_1",
+                        "day_index": 1,
+                        "day_label": "Day 1",
+                        "blocks": [
+                            {"id": "b1", "type": "activity", "title": "Temple", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "b2", "type": "activity", "title": "Market", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "b3", "type": "event", "title": "Dinner", "day_index": 1, "day_label": "Day 1"},
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+    conflicts = conversation_state.build_planner_conflicts(
+        configuration=TripConfiguration(to_location="Kyoto"),
+        conversation=conversation,
+    )
+    resolved = conflicts[0].model_copy(
+        update={
+            "status": "resolved",
+            "resolution_summary": "Accepted the fuller first day.",
+            "resolution_action": "resolve",
+        }
+    )
+
+    persisted = conversation_state.build_planner_conflicts(
+        configuration=TripConfiguration(to_location="Kyoto"),
+        conversation=conversation,
+        previous_conflicts=[resolved],
+    )
+
+    assert persisted[0].status == "resolved"
+    assert persisted[0].resolution_summary == "Accepted the fuller first day."
+
+    conversation.memory.decision_memory = [
+        PlannerDecisionMemoryRecord(
+            key="conflict_resolution",
+            value_summary="Accepted as tradeoff: Accepted the fuller first day.",
+            source="board_action",
+            confidence="high",
+            status="confirmed",
+            rationale="The traveler accepted this tradeoff.",
+        )
+    ]
+    persisted_with_memory = conversation_state.build_planner_conflicts(
+        configuration=TripConfiguration(to_location="Kyoto"),
+        conversation=conversation,
+        previous_conflicts=[resolved],
+    )
+
+    assert persisted_with_memory[0].status == "resolved"
+    assert "unless the plan changes materially" in (
+        persisted_with_memory[0].resolution_summary or ""
+    )
+
+    changed = conversation.model_copy(deep=True)
+    changed.activity_planning.day_plans[0].day_label = "Arrival day"
+    changed.activity_planning.day_plans[0].blocks[0].day_label = "Arrival day"
+    reopened = conversation_state.build_planner_conflicts(
+        configuration=TripConfiguration(to_location="Kyoto"),
+        conversation=changed,
+        previous_conflicts=[resolved],
+    )
+
+    assert reopened[0].status == "open"
+    assert reopened[0].resolution_summary is None
+
+
+def test_conflict_safe_edit_reserves_maybe_items_without_touching_essentials_or_fixed_events() -> None:
+    base = TripConversationState.model_validate(
+        {
+            "planning_mode": "advanced",
+            "advanced_step": "review",
+            "trip_style_planning": {"selected_pace": "slow"},
+            "activity_planning": {
+                "completion_status": "completed",
+                "essential_ids": ["temple"],
+                "maybe_ids": ["market"],
+                "visible_candidates": [
+                    {"id": "temple", "title": "Temple", "disposition": "essential"},
+                    {"id": "market", "title": "Market", "disposition": "maybe"},
+                ],
+                "day_plans": [
+                    {
+                        "id": "day_1",
+                        "day_index": 1,
+                        "day_label": "Day 1",
+                        "blocks": [
+                            {"id": "temple_block", "type": "activity", "candidate_id": "temple", "title": "Temple", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "market_block", "type": "activity", "candidate_id": "market", "title": "Market", "day_index": 1, "day_label": "Day 1"},
+                            {"id": "dinner_block", "type": "event", "candidate_id": "dinner", "title": "Dinner", "day_index": 1, "day_label": "Day 1", "fixed_time": True},
+                        ],
+                    }
+                ],
+                "timeline_blocks": [
+                    {"id": "temple_block", "type": "activity", "candidate_id": "temple", "title": "Temple", "day_index": 1, "day_label": "Day 1"},
+                    {"id": "market_block", "type": "activity", "candidate_id": "market", "title": "Market", "day_index": 1, "day_label": "Day 1"},
+                    {"id": "dinner_block", "type": "event", "candidate_id": "dinner", "title": "Dinner", "day_index": 1, "day_label": "Day 1", "fixed_time": True},
+                ],
+            },
+        }
+    )
+    conflicts = conversation_state.build_planner_conflicts(
+        configuration=TripConfiguration(to_location="Kyoto"),
+        conversation=base,
+    )
+    base.planner_conflicts = conflicts
+
+    updated = build_conversation_state(
+        current=base,
+        previous_configuration=TripConfiguration(to_location="Kyoto"),
+        next_configuration=TripConfiguration(to_location="Kyoto"),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="",
+        turn_id="turn_conflict_safe_edit",
+        user_message="",
+        now=datetime(2026, 4, 24, tzinfo=timezone.utc),
+        planning_mode="advanced",
+        advanced_step="review",
+        board_action={
+            "action_id": "action_safe_edit",
+            "type": "apply_planner_conflict_safe_edit",
+            "planner_conflict_id": "conflict_slow_pace_dense_days",
+            "planner_conflict_safe_edit": "reserve_maybe_activity_extras",
+        },
+    )
+
+    assert "market" in updated.activity_planning.reserved_candidate_ids
+    assert "temple" not in updated.activity_planning.reserved_candidate_ids
+    assert any(block.id == "dinner_block" for block in updated.activity_planning.timeline_blocks)
+    resolved = next(
+        conflict
+        for conflict in updated.planner_conflicts
+        if conflict.id == "conflict_slow_pace_dense_days"
+    )
+    assert resolved.status == "resolved"
+    assert "Resolved by moving lower-priority flexible activities" in (
+        resolved.resolution_summary or ""
+    )
+    memory_record = next(
+        record
+        for record in updated.memory.decision_memory
+        if record.key == "conflict_resolution"
+    )
+    assert memory_record.status == "confirmed"
+    assert memory_record.source == "board_action"
+    assert "Resolved by safe edit" in memory_record.value_summary
+    assert "future advice" in (memory_record.rationale or "")

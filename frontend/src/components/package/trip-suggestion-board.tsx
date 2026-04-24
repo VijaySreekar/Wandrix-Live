@@ -1216,7 +1216,7 @@ function AdvancedReviewWorkspace({
       {conflicts.length ? (
         <div className="rounded-xl border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-5 py-4">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--planner-board-muted-strong)]">
-            Planning tensions
+            Worth resolving
           </p>
           <div className="mt-3 space-y-3">
             {conflicts.map((conflict) => (
@@ -1307,6 +1307,18 @@ function AdvancedReviewConflictCard({
   onAction: (action: PlannerBoardActionIntent) => void;
 }) {
   const revisionAnchor = getConflictRevisionAnchor(conflict);
+  const resolutionOptions = conflict.resolution_options ?? [];
+  const safeEditOption = resolutionOptions.find(
+    (option) => option.action === "safe_edit" && option.safe_edit,
+  );
+  const deferOption = resolutionOptions.find(
+    (option) => option.action === "defer",
+  );
+  const resolveOption = resolutionOptions.find(
+    (option) => option.action === "resolve",
+  );
+  const conflictStatus = conflict.status ?? "open";
+  const isOpen = conflictStatus === "open";
   return (
     <article className="rounded-lg border border-[var(--planner-board-border)] bg-[var(--planner-board-soft)] px-4 py-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1320,6 +1332,19 @@ function AdvancedReviewConflictCard({
             >
               {formatConflictSeverity(conflict.severity)}
             </span>
+            <span
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                getConflictStatusBadgeClass(conflictStatus),
+              )}
+            >
+              {formatConflictStatus(conflictStatus)}
+            </span>
+            {conflict.priority_label ? (
+              <span className="rounded-full bg-[var(--planner-board-card)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--planner-board-muted-strong)]">
+                {formatConflictPriority(conflict.priority_label)}
+              </span>
+            ) : null}
             {conflict.affected_areas.length ? (
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--planner-board-muted-strong)]">
                 {conflict.affected_areas.join(" / ")}
@@ -1330,8 +1355,19 @@ function AdvancedReviewConflictCard({
             {conflict.summary}
           </p>
           <p className="mt-1 text-xs leading-5 text-[var(--planner-board-muted)]">
-            {conflict.suggested_repair}
+            {conflict.recommended_repair || conflict.suggested_repair}
           </p>
+          {conflict.why_it_matters ? (
+            <p className="mt-2 text-xs leading-5 text-[var(--planner-board-muted-strong)]">
+              Why this matters: {conflict.why_it_matters}
+            </p>
+          ) : null}
+          {conflict.resolution_summary ? (
+            <p className="mt-2 rounded-md border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-3 py-2 text-xs leading-5 text-[var(--planner-board-muted)]">
+              {formatConflictResolutionAction(conflict.resolution_action)}
+              {conflict.resolution_summary}
+            </p>
+          ) : null}
           {conflict.evidence.length ? (
             <div className="mt-2 space-y-1">
               {conflict.evidence.slice(0, 2).map((item) => (
@@ -1345,7 +1381,7 @@ function AdvancedReviewConflictCard({
             </div>
           ) : null}
         </div>
-        {revisionAnchor ? (
+        {isOpen && revisionAnchor ? (
           <button
             type="button"
             disabled={disabled}
@@ -1367,6 +1403,80 @@ function AdvancedReviewConflictCard({
           </button>
         ) : null}
       </div>
+      {isOpen ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {safeEditOption?.safe_edit ? (
+            <button
+              type="button"
+              disabled={disabled}
+              title={safeEditOption.description}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "apply_planner_conflict_safe_edit",
+                  planner_conflict_id: conflict.id,
+                  planner_conflict_safe_edit: safeEditOption.safe_edit,
+                  planner_conflict_resolution_summary: safeEditOption.description,
+                })
+              }
+              className={cn(
+                "rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors",
+                disabled
+                  ? "cursor-wait bg-[var(--planner-board-muted-strong)] text-[var(--planner-board-card)] opacity-70"
+                  : "bg-[var(--planner-board-cta)] text-white hover:bg-[var(--planner-board-cta-hover)]",
+              )}
+            >
+              {safeEditOption.label}
+            </button>
+          ) : null}
+          {deferOption ? (
+            <button
+              type="button"
+              disabled={disabled}
+              title={deferOption.description}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "defer_planner_conflict",
+                  planner_conflict_id: conflict.id,
+                  planner_conflict_resolution_summary: deferOption.description,
+                })
+              }
+              className={cn(
+                "rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors",
+                disabled
+                  ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                  : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-card)]",
+              )}
+            >
+              {deferOption.label}
+            </button>
+          ) : null}
+          {resolveOption ? (
+            <button
+              type="button"
+              disabled={disabled}
+              title={resolveOption.description}
+              onClick={() =>
+                onAction({
+                  action_id: crypto.randomUUID(),
+                  type: "resolve_planner_conflict",
+                  planner_conflict_id: conflict.id,
+                  planner_conflict_resolution_summary: resolveOption.description,
+                })
+              }
+              className={cn(
+                "rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors",
+                disabled
+                  ? "cursor-wait border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] opacity-70"
+                  : "border-[var(--planner-board-border)] text-[var(--planner-board-muted-strong)] hover:bg-[var(--planner-board-card)]",
+              )}
+            >
+              {resolveOption.label}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -1403,6 +1513,51 @@ function getConflictBadgeClass(severity: PlannerConflictRecord["severity"]) {
     return "bg-[var(--planner-board-card)] text-[var(--planner-board-muted-strong)]";
   }
   return "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]";
+}
+
+function formatConflictStatus(status: PlannerConflictRecord["status"]) {
+  if (status === "resolved") {
+    return "Resolved";
+  }
+  if (status === "deferred") {
+    return "Deferred";
+  }
+  return "Open";
+}
+
+function getConflictStatusBadgeClass(status: PlannerConflictRecord["status"]) {
+  if (status === "resolved") {
+    return "bg-[var(--planner-board-card)] text-[var(--planner-board-cta)]";
+  }
+  if (status === "deferred") {
+    return "bg-[var(--planner-board-card)] text-[var(--planner-board-muted-strong)]";
+  }
+  return "bg-[var(--planner-board-card)] text-[var(--planner-board-foreground)]";
+}
+
+function formatConflictPriority(priority: NonNullable<PlannerConflictRecord["priority_label"]>) {
+  if (priority === "resolve_first") {
+    return "Resolve first";
+  }
+  if (priority === "watch") {
+    return "Watch";
+  }
+  return "Recommended";
+}
+
+function formatConflictResolutionAction(
+  action: PlannerConflictRecord["resolution_action"],
+) {
+  if (action === "safe_edit") {
+    return "Resolved by edit: ";
+  }
+  if (action === "resolve") {
+    return "Accepted tradeoff: ";
+  }
+  if (action === "defer") {
+    return "Deferred caution: ";
+  }
+  return "";
 }
 
 function AdvancedReviewDecisionSignalCard({

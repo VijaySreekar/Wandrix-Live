@@ -73,6 +73,32 @@ def test_advanced_brochure_preserves_planner_conflict_notes() -> None:
     assert any("lower-priority ideas" in note for note in payload.worth_reviewing_notes)
 
 
+def test_advanced_brochure_keeps_deferred_conflicts_and_omits_resolved_conflicts() -> None:
+    draft = _advanced_draft(review_status="flexible", include_conflict=True)
+    conflict = draft.conversation.planner_conflicts[0]
+    conflict.status = "deferred"
+    conflict.resolution_summary = "Saved as an intentional caution."
+    resolved = conflict.model_copy(
+        update={
+            "id": "conflict_resolved_density",
+            "status": "resolved",
+            "summary": "This resolved density note should not appear.",
+            "resolution_summary": "Accepted after review.",
+            "resolution_action": "resolve",
+        }
+    )
+    draft.conversation.planner_conflicts.append(resolved)
+
+    payload = build_brochure_snapshot_payload(
+        trip=SimpleNamespace(id="trip_kyoto"),
+        draft=draft,
+        version_number=4,
+    )
+
+    assert any("Saved as an intentional caution" in note for note in payload.worth_reviewing_notes)
+    assert not any("resolved density" in note for note in payload.worth_reviewing_notes)
+
+
 def test_minimal_legacy_brochure_payload_still_validates() -> None:
     payload = BrochureSnapshotPayload.model_validate(
         {

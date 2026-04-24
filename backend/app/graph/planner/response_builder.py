@@ -92,7 +92,10 @@ def build_assistant_response(
         return _sanitize_assistant_text(
             _build_quick_plan_waiting_response(
                 configuration=configuration,
+                conversation=conversation,
                 greeting_name=greeting_name,
+                action=action,
+                llm_update=llm_update,
                 provider_activation=provider_activation or {},
             )
         )
@@ -107,6 +110,19 @@ def build_assistant_response(
                 conversation=conversation,
                 greeting_name=greeting_name,
                 action=action,
+            )
+        )
+
+    if action and action.type in {
+        "resolve_planner_conflict",
+        "defer_planner_conflict",
+        "apply_planner_conflict_safe_edit",
+    }:
+        return _sanitize_assistant_text(
+            _build_planner_conflict_resolution_response(
+                conversation=conversation,
+                action=action,
+                greeting_name=greeting_name,
             )
         )
 
@@ -129,13 +145,18 @@ def build_assistant_response(
 
     if conversation.planning_mode == "advanced" and conversation.advanced_step == "anchor_flow":
         return _sanitize_assistant_text(
-            _build_advanced_anchor_flow_response(
-                configuration=configuration,
+            _append_proactive_conflict_note(
+                _build_advanced_anchor_flow_response(
+                    configuration=configuration,
+                    conversation=conversation,
+                    greeting_name=greeting_name,
+                    action=action,
+                    llm_update=llm_update,
+                    fallback_text=fallback_text,
+                ),
                 conversation=conversation,
-                greeting_name=greeting_name,
                 action=action,
                 llm_update=llm_update,
-                fallback_text=fallback_text,
             )
         )
 
@@ -302,6 +323,71 @@ def _sanitize_assistant_text(text: str) -> str:
     )
     lines = [" ".join(line.split()) for line in sanitized.splitlines()]
     return "\n".join(line for line in lines if line).strip()
+
+
+def _append_proactive_conflict_note(
+    response: str,
+    *,
+    conversation: TripConversationState,
+    action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
+    force_quick_provider_note: bool = False,
+) -> str:
+    conflict = _top_open_planner_conflict(conversation)
+    if conflict is None:
+        return response
+    if not force_quick_provider_note and not _turn_changed_planning(
+        action=action,
+        llm_update=llm_update,
+    ):
+        return response
+    if action and action.type in {
+        "resolve_planner_conflict",
+        "defer_planner_conflict",
+        "apply_planner_conflict_safe_edit",
+        "finalize_advanced_plan",
+        "finalize_quick_plan",
+        "reopen_plan",
+    }:
+        return response
+    summary = conflict.proactive_summary or conflict.summary
+    why = f" Why it matters: {conflict.why_it_matters}" if conflict.why_it_matters else ""
+    return f"{response} {summary}.{why}"
+
+
+def _top_open_planner_conflict(conversation: TripConversationState):
+    return next(
+        (
+            conflict
+            for conflict in conversation.planner_conflicts
+            if conflict.status == "open"
+        ),
+        None,
+    )
+
+
+def _turn_changed_planning(
+    *,
+    action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
+) -> bool:
+    if action and action.type not in {
+        "select_advanced_anchor",
+        "revise_advanced_review_section",
+    }:
+        return True
+    return bool(
+        llm_update.confirmed_fields
+        or llm_update.requested_activity_decisions
+        or llm_update.requested_activity_schedule_edits
+        or llm_update.requested_trip_style_direction_updates
+        or llm_update.requested_trip_style_pace_updates
+        or llm_update.requested_trip_style_tradeoff_updates
+        or llm_update.requested_flight_updates
+        or llm_update.requested_review_resolutions
+        or llm_update.requested_stay_option_title
+        or llm_update.requested_stay_hotel_name
+    )
 
 
 def _build_details_collection_response(
@@ -1251,7 +1337,10 @@ def _build_advanced_stay_response(
 def _build_quick_plan_waiting_response(
     *,
     configuration: TripConfiguration,
+    conversation: TripConversationState,
     greeting_name: str | None,
+    action: ConversationBoardAction | None,
+    llm_update: TripTurnUpdate,
     provider_activation: dict,
 ) -> str:
     greeting_prefix = f"Got it, {greeting_name}. " if greeting_name else "Got it. "
@@ -1269,10 +1358,17 @@ def _build_quick_plan_waiting_response(
         "question"
     )
     question_line = f" The key thing to confirm is: {next_question}" if next_question else ""
-    return (
+    response = (
         f"{greeting_prefix}Quick Plan is selected for {destination}, but I am not triggering live planning yet because {blocker_text}. "
         "I will keep the brief structured and move into the first draft as soon as the remaining blocker is resolved."
         f"{question_line}"
+    )
+    return _append_proactive_conflict_note(
+        response,
+        conversation=conversation,
+        action=action,
+        llm_update=llm_update,
+        force_quick_provider_note=True,
     )
 
 
@@ -1292,10 +1388,17 @@ def _build_plan_finalized_response(
         else "I finalized it from your chat confirmation. "
     )
     plan_label = "reviewed Advanced plan" if advanced_finalization else "current plan"
+    caution_count = len(
+        [
+            conflict
+            for conflict in conversation.planner_conflicts
+            if conflict.status != "resolved"
+        ]
+    )
     conflict_line = (
-        f" I also saved {len(conversation.planner_conflicts)} planning caution"
-        f"{'s' if len(conversation.planner_conflicts) != 1 else ''} with the brochure notes."
-        if conversation.planner_conflicts
+        f" I also saved {caution_count} planning caution"
+        f"{'s' if caution_count != 1 else ''} with the brochure notes."
+        if caution_count
         else ""
     )
     return (
@@ -1316,9 +1419,9 @@ def _build_advanced_review_response(
     greeting_prefix = f"Absolutely, {greeting_name}. " if greeting_name else "Absolutely. "
     destination = configuration.to_location or "this trip"
     review = conversation.advanced_review_planning
-    top_conflict = conversation.planner_conflicts[0] if conversation.planner_conflicts else None
+    top_conflict = _top_open_planner_conflict(conversation)
     conflict_line = (
-        f" I also found one planning tension to resolve first: {top_conflict.summary}"
+        f" I also found one planning tension to resolve first: {top_conflict.proactive_summary or top_conflict.summary}"
         if top_conflict
         else ""
     )
@@ -1336,6 +1439,45 @@ def _build_advanced_review_response(
     return (
         f"{greeting_prefix}I’ve opened the working review for {destination}. "
         "Some choices are still flexible; you can revise them, or save the brochure-ready version with those flexible notes captured."
+    )
+
+
+def _build_planner_conflict_resolution_response(
+    *,
+    conversation: TripConversationState,
+    action: ConversationBoardAction,
+    greeting_name: str | None,
+) -> str:
+    greeting_prefix = f"Done, {greeting_name}. " if greeting_name else "Done. "
+    conflict = next(
+        (
+            item
+            for item in conversation.planner_conflicts
+            if item.id == action.planner_conflict_id
+        ),
+        None,
+    )
+    summary = (
+        conflict.resolution_summary
+        if conflict and conflict.resolution_summary
+        else action.planner_conflict_resolution_summary
+    )
+    if action.type == "defer_planner_conflict":
+        return (
+            f"{greeting_prefix}I kept the plan as-is and saved that tension as an intentional caution. "
+            f"{summary or 'It will carry into the brochure notes if we finalize from here.'} "
+            "I’ll keep that preference in mind unless the underlying plan changes materially."
+        )
+    if action.type == "apply_planner_conflict_safe_edit":
+        return (
+            f"{greeting_prefix}I applied the safe planner edit. "
+            f"{summary or 'Essentials, fixed-time events, selected flights, and selected stays were left intact.'} "
+            "I’ll treat that as the repair preference for this kind of tension unless the evidence changes."
+        )
+    return (
+        f"{greeting_prefix}I marked that planning tension as resolved. "
+        f"{summary or 'The current plan keeps that tradeoff accepted for review.'} "
+        "I won’t keep nudging the same repair unless the plan shifts enough to make it a new issue."
     )
 
 

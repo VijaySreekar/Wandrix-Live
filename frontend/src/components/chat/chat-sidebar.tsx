@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   PanelLeftClose,
@@ -53,7 +52,6 @@ function getSidebarHydrationSnapshot() {
 
 type ChatSidebarProps = {
   activeTripId: string | null;
-  chatRoute?: string;
   collapsed: boolean;
   onSelectTrip: (tripId: string) => void;
   onPrefetchTrip: (tripId: string) => void;
@@ -70,7 +68,6 @@ type ChatSidebarProps = {
 
 export function ChatSidebar({
   activeTripId,
-  chatRoute = "/chat",
   collapsed,
   onSelectTrip,
   onPrefetchTrip,
@@ -84,7 +81,6 @@ export function ChatSidebar({
   workspace,
   recentTrips,
 }: ChatSidebarProps) {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [autoVisibleCount, setAutoVisibleCount] = useState(INITIAL_VISIBLE);
   const [manualVisibleCount, setManualVisibleCount] = useState(0);
@@ -266,7 +262,6 @@ export function ChatSidebar({
                         }
 
                         onSelectTrip(session.id);
-                        router.push(`${chatRoute}?trip=${session.id}`);
                       }}
                       className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent)]/40"
                     >
@@ -336,7 +331,6 @@ export function ChatSidebar({
                     }
 
                     onSelectTrip(session.id);
-                    router.push(`${chatRoute}?trip=${session.id}`);
                   }}
                   className={[
                     "flex h-10 w-10 items-center justify-center rounded-lg border text-[0.72rem] font-semibold uppercase transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent)]/40",

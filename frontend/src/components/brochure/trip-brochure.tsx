@@ -35,6 +35,7 @@ import type {
   BrochureAdvancedSectionSummary,
   BrochureHistoryItem,
   BrochureSnapshot,
+  BrochureSnapshotPayload,
   BrochureWarning,
 } from "@/types/brochure";
 import type { ActivityDetail, FlightDetail, HotelStayDetail, TimelineItem } from "@/types/trip-draft";
@@ -164,7 +165,7 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
     );
   }
 
-  const payload = snapshot.payload;
+  const payload = normalizeBrochurePayload(snapshot.payload);
   const advancedSections = payload.advanced_section_summaries ?? [];
   const flexibleItems = payload.flexible_items ?? [];
   const worthReviewingNotes = payload.worth_reviewing_notes ?? [];
@@ -414,6 +415,162 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
       </div>
     </div>
   );
+}
+
+function normalizeBrochurePayload(
+  payload: BrochureSnapshotPayload,
+): BrochureSnapshotPayload {
+  const hasAdvancedContext = Boolean(
+    payload.advanced_section_summaries?.length ||
+      payload.advanced_review_summary ||
+      payload.trip_character_summary ||
+      payload.planned_experience_summary,
+  );
+  if (!hasAdvancedContext) {
+    return payload;
+  }
+
+  const travelDates = parseTravelWindowDates(payload.travel_window_text);
+  const flights = payload.flights.filter((flight) =>
+    flightMatchesTravelDates(flight, travelDates),
+  );
+  const selectedStay = resolveDisplayStay(payload);
+  const selectedStayIds = new Set(selectedStay.map((stay) => stay.id));
+  const selectedStayNames = new Set(
+    selectedStay.map((stay) => stay.hotel_name.trim().toLowerCase()),
+  );
+  const itineraryDays = payload.itinerary_days
+    .map((day) => ({
+      ...day,
+      items: day.items.filter((item) =>
+        shouldKeepBrochureTimelineItem(
+          item,
+          travelDates,
+          selectedStayIds,
+          selectedStayNames,
+        ),
+      ),
+    }))
+    .filter((day) => day.items.length > 0);
+
+  return {
+    ...payload,
+    flights,
+    stays: selectedStay,
+    itinerary_days: itineraryDays,
+  };
+}
+
+type TravelWindowDates = {
+  startDate: string | null;
+  endDate: string | null;
+};
+
+function parseTravelWindowDates(value: string): TravelWindowDates {
+  const match = value.match(
+    /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+to\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/,
+  );
+  if (!match) {
+    return { startDate: null, endDate: null };
+  }
+
+  return {
+    startDate: toIsoDate(match[1], match[2], match[3]),
+    endDate: toIsoDate(match[4], match[5], match[6]),
+  };
+}
+
+function toIsoDate(day: string, month: string, year: string) {
+  const monthIndex = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+  ].indexOf(month.toLowerCase());
+  if (monthIndex < 0) {
+    return null;
+  }
+
+  return new Date(Date.UTC(Number(year), monthIndex, Number(day)))
+    .toISOString()
+    .slice(0, 10);
+}
+
+function flightMatchesTravelDates(
+  flight: FlightDetail,
+  travelDates: TravelWindowDates,
+) {
+  const expectedDate =
+    flight.direction === "outbound" ? travelDates.startDate : travelDates.endDate;
+  if (!expectedDate || !flight.departure_time) {
+    return true;
+  }
+
+  return flight.departure_time.slice(0, 10) === expectedDate;
+}
+
+function resolveDisplayStay(payload: BrochureSnapshotPayload): HotelStayDetail[] {
+  if (payload.stays.length <= 1) {
+    return payload.stays;
+  }
+
+  const currentStaySection = payload.advanced_section_summaries?.find(
+    (section) => section.id === "stay" || section.title.toLowerCase() === "current stay",
+  );
+  const sectionText = [
+    currentStaySection?.summary,
+    ...(currentStaySection?.notes ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const explicitStay = payload.stays.find(
+    (stay) =>
+      sectionText.includes(stay.hotel_name.toLowerCase()) ||
+      (stay.area && sectionText.includes(stay.area.toLowerCase())),
+  );
+
+  return [explicitStay ?? payload.stays[0]];
+}
+
+function shouldKeepBrochureTimelineItem(
+  item: TimelineItem,
+  travelDates: TravelWindowDates,
+  selectedStayIds: Set<string>,
+  selectedStayNames: Set<string>,
+) {
+  if (item.type === "flight" || item.source_module === "flights") {
+    const expectedDate = item.title.toLowerCase().includes("return")
+      ? travelDates.endDate
+      : travelDates.startDate;
+    if (!expectedDate || !item.start_at) {
+      return true;
+    }
+
+    return item.start_at.slice(0, 10) === expectedDate;
+  }
+
+  if (item.type === "hotel" || item.source_module === "hotels") {
+    if (!selectedStayIds.size && !selectedStayNames.size) {
+      return true;
+    }
+
+    return (
+      selectedStayIds.has(item.id) ||
+      selectedStayIds.has(item.id.replace(/^timeline_/, "")) ||
+      selectedStayNames.has(item.title.trim().toLowerCase())
+    );
+  }
+
+  return true;
 }
 
 function ProposalStatusCard({

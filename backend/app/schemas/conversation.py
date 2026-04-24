@@ -16,6 +16,7 @@ from app.schemas.trip_conversation import (
     PlannerTripDirectionAccent,
     PlannerTripDirectionPrimary,
     PlannerReviewResolutionScope,
+    PlannerConflictSafeEdit,
 )
 from app.schemas.trip_planning import ActivityStyle, BudgetPosture, TripModuleSelection
 from app.schemas.trip_draft import TripDraft
@@ -90,6 +91,9 @@ class ConversationBoardAction(BaseModel):
         "set_stay_hotel_page",
         "reset_stay_hotel_filters",
         "revise_advanced_review_section",
+        "resolve_planner_conflict",
+        "defer_planner_conflict",
+        "apply_planner_conflict_safe_edit",
         "finalize_advanced_plan",
         "finalize_quick_plan",
         "reopen_plan",
@@ -117,6 +121,9 @@ class ConversationBoardAction(BaseModel):
     trip_style_tradeoff_axis: PlannerTripStyleTradeoffAxis | None = None
     trip_style_tradeoff_value: PlannerTripStyleTradeoffChoice | None = None
     review_resolution_scope: PlannerReviewResolutionScope | None = None
+    planner_conflict_id: str | None = Field(default=None, max_length=120)
+    planner_conflict_safe_edit: PlannerConflictSafeEdit | None = None
+    planner_conflict_resolution_summary: str | None = Field(default=None, max_length=280)
     stay_hotel_max_nightly_rate: float | None = Field(default=None, ge=0)
     stay_hotel_area_filter: str | None = Field(default=None, max_length=160)
     stay_hotel_style_filter: str | None = Field(default=None, max_length=40)

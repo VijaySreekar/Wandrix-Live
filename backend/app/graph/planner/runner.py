@@ -1486,8 +1486,16 @@ def _flight_day_label(
     flight,
     configuration: TripConfiguration,
 ) -> str | None:
-    departure_time = getattr(flight, "departure_time", None)
-    if not departure_time or not configuration.start_date:
+    if not configuration.start_date:
         return None
-    day_number = max((departure_time.date() - configuration.start_date).days + 1, 1)
+    direction = getattr(flight, "direction", None)
+    if direction == "outbound":
+        day_number = 1
+    elif direction == "return" and configuration.end_date:
+        day_number = max((configuration.end_date - configuration.start_date).days + 1, 1)
+    else:
+        departure_time = getattr(flight, "departure_time", None)
+        if not departure_time:
+            return None
+        day_number = max((departure_time.date() - configuration.start_date).days + 1, 1)
     return f"Day {day_number}"
