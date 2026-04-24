@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowUp,
   Bot,
@@ -1026,22 +1026,75 @@ function AssistantWelcome({
     profileContext?.display_name?.split(" ")[0] ||
     "there";
   const contextLine = buildWelcomeContextLine(profileContext);
+  const starterPrompts: Array<{
+    title: string;
+    description: string;
+    prompt: string;
+    image: string;
+    disabled: boolean;
+  }> = [
+    {
+      title: "Kyoto food and culture",
+      description: profileContext?.home_airport
+        ? `A calm 5-day route from ${profileContext.home_airport}.`
+        : "A calm 5-day route with temples and markets.",
+      prompt: profileContext?.home_airport
+        ? `Plan a calm 5-day food and culture trip to Kyoto from ${profileContext.home_airport} for two adults.`
+        : "Plan a calm 5-day food and culture trip to Kyoto for two adults.",
+      image:
+        "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=640&q=72",
+      disabled: disabled || !hasWorkspace,
+    },
+    {
+      title: "Warm September cities",
+      description: "A 4-night city break with a clear best pick.",
+      prompt:
+        "I have 4 nights in late September. Suggest three warm European cities and help me choose between them.",
+      image:
+        "https://images.unsplash.com/photo-1516483638261-f4dbaf036963?auto=format&fit=crop&w=640&q=76",
+      disabled: disabled || !hasWorkspace,
+    },
+    {
+      title: "Lisbon or Porto",
+      description: profileContext?.preferred_currency
+        ? `A relaxed long weekend planned in ${profileContext.preferred_currency}.`
+        : "A relaxed long weekend with an easy comparison.",
+      prompt: profileContext?.preferred_currency
+        ? `Help me compare Lisbon and Porto for a relaxed long weekend, and keep the budget in ${profileContext.preferred_currency}.`
+        : "Help me compare Lisbon and Porto for a relaxed long weekend.",
+      image:
+        "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=640&q=76",
+      disabled: disabled || !hasWorkspace,
+    },
+    {
+      title: "Barcelona family days",
+      description: "Central stays, easy pacing, and rainy-day backups.",
+      prompt:
+        "Plan a weather-aware family trip to Barcelona with central stays, easy days, and backup activities.",
+      image:
+        "https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&w=640&q=76",
+      disabled: disabled || !hasWorkspace,
+    },
+  ];
 
   return (
-    <div className="mx-auto w-full max-w-[52rem] px-1 pb-6 pt-2">
+    <div className="chat-welcome-enter mx-auto flex min-h-[clamp(26rem,58dvh,34rem)] w-full max-w-[52rem] flex-col justify-end px-1 pb-4 pt-8">
       <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="text-xs font-medium uppercase tracking-[0.22em] text-[color:var(--accent)]">
-            Wandrix planner
+        <div className="flex max-w-[44rem] items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[color:color-mix(in_srgb,var(--accent)_12%,transparent)] text-[color:var(--accent)] shadow-[var(--chat-shadow-card)] ring-1 ring-[color:color-mix(in_srgb,var(--accent)_14%,transparent)]">
+            <Bot className="h-4 w-4" />
           </div>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-foreground">
-              {`Hey ${greetingName}, I’m Wandrix.`}
-            </div>
-            <p className="max-w-2xl text-sm text-muted-foreground">
+          <div className="rounded-[1rem] border border-border/70 bg-background/92 px-5 py-4 shadow-[var(--chat-shadow-soft)] dark:bg-card/96">
+            <p className="text-[length:var(--chat-size-body)] font-medium leading-[var(--chat-line-body)] text-foreground">
+              {`Tell me the trip you're trying to make, ${greetingName}.`}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
               {contextLine}
             </p>
           </div>
+        </div>
+
+        <div className="max-w-[44rem] pl-12">
           {disabled ? (
             <p className="text-sm text-muted-foreground">
               Finishing workspace setup before the first run.
@@ -1059,95 +1112,33 @@ function AssistantWelcome({
           ) : null}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ThreadPrimitive.Suggestion
-            className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-            prompt={
-              profileContext?.home_airport
-                ? `Plan a 5-day food and culture trip to Kyoto from ${profileContext.home_airport} for two adults.`
-                : "Plan a 5-day food and culture trip to Kyoto for two adults."
-            }
-            autoSend
-            disabled={disabled || !hasWorkspace}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
-            </div>
-            <div className="mt-4 text-base font-semibold text-foreground">
-              Kyoto food and culture
-            </div>
-            <div className="mt-1 text-sm leading-6 text-muted-foreground">
-              {profileContext?.home_airport
-                ? `Plan a 5-day food and culture trip to Kyoto from ${profileContext.home_airport} for two adults.`
-                : "Plan a 5-day food and culture trip to Kyoto for two adults."}
-            </div>
-          </ThreadPrimitive.Suggestion>
-          <ThreadPrimitive.Suggestion
-            className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-            prompt={
-              profileContext?.preferred_currency
-                ? `Help me shape a luxury long weekend in Lisbon with flights and hotel ideas, and keep the budget in ${profileContext.preferred_currency}.`
-                : "Help me shape a luxury long weekend in Lisbon with flights and hotel ideas."
-            }
-            autoSend
-            disabled={disabled || !hasWorkspace}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
-            </div>
-            <div className="mt-4 text-base font-semibold text-foreground">
-              Lisbon luxury weekend
-            </div>
-            <div className="mt-1 text-sm leading-6 text-muted-foreground">
-              {profileContext?.preferred_currency
-                ? `Help me shape a luxury long weekend in Lisbon with flights and hotel ideas, and keep the budget in ${profileContext.preferred_currency}.`
-                : "Help me shape a luxury long weekend in Lisbon with flights and hotel ideas."}
-            </div>
-          </ThreadPrimitive.Suggestion>
-          <ThreadPrimitive.Suggestion
-            className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-            prompt="Suggest a relaxed family trip to Barcelona with weather-aware activities."
-            autoSend
-            disabled={disabled || !hasWorkspace}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
-            </div>
-            <div className="mt-4 text-base font-semibold text-foreground">
-              Barcelona family escape
-            </div>
-            <div className="mt-1 text-sm leading-6 text-muted-foreground">
-              Suggest a relaxed family trip to Barcelona with weather-aware activities.
-            </div>
-          </ThreadPrimitive.Suggestion>
-          <ThreadPrimitive.Suggestion
-            className="group rounded-xl border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-surface)] px-4 py-4 text-left transition-colors hover:border-[color:var(--chat-rail-border-strong)] hover:bg-[color:var(--chat-rail-surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-            prompt="What should the live trip board show as I refine my itinerary?"
-            autoSend
-            disabled={disabled}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--chat-rail-border)] bg-[color:var(--chat-rail-control-bg)] text-[color:var(--accent)]">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <ArrowUp className="mt-0.5 h-4 w-4 rotate-45 text-muted-foreground transition-colors group-hover:text-foreground" />
-            </div>
-            <div className="mt-4 text-base font-semibold text-foreground">
-              Live board guidance
-            </div>
-            <div className="mt-1 text-sm leading-6 text-muted-foreground">
-              What should the live trip board show as I refine my itinerary?
-            </div>
-          </ThreadPrimitive.Suggestion>
+        <div className="grid max-w-[44rem] gap-x-5 gap-y-1 pl-12 sm:grid-cols-2">
+          {starterPrompts.map((starter, index) => {
+            return (
+              <ThreadPrimitive.Suggestion
+                key={starter.title}
+                className="chat-starter-option group flex min-h-16 w-full items-center gap-3 border-b border-[color:var(--chat-rail-border)] py-2.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                prompt={starter.prompt}
+                autoSend
+                disabled={starter.disabled}
+                style={{ "--starter-index": index } as CSSProperties}
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-14 w-16 shrink-0 rounded-lg bg-cover bg-center"
+                  style={{ backgroundImage: `url("${starter.image}")` }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="text-[0.92rem] font-medium leading-5 text-foreground">
+                    {starter.title}
+                  </span>
+                  <span className="mt-1 line-clamp-2 text-[0.8rem] leading-5 text-muted-foreground">
+                    {starter.description}
+                  </span>
+                </span>
+              </ThreadPrimitive.Suggestion>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1204,11 +1195,9 @@ function Composer({
   disabled: boolean;
   disabledPlaceholder: string;
 }) {
-  const messages = useThread((state) => state.messages);
   const isRunning = useThread((state) => state.isRunning);
   const composerRuntime = useComposerRuntime({ optional: true });
   const composerIsEmpty = useComposer((state) => state.isEmpty);
-  const isEmptyThread = messages.length === 0;
   const sendDisabled = disabled || isRunning || composerIsEmpty || !composerRuntime;
   const showCancel = Boolean(composerRuntime && isRunning);
   const [sendPulse, setSendPulse] = useState(false);
@@ -1252,9 +1241,7 @@ function Composer({
             placeholder={
               disabled
                 ? disabledPlaceholder
-                : isEmptyThread
-                  ? "Start with a destination, a season, or just the kind of trip you want..."
-                  : "Message Wandrix..."
+                : "Message Wandrix..."
             }
             disabled={disabled}
             className="min-h-9 max-h-32 min-w-0 flex-1 resize-none bg-transparent px-0 py-1.5 text-[0.95rem] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
@@ -1434,7 +1421,7 @@ async function buildAssistantReply({
 
 function buildWelcomeContextLine(profileContext: PlannerProfileContext | null) {
   if (!profileContext) {
-    return "Tell me where you want to go, roughly when, and how you want the trip to feel. I’ll shape it with you step by step without locking details too early.";
+    return "A place, mood, rough date, or constraint is enough. The board stays editable as the plan takes shape.";
   }
 
   const contextBits = [
@@ -1442,7 +1429,7 @@ function buildWelcomeContextLine(profileContext: PlannerProfileContext | null) {
       ? `starting from ${profileContext.home_airport}`
       : null,
     profileContext.preferred_currency
-      ? `working in ${profileContext.preferred_currency}`
+      ? `planning in ${profileContext.preferred_currency}`
       : null,
     profileContext.home_city
       ? `using ${profileContext.home_city}${
@@ -1451,13 +1438,27 @@ function buildWelcomeContextLine(profileContext: PlannerProfileContext | null) {
       : profileContext.home_country
         ? `using ${profileContext.home_country} as your home base`
         : null,
-  ].filter(Boolean);
+  ].filter((contextBit): contextBit is string => Boolean(contextBit));
 
   if (contextBits.length === 0) {
-    return "Tell me where you want to go, roughly when, and how you want the trip to feel. I’ll shape it with you step by step without locking details too early.";
+    return "A place, mood, rough date, or constraint is enough. The board stays editable as the plan takes shape.";
   }
 
-  return `I can start with ${contextBits.join(", ")} as soft defaults, but anything you say in chat will take priority for this trip. I’ll keep the early plan flexible until the core shape is clear.`;
+  return `I’ll start by ${formatWelcomeContextBits(contextBits)} unless you tell me something different for this trip.`;
+}
+
+function formatWelcomeContextBits(contextBits: string[]) {
+  if (contextBits.length <= 1) {
+    return contextBits[0] ?? "using your travel preferences";
+  }
+
+  if (contextBits.length === 2) {
+    return `${contextBits[0]} and ${contextBits[1]}`;
+  }
+
+  return `${contextBits.slice(0, -1).join(", ")}, and ${
+    contextBits[contextBits.length - 1]
+  }`;
 }
 
 function buildFallbackAssistantReply({

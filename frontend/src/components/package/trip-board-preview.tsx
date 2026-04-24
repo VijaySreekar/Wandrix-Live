@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import { TripDetailsBoard } from "@/components/package/trip-details-board";
 import { TripLiveBoard } from "@/components/package/trip-live-board";
 import { TripSuggestionBoard } from "@/components/package/trip-suggestion-board";
@@ -16,6 +18,42 @@ type TripBoardPreviewProps = {
   requestedTripId: string | null;
   onAction: (action: PlannerBoardActionIntent) => void;
 };
+
+const STARTER_BOARD_SLIDES = [
+  {
+    id: "conversation",
+    eyebrow: "Conversation first",
+    title: "Start with a sentence",
+    description:
+      "A destination, a feeling, a budget worry, or a half-formed idea is enough. Wandrix turns it into the next useful question.",
+    note: "Start wherever the idea is.",
+    details: ["Trip idea captured", "Next question ready", "Board still flexible"],
+    image:
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1400&q=80",
+  },
+  {
+    id: "board",
+    eyebrow: "Live board",
+    title: "Details become decisions",
+    description:
+      "When something is firm enough to use, it appears here as structured trip state instead of disappearing into chat history.",
+    note: "Destination, dates, stays, flights, and activities stay visible.",
+    details: ["Route and timing", "Stay direction", "Activity style"],
+    image:
+      "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1400&q=80",
+  },
+  {
+    id: "brochure",
+    eyebrow: "Final output",
+    title: "Leave with something shareable",
+    description:
+      "Once the plan feels right, Wandrix turns the working draft into a polished itinerary you can review, share, and refine.",
+    note: "The brochure comes after the plan, not before it.",
+    details: ["Daily rhythm", "Shareable summary", "Final review"],
+    image:
+      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=80",
+  },
+];
 
 export function TripBoardPreview({
   authSnapshot,
@@ -119,27 +157,12 @@ export function TripBoardPreview({
     );
   }
 
-  const helperCopy = getHelperCopy({ workspace, isBootstrapping });
   const isLoading = isBootstrapping;
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-shell">
       <BoardHeader />
-      <div className="flex flex-1 items-center justify-center px-8 py-10">
-        <div className="mx-auto max-w-md text-center">
-          {isLoading ? (
-            <div className="mb-8">
-              <TravelBoardSpinner />
-            </div>
-          ) : null}
-          <p className="text-base font-medium leading-7 text-foreground transition-opacity duration-200">
-            {helperCopy.title}
-          </p>
-          <p className="mt-3 text-sm leading-7 text-foreground/60">
-            {helperCopy.description}
-          </p>
-        </div>
-      </div>
+      <StarterBoardCarousel isLoading={isLoading} />
     </section>
   );
 }
@@ -207,34 +230,108 @@ function InitialBoardShell() {
   );
 }
 
-function getHelperCopy({
-  workspace,
-  isBootstrapping,
+function StarterBoardCarousel({
+  isLoading,
 }: {
-  workspace: PlannerWorkspaceState | null;
-  isBootstrapping: boolean;
+  isLoading: boolean;
 }) {
-  if (isBootstrapping) {
-    return {
-      title: "Loading your planning board.",
-      description:
-        "Wandrix is pulling your trip workspace into place so the next planning step can start cleanly.",
-    };
-  }
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeSlide = STARTER_BOARD_SLIDES[activeIndex];
 
-  if (!workspace) {
-    return {
-      title: "This board is reserved for the final itinerary stage.",
-      description:
-        "Use the chat to shape the trip first. Later, once the trip is properly confirmed, this space can become the full itinerary board.",
-    };
-  }
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setActiveIndex((current) => (current + 1) % STARTER_BOARD_SLIDES.length);
+    }, 5200);
 
-  return {
-    title: "We will use this board later, not during the early planning pass.",
-    description:
-      "For now, Wandrix should collect the route, timing, travelers, and preferences through chat. Once the trip is confirmed and ready for itinerary generation, the full board can take over here.",
-  };
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  return (
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-[color:var(--planner-board-bg)]">
+      {STARTER_BOARD_SLIDES.map((slide, index) => (
+        <div
+          key={slide.id}
+          aria-hidden={index !== activeIndex}
+          className={[
+            "absolute inset-0 bg-cover bg-center transition-opacity duration-700 ease-out",
+            index === activeIndex ? "opacity-100" : "opacity-0",
+          ].join(" ")}
+          style={{
+            backgroundImage: `linear-gradient(180deg, rgba(10, 18, 16, 0.08), rgba(10, 18, 16, 0.72)), url("${slide.image}")`,
+          }}
+        />
+      ))}
+
+      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(8,13,12,0.42),rgba(8,13,12,0.12)_46%,rgba(8,13,12,0.38))]" />
+
+      <div className="relative flex h-full min-h-0 flex-col p-5 xl:p-6">
+        {isLoading ? (
+          <div className="w-fit rounded-full border border-white/20 bg-black/18 px-3 py-2 backdrop-blur-md">
+            <TravelBoardSpinner />
+          </div>
+        ) : null}
+
+        <div className="mt-auto grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
+          <div className="max-w-xl self-end text-white">
+            <p className="text-[0.68rem] font-medium uppercase tracking-[0.22em] text-white/70">
+              {activeSlide.eyebrow}
+            </p>
+            <h2 className="mt-2 max-w-md text-2xl font-semibold leading-tight tracking-normal xl:text-3xl">
+              {activeSlide.title}
+            </h2>
+            <p className="mt-3 max-w-md text-sm leading-7 text-white/78">
+              {activeSlide.description}
+            </p>
+          </div>
+
+          <div className="hidden self-end rounded-xl border border-white/16 bg-black/22 p-3 text-white shadow-[0_18px_50px_-36px_rgba(0,0,0,0.75)] backdrop-blur-md lg:block">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[0.66rem] font-medium uppercase tracking-[0.18em] text-white/56">
+                Board draft
+              </p>
+              <span className="rounded-full bg-white/12 px-2 py-1 text-[0.68rem] text-white/66">
+                0{activeIndex + 1}/03
+              </span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {activeSlide.details.map((detail) => (
+                <div
+                  key={detail}
+                  className="flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-white/72" />
+                  <span className="text-[0.78rem] leading-5 text-white/78">
+                    {detail}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[0.76rem] leading-5 text-white/62">
+              {activeSlide.note}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center gap-2">
+          {STARTER_BOARD_SLIDES.map((slide, index) => (
+            <button
+              key={slide.id}
+              type="button"
+              onClick={() => setActiveIndex(index)}
+              className={[
+                "h-1.5 rounded-full transition-all",
+                index === activeIndex ? "w-8 bg-white" : "w-2 bg-white/42",
+              ].join(" ")}
+              aria-label={`Show ${slide.title}`}
+              aria-current={index === activeIndex ? "true" : undefined}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function BoardSwitchOverlay({

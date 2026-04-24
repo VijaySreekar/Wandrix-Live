@@ -9,6 +9,251 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-25 - Matched Starter Destination Images
+
+Technical Summary:
+- Replaced the generic starter thumbnail for the Barcelona family prompt with a Barcelona-specific travel image.
+- Kept starter prompt copy and behavior unchanged.
+
+Plain-English Summary:
+- The starter prompt images now better match the trips they represent.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Reverted Starter Backdrop
+
+Technical Summary:
+- Removed the decorative starter travel backdrop and map-line overlay from the empty-chat welcome.
+- Updated starter prompt labels and descriptions to quick destination-style ideas while keeping their existing actions.
+
+Plain-English Summary:
+- The new chat screen is back to a cleaner background, and the starter prompts now read more like quick trip ideas.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Added Starter Travel Backdrop
+
+Technical Summary:
+- Added a decorative Kyoto-inspired photographic backdrop to the empty-chat welcome area without changing starter prompt copy or behavior.
+- Layered soft map-line styling and muted location dots behind the assistant welcome content using theme tokens.
+
+Plain-English Summary:
+- The new chat screen now has a more inviting travel background while keeping the existing starter prompts intact.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Removed Starter Prompt Fade
+
+Technical Summary:
+- Removed the staggered starter prompt entrance animation so prompt rows render at full opacity immediately.
+
+Plain-English Summary:
+- The starter suggestions should no longer look pale or ghosted while the page settles.
+
+Files / Areas Touched:
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Strengthened Starter Thumbnail Images
+
+Technical Summary:
+- Swapped the lighter starter prompt thumbnails for richer travel crops so the imagery reads more clearly in the simplified row layout.
+
+Plain-English Summary:
+- The helper prompt images should now feel less washed out and easier to understand at a glance.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Simplified Starter Prompt Rows
+
+Technical Summary:
+- Removed the arrow badge and extra bordered card shell from starter suggestions.
+- Reworked starter suggestions into simple thumbnail-and-text rows with subtle dividers to avoid a nested-container feel.
+
+Plain-English Summary:
+- The starter prompts should now feel cleaner and less confusing, with images supporting the text instead of adding another control-like layer.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Compact Starter Thumbnail Prompts
+
+Technical Summary:
+- Reduced the height of the starter prompt image cards and removed the repeated "Start here" footer copy.
+- Kept the thumbnail image treatment while making the prompt group fit more cleanly above the composer.
+
+Plain-English Summary:
+- The starter prompts should now feel clearer and less crowded while still showing useful travel imagery.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Clarified Starter Prompt Imagery
+
+Technical Summary:
+- Replaced faint full-card image washes in the starter suggestions with clean text areas and distinct travel thumbnails.
+- Kept hover behavior visually static while making the image treatment more legible and less confusing.
+
+Plain-English Summary:
+- The starter prompts now show travel imagery more clearly without putting the words directly on top of pale photos.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Added Minimal Starter Imagery
+
+Technical Summary:
+- Added subtle photographic image washes to the empty-chat starter prompts using quiet travel textures tied to each planning intent.
+- Kept the starter prompt hover treatment visually static so the prompts feel calmer and less interactive-noisy.
+
+Plain-English Summary:
+- The starter prompts now have a little more travel atmosphere without becoming loud ad cards or AI-looking tiles.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Restored Starter Intent Prompts
+
+Technical Summary:
+- Restored the cleaner intent-based starter prompt copy after clarifying that the issue was the visual treatment rather than the wording.
+- Changed the starter suggestion presentation from a numbered list to quiet helper-prompt surfaces without hover-specific styling.
+
+Plain-English Summary:
+- The starter prompts now use the clearer planning-intent labels again, while looking more like selectable helper prompts.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Refined Starter Prompt Copy
+
+Technical Summary:
+- Rewrote the empty-chat starter suggestions so each item reads like a concrete helper prompt rather than an abstract planning category.
+- Removed visible hover styling from the starter suggestions to keep the empty chat surface calm.
+
+Plain-English Summary:
+- The starter prompts now sound more useful and direct, and they no longer visually change on hover.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Quieted Starter Suggestions
+
+Technical Summary:
+- Reworked the empty-chat starter suggestions from emphasized cards into a simple numbered list with subtle dividers and no accent rails or shadows.
+
+Plain-English Summary:
+- The starter prompts should now feel less AI-themed and more like calm travel-planning starting points.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Emphasized Starter Suggestions
+
+Technical Summary:
+- Increased the visual weight of the empty-chat starter suggestions with stronger surfaces, accent rails, spacing, and hover states while keeping the icon-free layout.
+
+Plain-English Summary:
+- The starter suggestions are now easier to notice without returning to the loud AI-card style.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Unified Starter Prompt Set
+
+Technical Summary:
+- Rewrote the empty-chat starter prompts around four consistent planning intents: known place, choosing options, working around limits, and starting from a mood.
+- Kept the existing prompt actions while making the visible labels and descriptions feel less scattered.
+
+Plain-English Summary:
+- The starter suggestions now feel like one cohesive set instead of a mixed list of destination examples.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Grounded Starter Chat And Board
+
+Technical Summary:
+- Reframed the empty chat welcome as a bottom-aligned assistant-style opening message instead of a centered heading block.
+- Replaced icon-heavy starter prompt cards with calmer text suggestions that sit closer to the composer.
+- Rewrote profile default copy to read like an assistant message and removed the awkward soft-defaults phrasing.
+- Removed the "form filling" carousel language and restyled the starter board carousel with draft-state details rather than a plain advertising-style panel.
+
+Plain-English Summary:
+- The new chat screen should now feel more like Wandrix is starting a conversation with the traveler.
+- The starter suggestions are quieter and less generically AI-looking, and the board carousel avoids ad-like copy.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Polished Starter Chat Surface
+
+Technical Summary:
+- Centered the empty chat welcome area so the starter page feels more deliberate in the conversation pane.
+- Rewrote the starter prompt labels and descriptions into more natural travel examples with less repeated explanatory language.
+- Added reduced-motion-aware entrance animation hooks for the welcome block and starter options.
+- Simplified the active composer placeholder to the same concise Wandrix message prompt.
+
+Plain-English Summary:
+- The starter chat now feels calmer, cleaner, and less like a block of repeated instructions.
+- The example prompts read more like real trip ideas, and the chat input is less noisy.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/app/globals.css`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Tightened Starter Copy
+
+Technical Summary:
+- Refined the empty-chat starter prompt labels and descriptions so each option maps to a distinct travel-planning intent.
+- Shortened the chat welcome copy and removed repeated board-helper explanation from the starter carousel.
+- Gave each carousel slide a more specific role, description, and compact note instead of repeating the same chat-to-board concept.
+
+Plain-English Summary:
+- The starter screen now feels cleaner and less repetitive.
+- The prompt examples should be easier to choose from, and the board carousel better explains Wandrix without saying the same thing twice.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-24 - Redesigned Chat Starter Experience
+
+Technical Summary:
+- Reworked the empty-chat starter prompts into four clearer, more useful travel-planning suggestions with focused prompt text and minimal icon treatments.
+- Replaced the static helper board with a full-height starter carousel that uses travel background imagery, concise step copy, and manual slide dots.
+
+Plain-English Summary:
+- The first screen now gives travelers better examples of what to ask Wandrix.
+- The right-side board now feels more like a polished travel product introduction, showing how chat, the live board, and the final brochure fit together.
+
+Files / Areas Touched:
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
 ## 2026-04-24 - Smoothed Chat Sidebar Collapse
 
 Technical Summary:
