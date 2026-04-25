@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import {
   ArrowRight,
@@ -13,8 +13,7 @@ import {
   Plane,
 } from "lucide-react";
 
-import { getLiveDestinationImage } from "@/components/package/trip-board-cards";
-import { resolveDestinationSuggestionImage } from "@/lib/destination-images";
+import { DestinationDiscoveryCard } from "@/components/package/destination-discovery-card";
 import { cn } from "@/lib/utils";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type {
@@ -26,7 +25,6 @@ import type {
   AdvancedFlightOptionCard,
   AdvancedStayHotelOptionCard,
   AdvancedStayOptionCard,
-  DestinationSuggestionCard,
   PlanningModeChoiceCard,
   PlannerActivityDaypart,
   PlannerAdvancedAnchor,
@@ -47,26 +45,13 @@ type TripSuggestionBoardProps = {
   onAction: (action: PlannerBoardActionIntent) => void;
 };
 
-const BADGE_STYLES: Record<string, string> = {
-  "top weather":
-    "bg-[var(--planner-board-soft)] text-[var(--planner-board-accent-text)]",
-  culture:
-    "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]",
-  history:
-    "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]",
-  nature:
-    "bg-[var(--planner-board-soft)] text-[var(--planner-board-accent-text)]",
-  shorthaul:
-    "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]",
-};
-
 export function TripSuggestionBoard({
   board,
   decisionCards,
   disabled,
   onAction,
 }: TripSuggestionBoardProps) {
-  const cards = board.cards.slice(0, 4);
+  const cards = board.cards.slice(0, 6);
   const title = board.title?.trim() || "Sunny March Options";
   const subtitle =
     board.subtitle?.trim() || "Short-break recommendations for you";
@@ -459,14 +444,20 @@ export function TripSuggestionBoard({
             {board.source_context}
           </p>
         ) : null}
+        {board.leading_recommendation ? (
+          <p className="mt-3 max-w-xl rounded-lg border border-[var(--planner-board-border)] bg-[var(--planner-board-card)] px-4 py-3 text-sm font-semibold leading-6 text-[var(--planner-board-text)]">
+            {board.leading_recommendation}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex-1 overflow-y-auto px-8 pb-10">
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className={destinationDiscoveryGridClassName(cards.length)}>
           {cards.map((card) => (
-            <DestinationSuggestionOption
+            <DestinationDiscoveryCard
               key={card.id}
               card={card}
+              compact={cards.length >= 5}
               disabled={disabled}
               onAction={onAction}
             />
@@ -3656,6 +3647,26 @@ function PricePanel({
   );
 }
 
+function destinationDiscoveryGridClassName(cardCount: number) {
+  if (cardCount <= 1) {
+    return "mx-auto grid w-full max-w-md grid-cols-1 gap-6";
+  }
+
+  if (cardCount === 2) {
+    return "mx-auto grid w-full max-w-5xl grid-cols-1 gap-6 xl:grid-cols-2";
+  }
+
+  if (cardCount === 3) {
+    return "mx-auto grid w-full max-w-7xl grid-cols-1 gap-6 xl:grid-cols-3";
+  }
+
+  if (cardCount === 4) {
+    return "mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 xl:grid-cols-2";
+  }
+
+  return "grid w-full grid-cols-1 gap-5 xl:grid-cols-2 2xl:grid-cols-3";
+}
+
 function AdvancedDateResolutionPanel({
   board,
   disabled,
@@ -4054,31 +4065,6 @@ function normalizeAreaLabel(value: string | null | undefined) {
   return cleaned || "This part of Kyoto";
 }
 
-function badgeLabel(card: DestinationSuggestionCard) {
-  const label = card.practicality_label?.trim();
-  if (label) {
-    return label;
-  }
-
-  const text = card.short_reason.toLowerCase();
-  if (text.includes("museum") || text.includes("culture") || text.includes("tapas")) {
-    return "Culture";
-  }
-  if (text.includes("historic") || text.includes("fortress")) {
-    return "History";
-  }
-  if (text.includes("hike") || text.includes("volcanic") || text.includes("island")) {
-    return "Nature";
-  }
-
-  return "Shorthaul";
-}
-
-function badgeClassName(card: DestinationSuggestionCard) {
-  const normalized = badgeLabel(card).toLowerCase();
-  return BADGE_STYLES[normalized] ?? "bg-[var(--planner-board-accent-soft)] text-[var(--planner-board-accent-text)]";
-}
-
 function formatReviewStatus(status: string | null | undefined) {
   if (status === "needs_review") {
     return "Worth reviewing";
@@ -4087,90 +4073,4 @@ function formatReviewStatus(status: string | null | undefined) {
     return "Selected";
   }
   return "Flexible";
-}
-
-function DestinationSuggestionOption({
-  card,
-  disabled,
-  onAction,
-}: {
-  card: DestinationSuggestionCard;
-  disabled: boolean;
-  onAction: (action: PlannerBoardActionIntent) => void;
-}) {
-  const [resolvedImage, setResolvedImage] = useState(() =>
-    getLiveDestinationImage(card.destination_name),
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadImage() {
-      const image = await resolveDestinationSuggestionImage(card);
-      if (!cancelled && image) {
-        setResolvedImage(image);
-      }
-    }
-
-    void loadImage();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [card]);
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => {
-        onAction({
-          action_id: crypto.randomUUID(),
-          type: "select_destination_suggestion",
-          destination_name: card.destination_name,
-          country_or_region: card.country_or_region,
-          suggestion_id: card.id,
-        });
-      }}
-      className={cn(
-        "group flex h-full cursor-pointer flex-col overflow-hidden rounded-[1.75rem] bg-[var(--planner-board-card)] text-left shadow-[0_1px_1px_rgba(0,0,0,0.04),0_10px_24px_rgba(0,0,0,0.05)] transition-[transform,box-shadow,background-color] duration-200",
-        disabled
-          ? "cursor-wait opacity-70"
-          : "hover:-translate-y-0.5 hover:bg-[var(--planner-board-card-hover)] hover:shadow-[0_1px_1px_rgba(0,0,0,0.04),0_16px_30px_rgba(0,0,0,0.08)]",
-      )}
-    >
-      <div className="relative h-44 overflow-hidden bg-[var(--planner-board-soft)]">
-        <Image
-          src={resolvedImage}
-          alt={card.destination_name}
-          fill
-          className="object-cover transition-transform duration-700 group-hover:scale-[1.04]"
-          sizes="(max-width: 1280px) 100vw, 50vw"
-        />
-      </div>
-      <div className="flex flex-1 flex-col p-6">
-        <div className="mb-2 flex items-center gap-2">
-          <span
-            className={cn(
-              "rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em]",
-              badgeClassName(card),
-            )}
-          >
-            {badgeLabel(card)}
-          </span>
-          <span className="text-xs text-[var(--planner-board-muted-strong)]">{card.country_or_region}</span>
-        </div>
-        <h3 className="font-display text-[1.8rem] font-bold leading-none tracking-[-0.03em] text-[var(--planner-board-text)]">
-          {card.destination_name}
-        </h3>
-        <p className="mb-6 mt-3 flex-1 text-sm leading-7 text-[var(--planner-board-muted)]">
-          {card.short_reason}
-        </p>
-        <span className="inline-flex items-center gap-2 text-sm font-bold text-[var(--planner-board-cta)]">
-          Explore this
-          <ArrowRight className="h-4 w-4" />
-        </span>
-      </div>
-    </button>
-  );
 }

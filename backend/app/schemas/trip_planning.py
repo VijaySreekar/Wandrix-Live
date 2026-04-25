@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 ActivityStyle = Literal[
@@ -55,10 +55,37 @@ class TripConfiguration(BaseModel):
     travelers: PlannerTravelerDetails = Field(default_factory=PlannerTravelerDetails)
     travelers_flexible: bool | None = None
     budget_posture: BudgetPosture | None = None
+    budget_amount: float | None = Field(default=None, gt=0)
+    budget_currency: str | None = Field(default=None, min_length=3, max_length=3)
     budget_gbp: float | None = Field(default=None, gt=0)
     selected_modules: TripModuleSelection = Field(default_factory=TripModuleSelection)
     activity_styles: list[ActivityStyle] = Field(default_factory=list)
     custom_style: str | None = Field(default=None, max_length=160)
+
+    @field_validator("budget_currency", mode="before")
+    @classmethod
+    def normalize_budget_currency(cls, value):
+        if value in (None, ""):
+            return None
+        normalized = str(value).strip().upper()
+        if len(normalized) != 3 or not normalized.isalpha():
+            raise ValueError("budget_currency must be a 3-letter ISO currency code")
+        return normalized
+
+    @model_validator(mode="after")
+    def sync_legacy_budget_gbp(self):
+        if (
+            self.budget_amount is None
+            and self.budget_gbp is not None
+            and self.budget_currency in (None, "GBP")
+        ):
+            self.budget_amount = self.budget_gbp
+            self.budget_currency = self.budget_currency or "GBP"
+        if self.budget_currency == "GBP" and self.budget_gbp is None:
+            self.budget_gbp = self.budget_amount
+        if self.budget_currency != "GBP":
+            self.budget_gbp = None
+        return self
 
 
 class FlightLegDetail(BaseModel):

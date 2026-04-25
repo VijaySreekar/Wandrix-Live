@@ -87,6 +87,7 @@ from app.schemas.trip_conversation import (
 from app.schemas.trip_draft import TripDraftStatus
 from app.schemas.trip_planning import ActivityDetail, FlightDetail, TripConfiguration, TripModuleOutputs
 from app.schemas.trip_planning import WeatherDetail
+from app.utils.currency import format_currency_amount
 
 
 @dataclass(frozen=True)
@@ -574,7 +575,7 @@ def _provider_reliability_question_fields(
 
 
 def merge_decision_cards(
-    current_cards: list[PlannerDecisionCard],
+    _current_cards: list[PlannerDecisionCard],
     next_cards: list[PlannerDecisionCard],
     phase: str,
 ) -> list[PlannerDecisionCard]:
@@ -584,7 +585,7 @@ def merge_decision_cards(
     merged_cards: list[PlannerDecisionCard] = []
     seen: set[tuple[str, tuple[str, ...]]] = set()
 
-    for card in [*current_cards, *next_cards]:
+    for card in next_cards:
         title = card.title.strip()
         description = card.description.strip()
         options = [option.strip() for option in card.options if option.strip()]
@@ -743,7 +744,10 @@ def merge_conversation_memory(
     )
 
     action = ConversationBoardAction.model_validate(board_action) if board_action else None
-    if action and action.type == "select_destination_suggestion":
+    if action and action.type in {
+        "select_destination_suggestion",
+        "confirm_destination_suggestion",
+    }:
         leading_value = ", ".join(
             [value for value in [action.destination_name, action.country_or_region] if value]
         )
@@ -807,7 +811,11 @@ def _build_core_decision_memory_records(
         ("origin", ["from_location", "from_location_flexible"], "Origin"),
         ("date_window", ["start_date", "end_date", "travel_window", "trip_length"], "Timing"),
         ("travelers", ["adults", "children", "travelers_flexible"], "Travelers"),
-        ("budget", ["budget_posture", "budget_gbp"], "Budget"),
+        (
+            "budget",
+            ["budget_posture", "budget_amount", "budget_currency", "budget_gbp"],
+            "Budget",
+        ),
         ("module_scope", ["selected_modules"], "Planning scope"),
     ]
     for key, fields, label in field_groups:
@@ -1230,8 +1238,15 @@ def _decision_value_summary_for_fields(
     if "budget_posture" in fields:
         if configuration.budget_posture:
             parts.append(str(configuration.budget_posture))
-        if configuration.budget_gbp:
-            parts.append(f"GBP {configuration.budget_gbp:g}")
+        if configuration.budget_amount:
+            parts.append(
+                format_currency_amount(
+                    configuration.budget_amount,
+                    configuration.budget_currency,
+                )
+            )
+        elif configuration.budget_currency:
+            parts.append(configuration.budget_currency)
         return ", ".join(parts) or None
     if "selected_modules" in fields:
         enabled = [
@@ -9020,6 +9035,8 @@ def _build_turn_summary_user_message(board_action: dict) -> str:
         return "Board action: request advanced planning."
     if action.type == "select_destination_suggestion":
         return "Board action: choose a destination suggestion."
+    if action.type == "confirm_destination_suggestion":
+        return "Board action: confirm the leading destination suggestion."
     if action.type == "own_choice":
         return "Board action: continue with a custom destination."
     return f"Board action: {action.type.replace('_', ' ')}."
@@ -9119,6 +9136,8 @@ def _field_history_label(field: TripFieldKey) -> str:
         "trip_length": "the trip length",
         "weather_preference": "the weather preference",
         "budget_posture": "the budget posture",
+        "budget_amount": "the budget amount",
+        "budget_currency": "the budget currency",
         "budget_gbp": "the budget amount",
         "adults": "the adult count",
         "children": "the child count",
@@ -9140,6 +9159,8 @@ def _field_resume_label(field: TripFieldKey) -> str:
         "trip_length": "trip length",
         "weather_preference": "weather preference",
         "budget_posture": "budget",
+        "budget_amount": "budget",
+        "budget_currency": "budget currency",
         "budget_gbp": "budget",
         "adults": "traveller count",
         "children": "child traveller count",
@@ -9418,8 +9439,12 @@ def _question_is_still_relevant(
         return "end_date" in missing_fields
     if question.field == "adults":
         return "adults" in missing_fields
-    if question.field == "budget_posture":
-        return configuration.budget_posture is None
+    if question.field in {"budget_posture", "budget_amount", "budget_currency", "budget_gbp"}:
+        return (
+            configuration.budget_posture is None
+            and configuration.budget_amount is None
+            and configuration.budget_currency is None
+        )
     if question.field == "custom_style":
         return configuration.custom_style is None and not configuration.activity_styles
     if question.field == "travelers_flexible":
@@ -9548,7 +9573,7 @@ def _default_question_priority_for_field(
         return 4
     if field == "custom_style":
         return 4
-    if field in {"budget_posture", "budget_gbp"}:
+    if field in {"budget_posture", "budget_amount", "budget_currency", "budget_gbp"}:
         return 5
     return 3
 
@@ -9583,7 +9608,7 @@ def _default_question_step(field: TripFieldKey | None) -> TripDetailsStepKey | N
         return "vibe"
     if field == "custom_style":
         return "vibe"
-    if field in {"budget_posture", "budget_gbp"}:
+    if field in {"budget_posture", "budget_amount", "budget_currency", "budget_gbp"}:
         return "budget"
     return None
 
@@ -9614,7 +9639,7 @@ def _default_question_reason(
         return "Trip style helps Wandrix shape the right pace and experiences."
     if field == "custom_style":
         return "A custom trip-style note can carry nuance that preset style chips cannot."
-    if field in {"budget_posture", "budget_gbp"}:
+    if field in {"budget_posture", "budget_amount", "budget_currency", "budget_gbp"}:
         return "Budget narrows realistic flight and hotel options, but the posture is often nuanced."
     if step == "route":
         return "The route needs to be clearer before the rest of the brief can firm up."

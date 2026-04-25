@@ -13,6 +13,11 @@ from app.graph.planner.draft_merge import merge_trip_configuration
 from app.graph.planner.response_builder import build_assistant_response
 from app.graph.planner.suggestion_board import build_default_decision_cards
 from app.graph.planner.suggestion_board import build_suggestion_board_state
+from app.graph.planner.timing_intake import sanitize_timing_update
+from app.graph.planner.trip_brief_board import (
+    build_details_field_meta,
+    get_suggested_details_step,
+)
 from app.graph.planner.turn_models import (
     DestinationSuggestionCandidate,
     ConversationOptionCandidate,
@@ -44,6 +49,7 @@ from app.schemas.trip_planning import (
     WeatherDetail,
 )
 from app.services.providers.movement import MovementEstimate
+from app.utils import destination_images
 
 
 def test_explicit_field_memory_stays_confirmed_when_later_turn_is_only_inferred() -> None:
@@ -177,6 +183,96 @@ def test_field_memory_preserves_profile_default_source_as_inferred() -> None:
     assert origin_memory.confidence_level == "medium"
     assert status.confirmed_fields == ["to_location"]
     assert status.inferred_fields == ["from_location"]
+
+
+def test_budget_currency_only_merges_without_inventing_amount() -> None:
+    configuration = merge_trip_configuration(
+        TripConfiguration(),
+        TripTurnUpdate(
+            budget_currency="gbp",
+            inferred_fields=["budget_currency"],
+            field_confidences=[
+                TripFieldConfidenceUpdate(
+                    field="budget_currency",
+                    confidence="high",
+                )
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(
+                    field="budget_currency",
+                    source="user_explicit",
+                )
+            ],
+        ),
+    )
+
+    assert configuration.budget_currency == "GBP"
+    assert configuration.budget_amount is None
+    assert configuration.budget_gbp is None
+
+
+def test_legacy_budget_gbp_populates_currency_aware_fields() -> None:
+    configuration = merge_trip_configuration(
+        TripConfiguration(),
+        TripTurnUpdate(
+            budget_gbp=1800,
+            confirmed_fields=["budget_gbp"],
+        ),
+    )
+
+    assert configuration.budget_amount == 1800
+    assert configuration.budget_currency == "GBP"
+    assert configuration.budget_gbp == 1800
+
+
+def test_trip_brief_field_meta_uses_memory_sources() -> None:
+    now = datetime.now(timezone.utc)
+    configuration = TripConfiguration(
+        to_location="Lisbon",
+        travel_window="around June 15th",
+        trip_length="long weekend",
+        budget_currency="GBP",
+        activity_styles=["relaxed"],
+    )
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=configuration,
+        llm_update=TripTurnUpdate(
+            to_location="Lisbon",
+            travel_window="around June 15th",
+            trip_length="long weekend",
+            budget_currency="GBP",
+            activity_styles=["relaxed"],
+            confirmed_fields=["to_location", "budget_currency"],
+            inferred_fields=["travel_window", "trip_length", "activity_styles"],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="budget_currency", confidence="high"),
+                TripFieldConfidenceUpdate(field="travel_window", confidence="medium"),
+                TripFieldConfidenceUpdate(field="trip_length", confidence="medium"),
+                TripFieldConfidenceUpdate(field="activity_styles", confidence="medium"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="budget_currency", source="user_explicit"),
+                TripFieldSourceUpdate(field="travel_window", source="user_inferred"),
+                TripFieldSourceUpdate(field="trip_length", source="user_inferred"),
+                TripFieldSourceUpdate(field="activity_styles", source="user_inferred"),
+            ],
+        ),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Lisbon is the working direction.",
+        turn_id="turn_1",
+        user_message="Lisbon around June 15th, relaxed, in GBP.",
+        now=now,
+    )
+
+    field_meta = build_details_field_meta(conversation.memory.field_memory)
+
+    assert field_meta["budget_currency"].label == "You said"
+    assert field_meta["activity_styles"].label == "Inferred"
+    assert get_suggested_details_step(configuration) == "route"
 
 
 def test_decision_memory_tracks_profile_defaults_as_working_not_confirmed() -> None:
@@ -1419,6 +1515,209 @@ def test_default_decision_cards_are_contextual() -> None:
     assert any("food-led" in option.lower() for option in cards[1].options)
 
 
+def test_timing_choice_board_appears_when_destination_has_no_timing() -> None:
+    now = datetime.now(timezone.utc)
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(to_location="Lisbon"),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Lisbon sounds good.",
+        turn_id="turn_1",
+        user_message="Let's do Lisbon.",
+        now=now,
+    )
+
+    board = conversation.suggestion_board
+
+    assert board.mode == "timing_choice"
+    assert board.details_form is not None
+    assert board.details_form.to_location == "Lisbon"
+    assert any(item.id == "timing" for item in board.need_details)
+    assert any(item.id == "trip_length" for item in board.need_details)
+
+
+def test_timing_choice_board_stays_when_trip_length_is_missing() -> None:
+    now = datetime.now(timezone.utc)
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Lisbon",
+            travel_window="early October",
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Early October works.",
+        turn_id="turn_1",
+        user_message="Maybe Lisbon in early October.",
+        now=now,
+    )
+
+    board = conversation.suggestion_board
+
+    assert board.mode == "timing_choice"
+    assert board.details_form is not None
+    assert board.details_form.travel_window == "early October"
+    assert any(item.id == "trip_length" for item in board.need_details)
+
+
+def test_timing_placeholders_do_not_count_as_completed_timing() -> None:
+    now = datetime.now(timezone.utc)
+    llm_update = sanitize_timing_update(
+        TripTurnUpdate(
+            to_location="Athens",
+            travel_window="late September",
+            trip_length="length TBD",
+            inferred_fields=["to_location", "travel_window", "trip_length"],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="medium"),
+                TripFieldConfidenceUpdate(field="travel_window", confidence="medium"),
+                TripFieldConfidenceUpdate(field="trip_length", confidence="medium"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_inferred"),
+                TripFieldSourceUpdate(field="travel_window", source="user_inferred"),
+                TripFieldSourceUpdate(field="trip_length", source="user_inferred"),
+            ],
+        )
+    )
+    next_configuration = merge_trip_configuration(TripConfiguration(), llm_update)
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=next_configuration,
+        llm_update=llm_update,
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Athens in late September works.",
+        turn_id="turn_1",
+        user_message="Athens sounds right for late September; length TBD.",
+        now=now,
+    )
+
+    assert next_configuration.trip_length is None
+    assert "trip_length" not in llm_update.inferred_fields
+    assert conversation.suggestion_board.mode == "timing_choice"
+    assert any(
+        item.id == "trip_length"
+        for item in conversation.suggestion_board.need_details
+    )
+
+
+def test_timing_choice_board_skips_when_timing_is_understood() -> None:
+    now = datetime.now(timezone.utc)
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Lisbon",
+            travel_window="early October",
+            trip_length="long weekend",
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Early October for a long weekend works.",
+        turn_id="turn_1",
+        user_message="Lisbon in early October for a long weekend.",
+        now=now,
+    )
+
+    assert conversation.suggestion_board.mode != "timing_choice"
+
+
+def test_timing_decision_cards_clear_after_timing_is_understood() -> None:
+    now = datetime.now(timezone.utc)
+    previous_conversation = TripConversationState(
+        decision_cards=[
+            PlannerDecisionCard(
+                title="Choose the timing shape for Lisbon",
+                description="A rough travel window is the next useful choice.",
+                options=[
+                    "Spring city break",
+                    "Early summer escape",
+                    "Autumn weekend",
+                    "I'm flexible",
+                ],
+            ),
+            PlannerDecisionCard(
+                title="Choose the feel for Lisbon",
+                description="These are the strongest trip directions to decide between before I start shaping the itinerary.",
+                options=[
+                    "Food-led neighbourhood weekend",
+                    "Classic highlights city break",
+                ],
+            ),
+        ]
+    )
+    conversation = build_conversation_state(
+        current=previous_conversation,
+        previous_configuration=TripConfiguration(
+            to_location="Lisbon",
+            trip_length="long weekend",
+        ),
+        next_configuration=TripConfiguration(
+            to_location="Lisbon",
+            travel_window="around June 15",
+            trip_length="long weekend",
+        ),
+        llm_update=TripTurnUpdate(travel_window="around June 15"),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Around June 15 works.",
+        turn_id="turn_2",
+        user_message="around june 15th please.",
+        now=now,
+    )
+
+    decision_titles = [card.title for card in conversation.decision_cards]
+
+    assert conversation.suggestion_board.mode == "details_collection"
+    assert conversation.suggestion_board.title == "Build the trip brief"
+    assert any(item.id == "route" for item in conversation.suggestion_board.need_details)
+    assert "Choose the timing shape for Lisbon" not in decision_titles
+
+
+def test_timing_choice_board_skips_when_exact_dates_are_known() -> None:
+    now = datetime.now(timezone.utc)
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(
+            to_location="Lisbon",
+            start_date=date(2027, 6, 3),
+            end_date=date(2027, 6, 8),
+        ),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="June dates are set.",
+        turn_id="turn_1",
+        user_message="Lisbon June 3 to June 8, 2027.",
+        now=now,
+    )
+
+    assert conversation.suggestion_board.mode != "timing_choice"
+
+
+def test_advanced_intake_does_not_use_timing_choice_board() -> None:
+    now = datetime.now(timezone.utc)
+    conversation = build_conversation_state(
+        current=TripConversationState(),
+        previous_configuration=TripConfiguration(),
+        next_configuration=TripConfiguration(to_location="Kyoto"),
+        llm_update=TripTurnUpdate(),
+        module_outputs=TripModuleOutputs(),
+        assistant_response="Advanced planning is selected.",
+        turn_id="turn_1",
+        user_message="Use advanced planning.",
+        now=now,
+        planning_mode="advanced",
+        planning_mode_status="selected",
+        advanced_step="intake",
+    )
+
+    assert conversation.suggestion_board.mode == "details_collection"
+
+
 def test_generic_decision_cards_are_filtered_out() -> None:
     cards = merge_decision_cards(
         [],
@@ -1475,8 +1774,128 @@ def test_decision_card_response_mentions_real_choices() -> None:
         finalized_via=None,
     )
 
-    assert "stop asking filler questions" in response.lower()
+    assert "working direction" in response.lower()
+    assert "next choice" in response.lower()
     assert "choose the feel for lisbon" in response.lower()
+
+
+def test_details_collection_response_frames_next_gap_without_repetitive_checklist() -> None:
+    configuration = TripConfiguration(
+        to_location="Seville, Spain",
+        travel_window="late September",
+        trip_length="4 nights",
+        weather_preference="warm",
+        selected_modules={
+            "flights": True,
+            "weather": True,
+            "activities": True,
+            "hotels": True,
+        },
+    )
+    conversation = TripConversationState.model_validate(
+        {
+            "suggestion_board": {
+                "mode": "details_collection",
+                "title": "Build the trip brief",
+                "suggested_step": "route",
+                "have_details": [
+                    {
+                        "id": "timing",
+                        "label": "Timing",
+                        "status": "known",
+                        "value": "late September",
+                    },
+                    {
+                        "id": "trip_length",
+                        "label": "Trip length",
+                        "status": "known",
+                        "value": "4 nights",
+                    },
+                    {
+                        "id": "weather",
+                        "label": "Weather preference",
+                        "status": "known",
+                        "value": "warm",
+                    },
+                    {
+                        "id": "modules",
+                        "label": "Trip modules",
+                        "status": "known",
+                        "value": "flights, weather, activities, hotels",
+                    },
+                ],
+                "need_details": [
+                    {"id": "route", "label": "Route", "status": "needed"},
+                    {"id": "travellers", "label": "Travellers", "status": "needed"},
+                    {"id": "trip_style", "label": "Trip style", "status": "needed"},
+                    {"id": "budget", "label": "Budget", "status": "needed"},
+                ],
+            },
+        }
+    )
+
+    response = build_assistant_response(
+        configuration=configuration,
+        conversation=conversation,
+        llm_update=TripTurnUpdate(),
+        brief_confirmed=False,
+        fallback_text=None,
+        profile_context={},
+        board_action=None,
+        confirmation_status="unconfirmed",
+        finalized_via=None,
+    )
+    normalized_response = response.lower()
+
+    assert "seville, spain" in normalized_response
+    assert "late september" in normalized_response
+    assert "4 nights" in normalized_response
+    assert "warm weather" in normalized_response
+    assert "full trip scope" in normalized_response
+    assert "departure point" in normalized_response
+    assert "brief on the right" in normalized_response
+    assert "travellers, trip style, and budget" in normalized_response
+    assert "here's what i have so far" not in normalized_response
+    assert "to move this forward" not in normalized_response
+    assert "tell me this in chat" not in normalized_response
+    assert "right-hand checklist" not in normalized_response
+
+
+def test_details_collection_response_prefers_clean_llm_copy() -> None:
+    conversation = TripConversationState.model_validate(
+        {
+            "suggestion_board": {
+                "mode": "details_collection",
+                "suggested_step": "travellers",
+                "need_details": [
+                    {"id": "travellers", "label": "Travellers", "status": "needed"},
+                ],
+            },
+        }
+    )
+    llm_copy = (
+        "Seville in late September for 4 nights is taking shape. "
+        "The next useful detail is who is travelling. "
+        "You can type it here or use the brief on the right."
+    )
+
+    response = build_assistant_response(
+        configuration=TripConfiguration(
+            to_location="Seville",
+            travel_window="late September",
+            trip_length="4 nights",
+        ),
+        conversation=conversation,
+        llm_update=TripTurnUpdate(assistant_response=llm_copy),
+        brief_confirmed=False,
+        fallback_text=llm_copy,
+        profile_context={},
+        board_action=None,
+        confirmation_status="unconfirmed",
+        finalized_via=None,
+    )
+
+    assert response == llm_copy
 
 
 def test_shaping_response_frames_working_shape_and_next_move() -> None:
@@ -1673,6 +2092,274 @@ def test_rejected_destination_is_filtered_from_future_suggestions() -> None:
 
     assert board.mode == "destination_suggestions"
     assert [card.destination_name for card in board.cards] == ["Valencia"]
+
+
+def test_destination_suggestions_use_backend_stable_images(monkeypatch) -> None:
+    destination_images._resolve_wikimedia_destination_image.cache_clear()
+    destination_images._search_wikipedia_titles.cache_clear()
+    monkeypatch.setattr(
+        destination_images,
+        "_fetch_wikipedia_summary_image",
+        lambda title: None,
+    )
+    monkeypatch.setattr(
+        destination_images,
+        "_search_wikipedia_titles",
+        lambda query: (),
+    )
+    try:
+        board = build_suggestion_board_state(
+            current=TripConversationState(),
+            configuration=TripConfiguration(),
+            phase="opening",
+            llm_update=TripTurnUpdate(
+                destination_suggestions=[
+                    DestinationSuggestionCandidate(
+                        id="dest_lisbon",
+                        destination_name="Lisbon",
+                        country_or_region="Portugal",
+                        image_url="https://source.unsplash.com/1200x900/?Lisbon+travel",
+                        short_reason="Walkable food neighborhoods and mild weather.",
+                        practicality_label="Short direct-flight fit",
+                    ),
+                ]
+            ),
+            resolved_location_context=None,
+            board_action={},
+            brief_confirmed=False,
+        )
+    finally:
+        destination_images._resolve_wikimedia_destination_image.cache_clear()
+
+    assert board.mode == "destination_suggestions"
+    assert board.cards[0].image_url.startswith("https://images.unsplash.com/")
+    assert "source.unsplash.com" not in board.cards[0].image_url
+
+
+def test_destination_suggestions_use_wikimedia_for_uncurated_asian_destinations(
+    monkeypatch,
+) -> None:
+    def fake_fetch(title: str) -> str | None:
+        if title == "Bali":
+            return "https://upload.wikimedia.org/wikipedia/commons/0/0a/Bali_Rice_Terrace.jpg"
+        return None
+
+    destination_images._resolve_wikimedia_destination_image.cache_clear()
+    destination_images._search_wikipedia_titles.cache_clear()
+    monkeypatch.setattr(
+        destination_images,
+        "_search_wikipedia_titles",
+        lambda query: (),
+    )
+    monkeypatch.setattr(
+        destination_images,
+        "_fetch_wikipedia_summary_image",
+        fake_fetch,
+    )
+    try:
+        board = build_suggestion_board_state(
+            current=TripConversationState(),
+            configuration=TripConfiguration(),
+            phase="opening",
+            llm_update=TripTurnUpdate(
+                destination_suggestions=[
+                    DestinationSuggestionCandidate(
+                        id="dest_bali",
+                        destination_name="Bali",
+                        country_or_region="Indonesia",
+                        image_url=None,
+                        short_reason="Warm weather, food, and slower days.",
+                        practicality_label="Long-haul beach and culture option",
+                    ),
+                ]
+            ),
+            resolved_location_context=None,
+            board_action={},
+            brief_confirmed=False,
+        )
+    finally:
+        destination_images._resolve_wikimedia_destination_image.cache_clear()
+
+    assert board.mode == "destination_suggestions"
+    assert board.cards[0].image_url.startswith("https://upload.wikimedia.org/")
+    assert "Bali_Rice_Terrace" in board.cards[0].image_url
+
+
+def test_destination_suggestions_resolve_parenthetical_destination_names(
+    monkeypatch,
+) -> None:
+    destination_images._resolve_wikimedia_destination_image.cache_clear()
+    destination_images._search_wikipedia_titles.cache_clear()
+    monkeypatch.setattr(
+        destination_images,
+        "_search_wikipedia_titles",
+        lambda query: (),
+    )
+    monkeypatch.setattr(
+        destination_images,
+        "_fetch_wikipedia_summary_image",
+        lambda title: "https://upload.wikimedia.org/wikipedia/commons/4/4d/Visakhapatnam_beach_road.jpg"
+        if title == "Visakhapatnam"
+        else None,
+    )
+    try:
+        board = build_suggestion_board_state(
+            current=TripConversationState(),
+            configuration=TripConfiguration(),
+            phase="opening",
+            llm_update=TripTurnUpdate(
+                destination_suggestions=[
+                    DestinationSuggestionCandidate(
+                        id="dest_vizag",
+                        destination_name="Visakhapatnam (Vizag)",
+                        country_or_region="India",
+                        image_url=None,
+                        short_reason="Coastal, warm, and easier-paced.",
+                        practicality_label="Relaxed coast fit",
+                    ),
+                ]
+            ),
+            resolved_location_context=None,
+            board_action={},
+            brief_confirmed=False,
+        )
+    finally:
+        destination_images._resolve_wikimedia_destination_image.cache_clear()
+
+    assert board.mode == "destination_suggestions"
+    assert "Visakhapatnam_beach_road" in board.cards[0].image_url
+
+
+def test_destination_suggestions_reject_unconfigured_image_hosts(monkeypatch) -> None:
+    destination_images._resolve_wikimedia_destination_image.cache_clear()
+    destination_images._search_wikipedia_titles.cache_clear()
+    monkeypatch.setattr(
+        destination_images,
+        "_fetch_wikipedia_summary_image",
+        lambda title: None,
+    )
+    monkeypatch.setattr(
+        destination_images,
+        "_search_wikipedia_titles",
+        lambda query: (),
+    )
+    board = build_suggestion_board_state(
+        current=TripConversationState(),
+        configuration=TripConfiguration(),
+        phase="opening",
+        llm_update=TripTurnUpdate(
+            destination_suggestions=[
+                DestinationSuggestionCandidate(
+                    id="dest_zadar",
+                    destination_name="Zadar",
+                    country_or_region="Croatia",
+                    image_url="https://example.com/zadar.jpg",
+                    short_reason="Coastal old-town energy with a slower pace.",
+                    practicality_label="Good shoulder-season option",
+                ),
+            ]
+        ),
+        resolved_location_context=None,
+        board_action={},
+        brief_confirmed=False,
+    )
+    destination_images._resolve_wikimedia_destination_image.cache_clear()
+
+    assert board.mode == "destination_suggestions"
+    assert board.cards[0].image_url.startswith("https://images.unsplash.com/")
+    assert "example.com" not in board.cards[0].image_url
+
+
+def test_destination_suggestions_prefer_dynamic_wikimedia_over_provider_url(
+    monkeypatch,
+) -> None:
+    destination_images._resolve_wikimedia_destination_image.cache_clear()
+    destination_images._search_wikipedia_titles.cache_clear()
+    monkeypatch.setattr(
+        destination_images,
+        "_fetch_wikipedia_summary_image",
+        lambda title: "https://upload.wikimedia.org/wikipedia/commons/3/3a/Mumbai_03-2016_30_Gateway_of_India.jpg"
+        if title == "Mumbai"
+        else None,
+    )
+    monkeypatch.setattr(
+        destination_images,
+        "_search_wikipedia_titles",
+        lambda query: (),
+    )
+    try:
+        board = build_suggestion_board_state(
+            current=TripConversationState(),
+            configuration=TripConfiguration(),
+            phase="opening",
+            llm_update=TripTurnUpdate(
+                destination_suggestions=[
+                    DestinationSuggestionCandidate(
+                        id="dest_mumbai",
+                        destination_name="Mumbai",
+                        country_or_region="India",
+                        image_url="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/28/random-hotel.jpg",
+                        short_reason="Warm, vivid, and food-led.",
+                        practicality_label="Vibrant city break",
+                    ),
+                ]
+            ),
+            resolved_location_context=None,
+            board_action={},
+            brief_confirmed=False,
+        )
+    finally:
+        destination_images._resolve_wikimedia_destination_image.cache_clear()
+
+    assert board.mode == "destination_suggestions"
+    assert "Gateway_of_India" in board.cards[0].image_url
+    assert "tripadvisor" not in board.cards[0].image_url
+
+
+def test_destination_suggestions_use_dynamic_wikimedia_before_generic_fallback(
+    monkeypatch,
+) -> None:
+    destination_images._resolve_wikimedia_destination_image.cache_clear()
+    destination_images._search_wikipedia_titles.cache_clear()
+    monkeypatch.setattr(
+        destination_images,
+        "_fetch_wikipedia_summary_image",
+        lambda title: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Plaza_de_Espa%C3%B1a_%28Sevilla%29_-_01.jpg/3840px-Plaza_de_Espa%C3%B1a_%28Sevilla%29_-_01.jpg"
+        if title == "Seville"
+        else None,
+    )
+    monkeypatch.setattr(
+        destination_images,
+        "_search_wikipedia_titles",
+        lambda query: (),
+    )
+    try:
+        board = build_suggestion_board_state(
+            current=TripConversationState(),
+            configuration=TripConfiguration(),
+            phase="opening",
+            llm_update=TripTurnUpdate(
+                destination_suggestions=[
+                    DestinationSuggestionCandidate(
+                        id="dest_seville",
+                        destination_name="Seville",
+                        country_or_region="Spain",
+                        image_url=None,
+                        short_reason="Sunny, atmospheric, and compact.",
+                        practicality_label="Best atmosphere fit",
+                    ),
+                ]
+            ),
+            resolved_location_context=None,
+            board_action={},
+            brief_confirmed=False,
+        )
+    finally:
+        destination_images._resolve_wikimedia_destination_image.cache_clear()
+
+    assert board.mode == "destination_suggestions"
+    assert "Plaza_de_Espa" in board.cards[0].image_url
+    assert "photo-1562883676-8c7feb1c4d73" not in board.cards[0].image_url
 
 
 def test_reintroduced_destination_leaves_rejected_memory() -> None:

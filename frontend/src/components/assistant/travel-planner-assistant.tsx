@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   ArrowUp,
   Bot,
@@ -148,6 +155,8 @@ function shouldActivatePersistedTrip(tripDraft: TripDraft) {
       configuration.trip_length ||
       configuration.weather_preference ||
       configuration.budget_posture ||
+      configuration.budget_amount ||
+      configuration.budget_currency ||
       configuration.budget_gbp ||
       configuration.travelers.adults ||
       configuration.travelers.children ||
@@ -1178,7 +1187,7 @@ function AssistantMessage() {
           ) : (
             <div className="chat-assistant-bubble-enter overflow-hidden rounded-[1rem] border border-border/70 bg-background/92 shadow-[var(--chat-shadow-soft)] dark:bg-card/96">
               <div className="px-5 py-4 text-[length:var(--chat-size-body)] leading-[var(--chat-line-body)] text-foreground">
-                <MessagePrimitive.Parts />
+                <AssistantMessageContent />
               </div>
             </div>
           )}
@@ -1186,6 +1195,93 @@ function AssistantMessage() {
       </div>
     </MessagePrimitive.Root>
   );
+}
+
+function AssistantMessageContent() {
+  const text = useMessage((message) =>
+    message.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim(),
+  );
+
+  if (!text) {
+    return <MessagePrimitive.Parts />;
+  }
+
+  const blocks = text.split(/\n{2,}/).filter((block) => block.trim());
+
+  return (
+    <div className="space-y-3">
+      {blocks.map((block, index) => (
+        <AssistantMessageBlock key={`${index}-${block.slice(0, 20)}`} block={block} />
+      ))}
+    </div>
+  );
+}
+
+function AssistantMessageBlock({ block }: { block: string }) {
+  const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const heading = parseBoldHeading(lines[0]);
+  if (heading) {
+    const bodyLines = lines.slice(1);
+    return (
+      <div className="space-y-2">
+        <p className="font-semibold text-[var(--planner-board-text)]">{heading}</p>
+        {bodyLines.length > 0 ? (
+          <AssistantMessageLines lines={bodyLines} />
+        ) : null}
+      </div>
+    );
+  }
+
+  return <AssistantMessageLines lines={lines} />;
+}
+
+function AssistantMessageLines({ lines }: { lines: string[] }) {
+  if (lines.every((line) => line.startsWith("- "))) {
+    return (
+      <ul className="space-y-2">
+        {lines.map((line) => (
+          <li
+            key={line}
+            className="relative pl-4 leading-[var(--chat-line-body)] before:absolute before:left-0 before:top-[0.7em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-[var(--planner-board-cta)]"
+          >
+            {renderInlineBold(line.slice(2))}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <p className="whitespace-pre-line">
+      {renderInlineBold(lines.join("\n"))}
+    </p>
+  );
+}
+
+function parseBoldHeading(line: string) {
+  const match = line.match(/^\*\*([^*]+)\*\*$/);
+  return match?.[1] ?? null;
+}
+
+function renderInlineBold(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((segment, index) => {
+    if (segment.startsWith("**") && segment.endsWith("**")) {
+      return (
+        <strong key={`${segment}-${index}`} className="font-semibold text-foreground">
+          {segment.slice(2, -2)}
+        </strong>
+      );
+    }
+    return segment;
+  });
 }
 
 function Composer({

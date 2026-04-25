@@ -110,8 +110,9 @@ Rules:
 - use browser location first when the user allowed location assistance
 - fall back to saved home-base context when browser location is unavailable
 - say clearly which source is being used
-- show exactly four destination cards
+- show four destination cards by default, with 2-6 allowed when the user asks for a specific count or when the planner is narrowing, expanding, or comparing
 - keep suggestions as options, not confirmations
+- treat a board click as a leading choice first; only a later confirmation locks the destination
 
 Each destination card should contain:
 - destination name
@@ -119,7 +120,21 @@ Each destination card should contain:
 - image
 - short reason
 - one practicality signal
+- fit label
+- best-for summary
+- tradeoff notes
+- recommendation note when useful
 - selection status
+
+The chat should carry the richer comparison, including what changed when the user refines or pivots the shortlist.
+The LLM should own the primary discovery chat response so the comparison feels like warm advisor copy, not a fixed app template. The app may compose confirmation and fallback copy, but normal discovery turns should use the model's `assistant_response`.
+Discovery chat copy should use direct traveller-facing language, a personal opening when useful, simple bullets, and one clear recommendation. It should not use pipe tables, internal planner terms, repeated stock headings, or phrases like "the user".
+When the user adds a home base or origin during destination discovery, the next response and board should explain how that base changes the ranking or logistics instead of merely acknowledging the place.
+Saved profile home-base context may personalize the shortlist, but it must not be committed as `from_location` unless the user adopts it for this trip.
+The chat comparison and board cards must stay aligned: do not mention destinations in chat that are not on the board, and do not put destinations on the board that violate explicit exclusions like "not Spain".
+If the user names one destination but asks to compare alternatives, keep discovery active and do not lock `to_location` until they explicitly choose.
+If the user asks for more than six options, the planner should cap the board and chat at the strongest six, and say that clearly rather than pretending to show the larger requested count.
+If the user rejects a destination and asks what else, the replacement must appear as a card, not only as prose.
 
 The board should also offer an `Own choice` action that sends the user back to chat to type their own destination.
 

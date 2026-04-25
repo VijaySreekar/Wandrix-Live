@@ -5,6 +5,7 @@ import type {
   TripDetailsStepKey,
 } from "@/types/trip-conversation";
 import type { TripModuleSelection } from "@/types/trip-draft";
+import { isTripDetailsTimingComplete } from "@/components/package/trip-details-timing-model";
 
 export const TRIP_DETAILS_STEP_ORDER: TripDetailsStepKey[] = [
   "modules",
@@ -44,20 +45,6 @@ export function getVisibleSteps(
   }
 
   return visibleSteps;
-}
-
-function hasDetailedTimingRequirement(form: TripDetailsCollectionFormState) {
-  const activeModules = getActiveModules(form.selected_modules);
-  return activeModules.includes("flights") || activeModules.includes("hotels");
-}
-
-function hasAnyTimingSignal(form: TripDetailsCollectionFormState) {
-  return Boolean(
-    form.travel_window?.trim() ||
-      form.trip_length?.trim() ||
-      form.start_date ||
-      form.end_date,
-  );
 }
 
 export function getRequiredSteps(
@@ -115,13 +102,7 @@ export function isStepComplete(
   }
 
   if (step === "timing") {
-    const hasWindow = Boolean(form.travel_window?.trim());
-    const hasLength = Boolean(form.trip_length?.trim());
-    const hasExactDates = Boolean(form.start_date && form.end_date);
-    if (!hasDetailedTimingRequirement(form)) {
-      return hasAnyTimingSignal(form);
-    }
-    return hasExactDates || (hasWindow && hasLength);
+    return isTripDetailsTimingComplete(form);
   }
 
   if (step === "travellers") {
@@ -142,11 +123,10 @@ export function isStepComplete(
     if (!isStepRequired(step, form)) {
       return true;
     }
+    const amount = form.budget_amount ?? form.budget_gbp ?? null;
     return Boolean(
       form.budget_posture ||
-        (form.budget_gbp !== null &&
-          form.budget_gbp !== undefined &&
-          form.budget_gbp > 0),
+        (amount !== null && amount !== undefined && amount > 0),
     );
   }
 

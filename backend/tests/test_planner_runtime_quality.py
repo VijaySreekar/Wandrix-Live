@@ -7,6 +7,7 @@ from app.graph.planner import runner
 from app.graph.planner.conversation_state import build_conversation_state
 from app.graph.planner.turn_models import (
     ConversationOptionCandidate,
+    DestinationSuggestionCandidate,
     ProposedTimelineItem,
     QuickPlanDraft,
     RequestedReviewResolution,
@@ -224,6 +225,55 @@ def test_process_trip_turn_blocks_flights_until_origin_is_reliable(monkeypatch) 
     assert "not triggering live planning yet" in result["assistant_response"].lower()
 
 
+def test_select_quick_plan_before_confirmed_brief_keeps_route_gate(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_quick",
+                "type": "select_quick_plan",
+            },
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "to_location": "Lisbon",
+                    "travel_window": "late September",
+                    "trip_length": "4 nights",
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": None,
+                    "planning_mode_status": "not_selected",
+                    "suggestion_board": {
+                        "mode": "planning_mode_choice",
+                    },
+                },
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+
+    assert conversation["planning_mode"] is None
+    assert conversation["planning_mode_status"] == "not_selected"
+    assert board["mode"] == "details_collection"
+    assert board["title"] == "Build the trip brief"
+    assert any(item["id"] == "route" for item in board["need_details"])
+    assert "next useful detail" in result["assistant_response"].lower()
+    assert "brief on the right" in result["assistant_response"].lower()
+
+
 def test_provider_blocker_adds_confidence_clarification_for_profile_origin(
     monkeypatch,
 ) -> None:
@@ -409,7 +459,7 @@ def test_planner_evaluation_case_set_is_well_formed() -> None:
         assert isinstance(case["expected"], dict)
 
 
-def test_first_prompt_triggers_planning_mode_gate_and_preserves_brief(
+def test_first_prompt_preserves_destination_discovery_before_planning_mode_gate(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
@@ -450,10 +500,399 @@ def test_first_prompt_triggers_planning_mode_gate_and_preserves_brief(
     assert result["trip_draft"]["configuration"]["travel_window"] == "early October"
     assert conversation["planning_mode"] is None
     assert conversation["planning_mode_status"] == "not_selected"
-    assert conversation["suggestion_board"]["mode"] == "planning_mode_choice"
-    assert "before i proceed" in result["assistant_response"].lower()
-    assert "quick plan" in result["assistant_response"].lower()
-    assert "advanced planning" in result["assistant_response"].lower()
+    assert conversation["suggestion_board"]["mode"] == "timing_choice"
+    assert "how long" in result["assistant_response"].lower()
+    assert "quick plan" not in result["assistant_response"].lower()
+    assert "advanced planning" not in result["assistant_response"].lower()
+
+
+def test_destination_discovery_stays_before_planning_mode_gate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            destination_suggestions=[
+                DestinationSuggestionCandidate(
+                    id="destination_lisbon",
+                    destination_name="Lisbon",
+                    country_or_region="Portugal",
+                    image_url="https://example.com/lisbon.jpg",
+                    short_reason="Food, mild weather, and walkable neighborhoods.",
+                    practicality_label="Easy short-haul option",
+                ),
+                DestinationSuggestionCandidate(
+                    id="destination_marrakesh",
+                    destination_name="Marrakesh",
+                    country_or_region="Morocco",
+                    image_url="https://example.com/marrakesh.jpg",
+                    short_reason="Warmth, markets, and bold food culture.",
+                    practicality_label="Warmer weather option",
+                ),
+            ],
+            assistant_response="",
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Somewhere warm with amazing food.",
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {},
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    board = conversation["suggestion_board"]
+
+    assert conversation["planning_mode"] is None
+    assert board["mode"] == "destination_suggestions"
+    assert [card["destination_name"] for card in board["cards"]] == [
+        "Lisbon",
+        "Marrakesh",
+    ]
+    assert "quick plan" not in result["assistant_response"].lower()
+    assert "advanced planning" not in result["assistant_response"].lower()
+
+
+def test_destination_discovery_renders_advisor_comparison(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            travel_window="late September",
+            trip_length="4 nights",
+            weather_preference="warm",
+            inferred_fields=["travel_window", "trip_length", "weather_preference"],
+            discovery_turn_kind="start",
+            destination_comparison_summary=(
+                "All four keep the trip warm and city-led, but they differ on pace and history."
+            ),
+            leading_destination_recommendation=(
+                "Athens leads if history matters most; Lisbon is the softer all-rounder."
+            ),
+            destination_suggestions=[
+                DestinationSuggestionCandidate(
+                    id="destination_athens",
+                    destination_name="Athens",
+                    country_or_region="Greece",
+                    short_reason="Warm late-season evenings and the deepest ancient-history fit.",
+                    practicality_label="Warmest history fit",
+                    fit_label="Best history fit",
+                    best_for="ancient sites and warm evenings",
+                    tradeoffs=["Busier and more intense than the other options."],
+                    recommendation_note="Current leader for a historic warm break.",
+                ),
+                DestinationSuggestionCandidate(
+                    id="destination_lisbon",
+                    destination_name="Lisbon",
+                    country_or_region="Portugal",
+                    short_reason="Warm, scenic, and easy to fill over four nights.",
+                    practicality_label="Best all-rounder",
+                    fit_label="Balanced pick",
+                    best_for="food, viewpoints, and neighbourhood wandering",
+                    tradeoffs=["Less ancient-history led than Athens."],
+                    recommendation_note="Best if you want balance over pure history.",
+                ),
+                DestinationSuggestionCandidate(
+                    id="destination_valencia",
+                    destination_name="Valencia",
+                    country_or_region="Spain",
+                    short_reason="Sunny, relaxed, and easy with beach time close by.",
+                    practicality_label="Relaxed sunshine",
+                    fit_label="Easiest pace",
+                    best_for="sun, food, and a slower city break",
+                    tradeoffs=["Not as strong for historic atmosphere."],
+                    recommendation_note="Good if warmth and ease matter most.",
+                ),
+                DestinationSuggestionCandidate(
+                    id="destination_nice",
+                    destination_name="Nice",
+                    country_or_region="France",
+                    short_reason="Warm Riviera base with old-town texture and day trips.",
+                    practicality_label="Scenic base",
+                    fit_label="Polished wildcard",
+                    best_for="coast, old town, and elegant day trips",
+                    tradeoffs=["Can feel less immersive for a history-first trip."],
+                    recommendation_note="Best if the coast is part of the appeal.",
+                ),
+            ],
+            assistant_response="",
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "I have 4 nights in late September. Suggest warm European cities and help me choose.",
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {},
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+
+    assert board["mode"] == "destination_suggestions"
+    assert board["discovery_turn_kind"] == "start"
+    assert len(board["cards"]) == 4
+    assert board["cards"][0]["fit_label"] == "Best history fit"
+    assert board["cards"][0]["tradeoffs"] == [
+        "Busier and more intense than the other options."
+    ]
+    assert result["trip_draft"]["configuration"]["to_location"] is None
+    assert "**Athens, Greece**" in result["assistant_response"]
+    assert "Athens leads" in result["assistant_response"]
+    assert "My lean:" in result["assistant_response"]
+    assert "**Quick read**" not in result["assistant_response"]
+
+
+def test_destination_discovery_uses_llm_advisor_response(monkeypatch) -> None:
+    llm_response = (
+        "Vijay, I’d compare these by pace first.\n\n"
+        "- **Singapore** if you want warmth and low friction.\n"
+        "- **Bangkok** if you want temples, food, and more atmosphere.\n\n"
+        "I’d start with Singapore unless you want the trip to feel more vivid."
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_destination_discovery_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            discovery_turn_kind="pivot",
+            destination_suggestions=[
+                DestinationSuggestionCandidate(
+                    id="destination_singapore",
+                    destination_name="Singapore",
+                    country_or_region="Singapore",
+                    short_reason="Warm, food-led, and easy for four nights.",
+                    practicality_label="Smoothest short break",
+                ),
+                DestinationSuggestionCandidate(
+                    id="destination_bangkok",
+                    destination_name="Bangkok",
+                    country_or_region="Thailand",
+                    short_reason="Temples, street food, and a lively rhythm.",
+                    practicality_label="Atmospheric wildcard",
+                ),
+            ],
+            assistant_response=llm_response,
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "can you suggest me asian cities",
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {},
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    assert result["assistant_response"] == llm_response
+
+
+def test_destination_discovery_pivot_replaces_visible_shortlist(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            travel_window="late September",
+            trip_length="4 nights",
+            weather_preference="warm",
+            discovery_turn_kind="pivot",
+            destination_comparison_summary=(
+                "I’m shifting from warm Europe to warm-ish Asian cities with stronger history."
+            ),
+            leading_destination_recommendation="Kyoto leads for polished culture and temples.",
+            destination_suggestions=[
+                DestinationSuggestionCandidate(
+                    id="destination_kyoto",
+                    destination_name="Kyoto",
+                    country_or_region="Japan",
+                    short_reason="Temple-heavy, beautiful, and strong for a four-night culture trip.",
+                    practicality_label="Culture-first",
+                    fit_label="Best culture fit",
+                    best_for="temples, tradition, and a polished historic trip",
+                    tradeoffs=["Not as warm as Southeast Asia in late September."],
+                    recommendation_note="The strongest fit for a historic Asian trip.",
+                    change_note="New leader after the Asia pivot.",
+                ),
+                DestinationSuggestionCandidate(
+                    id="destination_hanoi",
+                    destination_name="Hanoi",
+                    country_or_region="Vietnam",
+                    short_reason="Layered history, food, and street energy in a compact stay.",
+                    practicality_label="Warm and vivid",
+                    fit_label="Most atmospheric",
+                    best_for="food, old-quarter atmosphere, and layered history",
+                    tradeoffs=["More intense and less polished than Kyoto."],
+                    recommendation_note="Best if you want energy and street life.",
+                ),
+            ],
+            assistant_response="",
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "somewhere Asian.",
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {
+                    "travel_window": "late September",
+                    "trip_length": "4 nights",
+                    "weather_preference": "warm",
+                },
+                "conversation": {
+                    "suggestion_board": {
+                        "mode": "destination_suggestions",
+                        "cards": [
+                            {
+                                "id": "destination_lisbon",
+                                "destination_name": "Lisbon",
+                                "country_or_region": "Portugal",
+                                "image_url": "https://example.com/lisbon.jpg",
+                                "short_reason": "Warm and easy.",
+                                "practicality_label": "All-rounder",
+                                "selection_status": "suggested",
+                            }
+                        ],
+                    }
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+
+    assert board["discovery_turn_kind"] == "pivot"
+    assert [card["destination_name"] for card in board["cards"]] == ["Kyoto", "Hanoi"]
+    assert "shifted the shortlist" in result["assistant_response"].lower()
+    assert result["trip_draft"]["configuration"]["to_location"] is None
+
+
+def test_destination_card_click_marks_leading_without_locking_destination(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_1",
+                "type": "select_destination_suggestion",
+                "destination_name": "Lisbon",
+                "country_or_region": "Portugal",
+                "suggestion_id": "destination_lisbon",
+            },
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {},
+                "conversation": {
+                    "suggestion_board": {
+                        "mode": "destination_suggestions",
+                        "cards": [
+                            {
+                                "id": "destination_lisbon",
+                                "destination_name": "Lisbon",
+                                "country_or_region": "Portugal",
+                                "image_url": "https://example.com/lisbon.jpg",
+                                "short_reason": "Warm, scenic, and easy.",
+                                "practicality_label": "Best all-rounder",
+                                "recommendation_note": "Best if you want a balanced four-night trip.",
+                                "selection_status": "suggested",
+                            }
+                        ],
+                    }
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+
+    assert result["trip_draft"]["configuration"]["to_location"] is None
+    assert board["cards"][0]["selection_status"] == "leading"
+    assert "front-runner" in result["assistant_response"].lower()
+    assert "lock it as the destination" in result["assistant_response"].lower()
+
+
+def test_confirm_destination_suggestion_locks_destination_without_confirming_brief(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_2",
+                "type": "confirm_destination_suggestion",
+                "destination_name": "Lisbon",
+                "country_or_region": "Portugal",
+                "suggestion_id": "destination_lisbon",
+            },
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {},
+                "conversation": {
+                    "suggestion_board": {
+                        "mode": "destination_suggestions",
+                        "cards": [
+                            {
+                                "id": "destination_lisbon",
+                                "destination_name": "Lisbon",
+                                "country_or_region": "Portugal",
+                                "image_url": "https://example.com/lisbon.jpg",
+                                "short_reason": "Warm, scenic, and easy.",
+                                "practicality_label": "Best all-rounder",
+                                "selection_status": "leading",
+                            }
+                        ],
+                    }
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    status = result["trip_draft"]["status"]
+
+    assert result["trip_draft"]["configuration"]["to_location"] == "Lisbon, Portugal"
+    assert status["confirmed_fields"] == ["to_location"]
+    assert result["trip_draft"]["conversation"]["suggestion_board"]["mode"] != "destination_suggestions"
+    assert result["trip_draft"]["conversation"]["planning_mode_status"] == "not_selected"
 
 
 def test_confirm_trip_details_board_action_persists_weather_preference(
@@ -640,7 +1079,8 @@ def test_advanced_intake_prefers_details_collection_over_generic_decision_cards(
     assert conversation["advanced_step"] == "intake"
     assert conversation["suggestion_board"]["mode"] == "details_collection"
     assert conversation["suggestion_board"]["title"] == "Build the Advanced Planning brief"
-    assert "shared brief-building step" in result["assistant_response"].lower()
+    assert "brief" in result["assistant_response"].lower()
+    assert "guided anchor choice" in result["assistant_response"].lower()
 
 
 def test_advanced_mode_enters_date_resolution_before_anchor_choice(
@@ -3493,6 +3933,55 @@ def test_quick_plan_blocks_flights_until_traveller_count_is_reliable(monkeypatch
     assert observability["provider_activation"]["blocked_modules"]["hotels"] == [
         "traveller count is not reliable enough yet"
     ]
+
+
+def test_brief_confirmation_does_not_skip_planning_mode_choice_when_scope_is_implicit(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "yes please everything is good.",
+            "trip_draft": {
+                "title": "Valencia Conference Trip",
+                "configuration": {
+                    "from_location": "Coventry",
+                    "to_location": "Valencia, Spain",
+                    "travel_window": "late September",
+                    "trip_length": "4 nights",
+                    "weather_preference": "warm",
+                    "travelers": {"adults": 1},
+                    "custom_style": "business conference",
+                    "budget_posture": "mid_range",
+                    "budget_currency": "GBP",
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    conversation = result["trip_draft"]["conversation"]
+    assistant_response = result["assistant_response"].lower()
+
+    assert conversation["planning_mode"] is None
+    assert conversation["suggestion_board"]["mode"] == "planning_mode_choice"
+    assert "quick plan is selected" not in assistant_response
+    assert "here is the brief i am using" in assistant_response
+    assert "coventry to valencia, spain" in assistant_response
+    assert "business conference" in assistant_response
+    assert "quick plan" in assistant_response
+    assert "advanced planning" in assistant_response
 
 
 def test_zero_adults_does_not_count_as_reliable_traveller_signal(monkeypatch) -> None:

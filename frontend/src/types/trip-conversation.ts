@@ -138,6 +138,8 @@ export type TripFieldKey =
   | "trip_length"
   | "weather_preference"
   | "budget_posture"
+  | "budget_amount"
+  | "budget_currency"
   | "budget_gbp"
   | "adults"
   | "children"
@@ -223,6 +225,7 @@ export type ConversationQuestionStatus = "open" | "answered" | "dismissed";
 export type TripSuggestionBoardMode =
   | "idle"
   | "destination_suggestions"
+  | "timing_choice"
   | "decision_cards"
   | "details_collection"
   | "planning_mode_choice"
@@ -246,6 +249,14 @@ export type DestinationSuggestionSelectionStatus =
   | "suggested"
   | "leading"
   | "confirmed";
+export type DiscoveryTurnKind =
+  | "none"
+  | "start"
+  | "refine"
+  | "pivot"
+  | "narrow"
+  | "expand"
+  | "compare";
 export type PlannerChecklistStatus = "known" | "needed";
 export type PlanningModeCardStatus = "available" | "in_development";
 export type AdvancedAnchorCardStatus = "available" | "completed";
@@ -283,6 +294,11 @@ export type DestinationSuggestionCard = {
   image_url: string;
   short_reason: string;
   practicality_label: string;
+  fit_label?: string | null;
+  best_for?: string | null;
+  tradeoffs?: string[];
+  recommendation_note?: string | null;
+  change_note?: string | null;
   selection_status: DestinationSuggestionSelectionStatus;
 };
 
@@ -646,6 +662,13 @@ export type PlannerChecklistItem = {
   value?: string | null;
 };
 
+export type TripDetailsFieldMeta = {
+  field: TripFieldKey;
+  source?: ConversationFieldSource | null;
+  confidence_level?: ConversationFieldConfidence | null;
+  label?: string | null;
+};
+
 export type TripDetailsCollectionFormState = {
   from_location?: string | null;
   from_location_flexible?: boolean | null;
@@ -662,6 +685,8 @@ export type TripDetailsCollectionFormState = {
   activity_styles: TripDetailsBoardActivityStyle[];
   custom_style?: string | null;
   budget_posture?: TripDetailsBoardBudgetPosture | null;
+  budget_amount?: number | null;
+  budget_currency?: string | null;
   budget_gbp?: number | null;
 };
 
@@ -671,6 +696,9 @@ export type TripSuggestionBoardState = {
   title?: string | null;
   subtitle?: string | null;
   cards: DestinationSuggestionCard[];
+  discovery_turn_kind?: DiscoveryTurnKind;
+  comparison_summary?: string | null;
+  leading_recommendation?: string | null;
   planning_mode_cards: PlanningModeChoiceCard[];
   date_option_cards?: AdvancedDateOptionCard[];
   selected_date_option_id?: string | null;
@@ -774,6 +802,8 @@ export type TripSuggestionBoardState = {
   need_details: PlannerChecklistItem[];
   visible_steps: TripDetailsStepKey[];
   required_steps: TripDetailsStepKey[];
+  suggested_step?: TripDetailsStepKey | null;
+  details_field_meta?: Partial<Record<TripFieldKey, TripDetailsFieldMeta>>;
   details_form?: TripDetailsCollectionFormState | null;
   confirm_cta_label?: string | null;
   own_choice_prompt?: string | null;

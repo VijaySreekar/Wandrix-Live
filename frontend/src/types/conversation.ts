@@ -48,6 +48,7 @@ export type ConversationBoardAction = {
   action_id: string;
   type:
     | "select_destination_suggestion"
+    | "confirm_destination_suggestion"
     | "own_choice"
     | "confirm_trip_details"
     | "confirm_trip_brief"
@@ -142,6 +143,8 @@ export type ConversationBoardAction = {
   activity_styles?: ActivityStyle[];
   custom_style?: string | null;
   budget_posture?: BudgetPosture | null;
+  budget_amount?: number | null;
+  budget_currency?: string | null;
   budget_gbp?: number | null;
 };
 

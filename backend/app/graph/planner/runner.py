@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.graph.planner.board_action_merge import apply_board_action_updates
+from app.graph.planner.brief_intelligence import review_trip_brief_intelligence
 from app.graph.planner.conversation_state import (
     build_conversation_state,
     build_status,
@@ -9,11 +10,16 @@ from app.graph.planner.conversation_state import (
     detect_confirmed_field_corrections,
     is_trip_brief_confirmed,
 )
+from app.graph.planner.destination_discovery_review import (
+    review_destination_discovery_update,
+)
 from app.graph.planner.draft_merge import derive_trip_title, merge_trip_configuration
 from app.graph.planner.location_context import resolve_planner_location_context
+from app.graph.planner.profile_origin_review import review_profile_origin_update
 from app.graph.planner.quick_plan import generate_quick_plan_draft
 from app.graph.planner.provider_enrichment import build_module_outputs, build_timeline
 from app.graph.planner.response_builder import build_assistant_response
+from app.graph.planner.timing_intake import sanitize_timing_update
 from app.graph.planner.turn_models import TripOpenQuestionUpdate, TripTurnUpdate
 from app.graph.planner.understanding import generate_llm_trip_update
 from app.graph.state import PlanningGraphState
@@ -78,10 +84,53 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         board_action=state.get("board_action", {}),
         raw_messages=raw_messages,
     )
+    llm_update = review_destination_discovery_update(
+        user_input=user_input,
+        title=trip_draft.get("title") or "Trip planner",
+        configuration=previous_configuration,
+        status=current_status,
+        conversation=current_conversation,
+        profile_context=state.get("profile_context", {}),
+        current_location_context=resolved_location_context.model_dump(mode="json")
+        if resolved_location_context
+        else {},
+        board_action=state.get("board_action", {}),
+        raw_messages=raw_messages,
+        llm_update=llm_update,
+    )
+    llm_update = review_profile_origin_update(
+        user_input=user_input,
+        title=trip_draft.get("title") or "Trip planner",
+        configuration=previous_configuration,
+        status=current_status,
+        conversation=current_conversation,
+        profile_context=state.get("profile_context", {}),
+        current_location_context=resolved_location_context.model_dump(mode="json")
+        if resolved_location_context
+        else {},
+        board_action=state.get("board_action", {}),
+        raw_messages=raw_messages,
+        llm_update=llm_update,
+    )
+    llm_update = review_trip_brief_intelligence(
+        user_input=user_input,
+        title=trip_draft.get("title") or "Trip planner",
+        configuration=previous_configuration,
+        status=current_status,
+        conversation=current_conversation,
+        profile_context=state.get("profile_context", {}),
+        current_location_context=resolved_location_context.model_dump(mode="json")
+        if resolved_location_context
+        else {},
+        board_action=state.get("board_action", {}),
+        raw_messages=raw_messages,
+        llm_update=llm_update,
+    )
     llm_update = apply_board_action_updates(
         llm_update,
         board_action=state.get("board_action", {}),
     )
+    llm_update = sanitize_timing_update(llm_update)
     current_confirmation_status = (
         current_status.confirmation_status
         if getattr(current_status, "confirmation_status", None)
@@ -119,12 +168,14 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
     planning_mode, planning_mode_status = _resolve_next_planning_mode(
         current_conversation=current_conversation,
         llm_update=effective_input_update,
+        configuration=next_configuration,
         board_action=state.get("board_action", {}),
         brief_confirmed=brief_confirmed,
     )
     planning_mode_choice_required = _should_require_planning_mode_choice(
         current_conversation=current_conversation,
         llm_update=effective_input_update,
+        configuration=next_configuration,
         board_action=state.get("board_action", {}),
         brief_confirmed=brief_confirmed,
         user_input=user_input,
@@ -491,6 +542,7 @@ def _resolve_next_planning_mode(
     *,
     current_conversation: TripConversationState,
     llm_update,
+    configuration: TripConfiguration,
     board_action: dict,
     brief_confirmed: bool,
 ) -> tuple[str | None, str]:
@@ -498,17 +550,21 @@ def _resolve_next_planning_mode(
     current_mode = current_conversation.planning_mode
     current_status = current_conversation.planning_mode_status
 
-    if action and action.type == "select_quick_plan":
+    if action and action.type == "select_quick_plan" and brief_confirmed:
         return ("quick", "selected")
     if action and action.type == "select_advanced_plan":
         return ("advanced", "selected")
     if llm_update.requested_planning_mode == "quick" and _chat_planning_mode_request_is_actionable(
         current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
         brief_confirmed=brief_confirmed,
     ):
         return ("quick", "selected")
     if llm_update.requested_planning_mode == "advanced" and _chat_planning_mode_request_is_actionable(
         current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
         brief_confirmed=brief_confirmed,
     ):
         return ("advanced", "selected")
@@ -525,6 +581,7 @@ def _should_require_planning_mode_choice(
     *,
     current_conversation: TripConversationState,
     llm_update,
+    configuration: TripConfiguration,
     board_action: dict,
     brief_confirmed: bool,
     user_input: str,
@@ -538,48 +595,39 @@ def _should_require_planning_mode_choice(
 
     if llm_update.requested_planning_mode in {"quick", "advanced"} and _chat_planning_mode_request_is_actionable(
         current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
         brief_confirmed=brief_confirmed,
     ):
         return False
 
-    if brief_confirmed:
-        return bool(user_input.strip() or current_conversation.memory.turn_summaries)
-
-    if user_input.strip() and _has_trip_signal_for_mode_gate(llm_update):
-        return True
-
-    return False
-
-
-def _has_trip_signal_for_mode_gate(llm_update: TripTurnUpdate) -> bool:
     return bool(
-        llm_update.to_location
-        or llm_update.from_location
-        or llm_update.from_location_flexible
-        or llm_update.travel_window
-        or llm_update.trip_length
-        or llm_update.start_date
-        or llm_update.end_date
-        or llm_update.weather_preference
-        or llm_update.activity_styles
-        or llm_update.custom_style
-        or llm_update.destination_suggestions
-        or llm_update.mentioned_options
+        brief_confirmed and (user_input.strip() or current_conversation.memory.turn_summaries)
     )
 
 
 def _chat_planning_mode_request_is_actionable(
     *,
     current_conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
+    configuration: TripConfiguration,
     brief_confirmed: bool,
 ) -> bool:
-    if brief_confirmed:
+    if not brief_confirmed:
+        return False
+    if is_trip_brief_confirmed(
+        current_conversation,
+        TripTurnUpdate(),
+        {},
+    ):
+        return True
+    if llm_update.requested_planning_mode == "advanced":
         return True
 
-    return bool(
-        current_conversation.memory.turn_summaries
-        or current_conversation.memory.field_memory
-        or current_conversation.last_turn_summary
+    return _is_selected_module_scope_explicit(
+        current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
     )
 
 
@@ -759,7 +807,11 @@ def _evaluate_provider_activation(
     brief_confirmed: bool,
     planning_mode: str | None,
 ) -> dict:
-    scope_explicit = configuration.selected_modules != TripConfiguration().selected_modules
+    scope_explicit = _is_selected_module_scope_explicit(
+        current_conversation=current_conversation,
+        llm_update=llm_update,
+        configuration=configuration,
+    )
     destination_snapshot = _projected_field_snapshot(
         current_conversation=current_conversation,
         llm_update=llm_update,
@@ -906,6 +958,26 @@ def _evaluate_provider_activation(
             "timing": timing_snapshots,
         },
     }
+
+
+def _is_selected_module_scope_explicit(
+    *,
+    current_conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
+    configuration: TripConfiguration,
+) -> bool:
+    if configuration.selected_modules != TripConfiguration().selected_modules:
+        return True
+    if "selected_modules" in {
+        *llm_update.confirmed_fields,
+        *llm_update.inferred_fields,
+    }:
+        return True
+
+    memory = current_conversation.memory.field_memory.get("selected_modules")
+    if memory is None:
+        return False
+    return memory.value == configuration.selected_modules.model_dump(mode="json")
 
 
 def _apply_provider_activation_clarifications(

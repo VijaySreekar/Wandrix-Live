@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.trip_conversation import (
     PlannerAdvancedAnchor,
@@ -18,6 +18,7 @@ from app.schemas.trip_conversation import (
     ConversationFieldConfidence,
     ConversationFieldSource,
     ConversationOptionKind,
+    DiscoveryTurnKind,
     PlannerIntent,
     PlannerPlanningMode,
     PlannerDecisionCard,
@@ -68,9 +69,14 @@ class DestinationSuggestionCandidate(BaseModel):
     id: str = Field(..., min_length=1, max_length=80)
     destination_name: str = Field(..., min_length=1, max_length=120)
     country_or_region: str = Field(..., min_length=1, max_length=120)
-    image_url: str = Field(..., min_length=1, max_length=500)
+    image_url: str | None = Field(default=None, max_length=500)
     short_reason: str = Field(..., min_length=1, max_length=240)
     practicality_label: str = Field(..., min_length=1, max_length=120)
+    fit_label: str | None = Field(default=None, max_length=80)
+    best_for: str | None = Field(default=None, max_length=160)
+    tradeoffs: list[str] = Field(default_factory=list, max_length=3)
+    recommendation_note: str | None = Field(default=None, max_length=200)
+    change_note: str | None = Field(default=None, max_length=200)
 
 
 class TripFieldConfidenceUpdate(BaseModel):
@@ -171,6 +177,8 @@ class TripTurnUpdate(BaseModel):
     trip_length: str | None = Field(default=None, max_length=120)
     weather_preference: str | None = Field(default=None, max_length=80)
     budget_posture: BudgetPosture | None = None
+    budget_amount: float | None = None
+    budget_currency: str | None = Field(default=None, min_length=3, max_length=3)
     budget_gbp: float | None = None
     adults: int | None = Field(default=None, ge=0)
     children: int | None = Field(default=None, ge=0)
@@ -195,9 +203,12 @@ class TripTurnUpdate(BaseModel):
     destination_suggestion_title: str | None = Field(default=None, max_length=160)
     destination_suggestion_subtitle: str | None = Field(default=None, max_length=320)
     location_source_summary: str | None = Field(default=None, max_length=240)
+    discovery_turn_kind: DiscoveryTurnKind = "none"
+    destination_comparison_summary: str | None = Field(default=None, max_length=500)
+    leading_destination_recommendation: str | None = Field(default=None, max_length=240)
     destination_suggestions: list[DestinationSuggestionCandidate] = Field(
         default_factory=list,
-        max_length=4,
+        max_length=6,
     )
     planner_intent: PlannerIntent = "none"
     requested_planning_mode: PlannerPlanningMode | None = None
@@ -222,8 +233,19 @@ class TripTurnUpdate(BaseModel):
     requested_activity_schedule_edits: list[RequestedActivityScheduleEdit] = Field(
         default_factory=list
     )
+
     requested_review_resolutions: list[RequestedReviewResolution] = Field(
         default_factory=list
     )
     confirmed_trip_brief: bool = False
     assistant_response: str = ""
+
+    @field_validator("budget_currency", mode="before")
+    @classmethod
+    def normalize_budget_currency(cls, value):
+        if value in (None, ""):
+            return None
+        normalized = str(value).strip().upper()
+        if len(normalized) != 3 or not normalized.isalpha():
+            raise ValueError("budget_currency must be a 3-letter ISO currency code")
+        return normalized

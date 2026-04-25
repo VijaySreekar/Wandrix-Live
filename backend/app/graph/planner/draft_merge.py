@@ -112,6 +112,22 @@ def merge_trip_configuration(
     ):
         configuration.budget_posture = llm_update.budget_posture
 
+    if llm_update.budget_amount is not None and _should_apply_field(
+        field="budget_amount",
+        llm_update=llm_update,
+        current_value=configuration.budget_amount,
+        next_value=llm_update.budget_amount,
+    ):
+        configuration.budget_amount = llm_update.budget_amount
+
+    if llm_update.budget_currency and _should_apply_field(
+        field="budget_currency",
+        llm_update=llm_update,
+        current_value=configuration.budget_currency,
+        next_value=llm_update.budget_currency,
+    ):
+        configuration.budget_currency = llm_update.budget_currency
+
     if llm_update.budget_gbp is not None and _should_apply_field(
         field="budget_gbp",
         llm_update=llm_update,
@@ -119,6 +135,15 @@ def merge_trip_configuration(
         next_value=llm_update.budget_gbp,
     ):
         configuration.budget_gbp = llm_update.budget_gbp
+        if configuration.budget_amount is None:
+            configuration.budget_amount = llm_update.budget_gbp
+        if configuration.budget_currency is None:
+            configuration.budget_currency = "GBP"
+
+    if configuration.budget_currency == "GBP" and configuration.budget_gbp is None:
+        configuration.budget_gbp = configuration.budget_amount
+    if configuration.budget_currency and configuration.budget_currency != "GBP":
+        configuration.budget_gbp = None
 
     if llm_update.adults is not None and llm_update.adults > 0 and _should_apply_field(
         field="adults",

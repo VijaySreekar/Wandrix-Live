@@ -40,6 +40,7 @@ from app.schemas.trip_planning import (
     HotelStayDetail,
     TimelineItem,
 )
+from app.utils.currency import format_currency_amount
 from app.utils.destination_images import get_destination_hero_image
 
 
@@ -1140,8 +1141,13 @@ def _build_party_text(draft: TripDraft) -> str:
 
 
 def _build_budget_text(draft: TripDraft) -> str:
-    if draft.configuration.budget_gbp:
-        return f"GBP {int(draft.configuration.budget_gbp):,}"
+    if draft.configuration.budget_amount:
+        return format_currency_amount(
+            draft.configuration.budget_amount,
+            draft.configuration.budget_currency,
+        )
+    if draft.configuration.budget_currency:
+        return draft.configuration.budget_currency
     if draft.configuration.budget_posture:
         return draft.configuration.budget_posture.replace("_", " ").title()
     return "Budget still being shaped"
@@ -1221,8 +1227,17 @@ def _build_planning_notes(draft: TripDraft) -> list[str]:
 
 def _build_budget_summary(draft: TripDraft) -> BrochureBudgetSummary:
     headline = "Budget posture"
-    if draft.configuration.budget_gbp:
-        detail = f"The trip is currently framed around roughly GBP {int(draft.configuration.budget_gbp):,}, subject to live inventory and any hotel changes."
+    if draft.configuration.budget_amount:
+        detail = (
+            "The trip is currently framed around roughly "
+            f"{format_currency_amount(draft.configuration.budget_amount, draft.configuration.budget_currency)}, "
+            "subject to live inventory and any hotel changes."
+        )
+    elif draft.configuration.budget_currency:
+        detail = (
+            f"The trip budget should stay in {draft.configuration.budget_currency}, "
+            "while the exact amount is still open."
+        )
     elif draft.configuration.budget_posture:
         detail = f"The current travel posture is {draft.configuration.budget_posture.replace('_', ' ')} while exact flight and stay pricing continues to move."
     else:
@@ -1353,8 +1368,12 @@ def _build_warnings(draft: TripDraft) -> list[BrochureWarning]:
 def _has_budget_risk(draft: TripDraft) -> bool:
     styles = set(draft.configuration.activity_styles)
     posture = draft.configuration.budget_posture
-    budget_gbp = draft.configuration.budget_gbp or 0
-    if "luxury" in styles and budget_gbp and budget_gbp < 2500:
+    comparable_budget = (
+        draft.configuration.budget_amount
+        if draft.configuration.budget_currency in {None, "GBP"}
+        else None
+    )
+    if "luxury" in styles and comparable_budget and comparable_budget < 2500:
         return True
     if posture == "budget" and len(draft.timeline) >= 8:
         return True

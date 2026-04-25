@@ -26,6 +26,8 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
       },
       travelers_flexible: null,
       budget_posture: null,
+      budget_amount: null,
+      budget_currency: null,
       budget_gbp: null,
       selected_modules: {
         flights: true,

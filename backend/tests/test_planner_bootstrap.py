@@ -64,9 +64,10 @@ def test_process_trip_turn_persists_confirmation_metadata(monkeypatch) -> None:
     assert field_memory["activity_styles"]["confidence_level"] == "medium"
     assert field_memory["activity_styles"]["source"] == "user_inferred"
     assert "Marrakesh" in result["assistant_response"]
-    assert "before i proceed" in result["assistant_response"].lower()
+    assert "timing shape" in result["assistant_response"].lower()
+    assert conversation["suggestion_board"]["mode"] == "timing_choice"
     assert conversation["planning_mode"] is None
-    assert conversation["suggestion_board"]["mode"] == "planning_mode_choice"
+    assert conversation["suggestion_board"]["mode"] != "planning_mode_choice"
 
 
 def test_process_trip_turn_promotes_confirmed_fields(monkeypatch) -> None:
@@ -108,6 +109,95 @@ def test_process_trip_turn_promotes_confirmed_fields(monkeypatch) -> None:
     assert status["confirmed_fields"] == ["to_location"]
     assert status["inferred_fields"] == []
     assert field_memory["to_location"]["confidence_level"] == "high"
+
+
+def test_post_timing_turn_opens_prefilled_trip_brief(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            travel_window="around June 15th",
+            inferred_fields=["travel_window"],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="travel_window", confidence="medium"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="travel_window", source="user_inferred"),
+            ],
+            assistant_response="June is set roughly.",
+        ),
+    )
+
+    def _review_brief(**kwargs):
+        update = kwargs["llm_update"].model_copy(deep=True)
+        update.trip_length = "long weekend"
+        update.budget_currency = "GBP"
+        update.activity_styles = ["relaxed"]
+        update.confirmed_fields.append("budget_currency")
+        update.inferred_fields.extend(["trip_length", "activity_styles"])
+        update.field_confidences.extend(
+            [
+                TripFieldConfidenceUpdate(field="budget_currency", confidence="high"),
+                TripFieldConfidenceUpdate(field="trip_length", confidence="medium"),
+                TripFieldConfidenceUpdate(field="activity_styles", confidence="medium"),
+            ]
+        )
+        update.field_sources.extend(
+            [
+                TripFieldSourceUpdate(field="budget_currency", source="user_explicit"),
+                TripFieldSourceUpdate(field="trip_length", source="user_inferred"),
+                TripFieldSourceUpdate(field="activity_styles", source="user_inferred"),
+            ]
+        )
+        return update
+
+    monkeypatch.setattr(runner, "review_trip_brief_intelligence", _review_brief)
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "around june 15th please.",
+            "raw_messages": [
+                {
+                    "role": "user",
+                    "content": "Help me compare Lisbon and Porto for a relaxed long weekend, and keep the budget in GBP.",
+                },
+                {
+                    "role": "assistant",
+                    "content": "Porto is easier, Lisbon has more energy.",
+                },
+                {
+                    "role": "user",
+                    "content": "i want to go ahead with lisbon please.",
+                },
+                {
+                    "role": "assistant",
+                    "content": "What month or travel window?",
+                },
+            ],
+            "trip_draft": {
+                "title": "Lisbon trip",
+                "configuration": {"to_location": "Lisbon"},
+                "timeline": [],
+                "module_outputs": {},
+                "status": {"confirmed_fields": ["to_location"]},
+                "conversation": {},
+            },
+        }
+    )
+
+    board = result["trip_draft"]["conversation"]["suggestion_board"]
+    details_form = board["details_form"]
+
+    assert board["mode"] == "details_collection"
+    assert board["mode"] != "decision_cards"
+    assert board["suggested_step"] == "route"
+    assert details_form["to_location"] == "Lisbon"
+    assert details_form["travel_window"] == "around June 15th"
+    assert details_form["trip_length"] == "long weekend"
+    assert details_form["budget_currency"] == "GBP"
+    assert details_form["budget_amount"] is None
+    assert details_form["activity_styles"] == ["relaxed"]
+    assert board["details_field_meta"]["budget_currency"]["label"] == "You said"
 
 
 def test_process_trip_turn_persists_weather_preference_from_llm_update(monkeypatch) -> None:
@@ -344,8 +434,10 @@ def test_process_trip_turn_moves_into_shaping_when_brief_is_usable(monkeypatch) 
         "budget_posture",
         "selected_modules",
     ]
-    assert "before i proceed" in result["assistant_response"].lower()
-    assert result["trip_draft"]["conversation"]["suggestion_board"]["mode"] == "planning_mode_choice"
+    assert "next useful detail" in result["assistant_response"].lower()
+    assert "brief on the right" in result["assistant_response"].lower()
+    assert result["trip_draft"]["conversation"]["suggestion_board"]["mode"] == "details_collection"
+    assert result["trip_draft"]["conversation"]["suggestion_board"]["title"] == "Build the trip brief"
 
 
 def test_process_trip_turn_keeps_profile_home_base_soft_on_brief_confirmation(

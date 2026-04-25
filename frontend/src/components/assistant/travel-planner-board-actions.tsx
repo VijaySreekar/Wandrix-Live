@@ -5,7 +5,10 @@ import { useEffect, useRef } from "react";
 import { useThreadRuntime } from "@assistant-ui/react";
 
 import type { ConversationBoardAction } from "@/types/conversation";
-import type { PlannerBoardActionIntent } from "@/types/planner-board";
+import type {
+  PlannerBackendBoardActionIntent,
+  PlannerBoardActionIntent,
+} from "@/types/planner-board";
 
 type TravelPlannerBoardActionsProps = {
   pendingBoardAction: PlannerBoardActionIntent | null;
@@ -34,6 +37,22 @@ export function TravelPlannerBoardActions({
     }
 
     if (disabled) {
+      return;
+    }
+
+    if (pendingBoardAction.type === "chat_prompt") {
+      threadRuntime.append({
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: pendingBoardAction.prompt_text,
+          },
+        ],
+        startRun: true,
+      });
+      handledActionIdRef.current = pendingBoardAction.action_id;
+      onHandled(pendingBoardAction.action_id);
       return;
     }
 
@@ -96,6 +115,8 @@ export function TravelPlannerBoardActions({
       activity_styles: pendingBoardAction.activity_styles,
       custom_style: pendingBoardAction.custom_style,
       budget_posture: pendingBoardAction.budget_posture,
+      budget_amount: pendingBoardAction.budget_amount,
+      budget_currency: pendingBoardAction.budget_currency,
       budget_gbp: pendingBoardAction.budget_gbp,
     };
 
@@ -156,6 +177,10 @@ export function TravelPlannerBoardActions({
 }
 
 function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
+  if (action.type === "chat_prompt") {
+    return action.prompt_text;
+  }
+
   if (action.type === "select_quick_plan") {
     return "Use Quick Plan and generate the first draft itinerary now.";
   }
@@ -382,6 +407,12 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
     .filter(Boolean)
     .join(", ");
 
+  if (action.type === "confirm_destination_suggestion") {
+    return destination
+      ? `Lock ${destination} as the destination for this trip.`
+      : "Lock the leading destination for this trip.";
+  }
+
   if (!destination) {
     return "That destination direction looks like the strongest fit so far.";
   }
@@ -389,7 +420,7 @@ function buildBoardSelectionMessage(action: PlannerBoardActionIntent) {
   return `I’d like to explore ${destination} next. Keep it as the working destination for now while we fill in the rest.`;
 }
 
-function buildDetailsSummaryMessage(action: PlannerBoardActionIntent) {
+function buildDetailsSummaryMessage(action: PlannerBackendBoardActionIntent) {
   const route =
     action.from_location_flexible && action.to_location
       ? action.from_location
@@ -402,6 +433,14 @@ function buildDetailsSummaryMessage(action: PlannerBoardActionIntent) {
         .map(([moduleName]) => moduleName)
         .join(", ")
     : "full trip";
+  const budgetAmount = action.budget_amount ?? action.budget_gbp ?? null;
+  const budgetCurrency = action.budget_currency ?? (action.budget_gbp ? "GBP" : null);
+  let budgetAmountLabel: string | null = null;
+  if (budgetAmount && budgetCurrency) {
+    budgetAmountLabel = `about ${budgetCurrency} ${budgetAmount}`;
+  } else if (budgetAmount) {
+    budgetAmountLabel = `about ${budgetAmount}`;
+  }
   const detailBits = [
     route ? `route ${route}` : null,
     action.from_location_flexible && !action.from_location
@@ -426,7 +465,10 @@ function buildDetailsSummaryMessage(action: PlannerBoardActionIntent) {
     action.budget_posture
       ? `budget ${action.budget_posture.replace("_", "-")}`
       : null,
-    action.budget_gbp ? `about GBP ${action.budget_gbp}` : null,
+    action.budget_currency && !action.budget_amount && !action.budget_gbp
+      ? `budget currency ${action.budget_currency}`
+      : null,
+    budgetAmountLabel,
     activeModules ? `modules ${activeModules}` : null,
   ].filter(Boolean);
 

@@ -59,6 +59,8 @@ export type TripConfiguration = {
   travelers: PlannerTravelerDetails;
   travelers_flexible?: boolean | null;
   budget_posture: BudgetPosture | null;
+  budget_amount?: number | null;
+  budget_currency?: string | null;
   budget_gbp: number | null;
   selected_modules: TripModuleSelection;
   activity_styles: ActivityStyle[];

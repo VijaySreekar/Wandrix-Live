@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.trip_planning import (
     ActivityStyle,
@@ -131,6 +131,7 @@ TripDetailsStepKey = Literal[
 TripSuggestionBoardMode = Literal[
     "idle",
     "destination_suggestions",
+    "timing_choice",
     "decision_cards",
     "details_collection",
     "planning_mode_choice",
@@ -156,6 +157,15 @@ DestinationSuggestionSelectionStatus = Literal[
     "leading",
     "confirmed",
 ]
+DiscoveryTurnKind = Literal[
+    "none",
+    "start",
+    "refine",
+    "pivot",
+    "narrow",
+    "expand",
+    "compare",
+]
 PlanningModeCardStatus = Literal["available", "in_development"]
 AdvancedAnchorCardStatus = Literal["available", "completed"]
 
@@ -169,6 +179,8 @@ TripFieldKey = Literal[
     "trip_length",
     "weather_preference",
     "budget_posture",
+    "budget_amount",
+    "budget_currency",
     "budget_gbp",
     "adults",
     "children",
@@ -277,6 +289,13 @@ class PlannerChecklistItem(BaseModel):
     value: str | None = Field(default=None, max_length=200)
 
 
+class TripDetailsFieldMeta(BaseModel):
+    field: TripFieldKey
+    source: ConversationFieldSource | None = None
+    confidence_level: ConversationFieldConfidence | None = None
+    label: str | None = Field(default=None, max_length=80)
+
+
 class DestinationSuggestionCard(BaseModel):
     id: str
     destination_name: str = Field(..., min_length=1, max_length=120)
@@ -284,6 +303,11 @@ class DestinationSuggestionCard(BaseModel):
     image_url: str = Field(..., min_length=1, max_length=500)
     short_reason: str = Field(..., min_length=1, max_length=240)
     practicality_label: str = Field(..., min_length=1, max_length=120)
+    fit_label: str | None = Field(default=None, max_length=80)
+    best_for: str | None = Field(default=None, max_length=160)
+    tradeoffs: list[str] = Field(default_factory=list, max_length=3)
+    recommendation_note: str | None = Field(default=None, max_length=200)
+    change_note: str | None = Field(default=None, max_length=200)
     selection_status: DestinationSuggestionSelectionStatus = "suggested"
 
 
@@ -303,7 +327,19 @@ class TripDetailsCollectionFormState(BaseModel):
     activity_styles: list[ActivityStyle] = Field(default_factory=list)
     custom_style: str | None = Field(default=None, max_length=160)
     budget_posture: BudgetPosture | None = None
+    budget_amount: float | None = Field(default=None, gt=0)
+    budget_currency: str | None = Field(default=None, min_length=3, max_length=3)
     budget_gbp: float | None = Field(default=None, gt=0)
+
+    @field_validator("budget_currency", mode="before")
+    @classmethod
+    def normalize_budget_currency(cls, value):
+        if value in (None, ""):
+            return None
+        normalized = str(value).strip().upper()
+        if len(normalized) != 3 or not normalized.isalpha():
+            raise ValueError("budget_currency must be a 3-letter ISO currency code")
+        return normalized
 
 
 class PlanningModeChoiceCard(BaseModel):
@@ -762,7 +798,10 @@ class TripSuggestionBoardState(BaseModel):
     source_context: str | None = Field(default=None, max_length=240)
     title: str | None = Field(default=None, max_length=160)
     subtitle: str | None = Field(default=None, max_length=320)
-    cards: list[DestinationSuggestionCard] = Field(default_factory=list, max_length=4)
+    cards: list[DestinationSuggestionCard] = Field(default_factory=list, max_length=6)
+    discovery_turn_kind: DiscoveryTurnKind = "none"
+    comparison_summary: str | None = Field(default=None, max_length=500)
+    leading_recommendation: str | None = Field(default=None, max_length=240)
     planning_mode_cards: list[PlanningModeChoiceCard] = Field(
         default_factory=list,
         max_length=2,
@@ -931,6 +970,10 @@ class TripSuggestionBoardState(BaseModel):
     need_details: list[PlannerChecklistItem] = Field(default_factory=list)
     visible_steps: list[TripDetailsStepKey] = Field(default_factory=list)
     required_steps: list[TripDetailsStepKey] = Field(default_factory=list)
+    suggested_step: TripDetailsStepKey | None = None
+    details_field_meta: dict[TripFieldKey, TripDetailsFieldMeta] = Field(
+        default_factory=dict
+    )
     details_form: TripDetailsCollectionFormState | None = None
     confirm_cta_label: str | None = Field(default=None, max_length=120)
     own_choice_prompt: str | None = Field(default=None, max_length=240)

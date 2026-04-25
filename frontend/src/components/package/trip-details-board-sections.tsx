@@ -21,21 +21,30 @@ import {
   UtensilsCrossed,
   Wine,
 } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import {
   getNextVisibleStep,
   getRequiredSteps,
   isStepComplete,
 } from "@/components/package/trip-details-board-model";
+import { TripDetailsBudgetSection } from "@/components/package/trip-details-budget-section";
+import {
+  getTripDetailsStepMeta,
+  TripDetailsFieldSourceLabel,
+} from "@/components/package/trip-details-field-meta";
 import { RouteLocationInput } from "@/components/package/route-location-input";
+import { getTripDetailsTimingSummary } from "@/components/package/trip-details-timing-model";
+import { TripDetailsTimingSection } from "@/components/package/trip-details-timing-section";
 import { Button } from "@/components/ui/button";
-import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type {
   TripDetailsCollectionFormState,
+  TripDetailsFieldMeta,
   TripDetailsStepKey,
+  TripFieldKey,
 } from "@/types/trip-conversation";
 import type {
   ActivityStyle,
@@ -50,9 +59,11 @@ type TripDetailsStepperProps = {
   focusNote: string;
   form: TripDetailsCollectionFormState;
   visibleSteps: TripDetailsStepKey[];
+  detailsFieldMeta?: Partial<Record<TripFieldKey, TripDetailsFieldMeta>>;
   onActiveStepChange: (step: TripDetailsStepKey) => void;
   onAdultsChange: (value: number | null) => void;
   onBudgetAmountChange: (value: number | null) => void;
+  onBudgetCurrencyChange: (value: string | null) => void;
   onBudgetPostureToggle: (posture: BudgetPosture) => void;
   onChildrenChange: (value: number | null) => void;
   onOriginFlexibleToggle: () => void;
@@ -85,6 +96,7 @@ type StepCardProps = {
   isComplete: boolean;
   isOpen: boolean;
   isRequired: boolean;
+  fieldMeta?: TripDetailsFieldMeta | null;
   stepNumber: number;
   summary: string | null;
   title: string;
@@ -141,39 +153,6 @@ const MODULE_ORDER: Array<keyof TripModuleSelection> = [
   "weather",
 ];
 
-const TRAVEL_WINDOW_OPTIONS = [
-  "This month",
-  "Next month",
-  "Summer",
-  "Autumn",
-  "Winter",
-  "Flexible",
-] as const;
-
-const TRIP_LENGTH_OPTIONS = [
-  "Weekend",
-  "3 days",
-  "5 days",
-  "1 week",
-  "10 days",
-  "2 weeks",
-] as const;
-
-const WEATHER_PREFERENCE_OPTIONS = [
-  "Warm",
-  "Sunny",
-  "Mild",
-  "Cool",
-  "Snowy",
-  "Dry",
-] as const;
-
-const BUDGET_OPTIONS: Array<{ value: BudgetPosture; label: string }> = [
-  { value: "budget", label: "Budget" },
-  { value: "mid_range", label: "Mid-range" },
-  { value: "premium", label: "Premium" },
-];
-
 export function TripDetailsStepper({
   accessToken,
   activeStep,
@@ -181,9 +160,11 @@ export function TripDetailsStepper({
   focusNote,
   form,
   visibleSteps,
+  detailsFieldMeta,
   onActiveStepChange,
   onAdultsChange,
   onBudgetAmountChange,
+  onBudgetCurrencyChange,
   onBudgetPostureToggle,
   onChildrenChange,
   onOriginFlexibleToggle,
@@ -202,6 +183,7 @@ export function TripDetailsStepper({
         const isOpen = activeStep === step;
         const isRequired = requiredSteps.includes(step);
         const nextStep = getNextVisibleStep(step, form);
+        const fieldMeta = getTripDetailsStepMeta(detailsFieldMeta, step);
 
         return (
           <StepCard
@@ -210,6 +192,7 @@ export function TripDetailsStepper({
             isComplete={complete}
             isOpen={isOpen}
             isRequired={isRequired}
+            fieldMeta={fieldMeta}
             stepNumber={index + 1}
             summary={getStepSummary(step, form)}
             title={STEP_TITLES[step]}
@@ -379,129 +362,11 @@ export function TripDetailsStepper({
 
             {step === "timing" ? (
               <div className="space-y-6">
-                <StepIntro>
-                  Rough timing is enough to move forward. Add exact dates only if you already know them.
-                </StepIntro>
-                <div className="space-y-5">
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium text-[var(--planner-board-text)]">
-                      When are you thinking?
-                    </Label>
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {TRAVEL_WINDOW_OPTIONS.map((option) => (
-                        <ChoiceButton
-                          key={option}
-                          disabled={disabled}
-                          selected={form.travel_window === option}
-                          onClick={() =>
-                            onFieldChange(
-                              "travel_window",
-                              form.travel_window === option ? null : option,
-                            )
-                          }
-                        >
-                          {option}
-                        </ChoiceButton>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium text-[var(--planner-board-text)]">
-                      How long should it be?
-                    </Label>
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {TRIP_LENGTH_OPTIONS.map((option) => (
-                        <ChoiceButton
-                          key={option}
-                          disabled={disabled}
-                          selected={form.trip_length === option}
-                          onClick={() =>
-                            onFieldChange(
-                              "trip_length",
-                              form.trip_length === option ? null : option,
-                            )
-                          }
-                        >
-                          {option}
-                        </ChoiceButton>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium text-[var(--planner-board-text)]">
-                      What weather would you prefer?
-                    </Label>
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {WEATHER_PREFERENCE_OPTIONS.map((option) => (
-                        <ChoiceButton
-                          key={option}
-                          disabled={disabled}
-                          selected={form.weather_preference === option.toLowerCase()}
-                          onClick={() =>
-                            onFieldChange(
-                              "weather_preference",
-                              form.weather_preference === option.toLowerCase()
-                                ? null
-                                : option.toLowerCase(),
-                            )
-                          }
-                        >
-                          {option}
-                        </ChoiceButton>
-                      ))}
-                    </div>
-                    <p className="text-sm leading-6 text-[var(--planner-board-muted)]">
-                      Optional, but it helps Wandrix steer timing and destination fit
-                      earlier in the planning flow.
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-3 border-t border-[var(--planner-board-border)] pt-5">
-                  <Label className="text-sm font-medium text-[var(--planner-board-text)]">
-                    Or set exact dates
-                  </Label>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <DatePicker
-                      disabled={disabled}
-                      placeholder="Start date"
-                      date={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined}
-                      onDateChange={(date) => {
-                        if (date) {
-                          const year = date.getFullYear();
-                          const month = String(date.getMonth() + 1).padStart(2, "0");
-                          const day = String(date.getDate()).padStart(2, "0");
-                          const nextStartDate = `${year}-${month}-${day}`;
-                          onFieldChange("start_date", nextStartDate);
-                          if (form.end_date && form.end_date < nextStartDate) {
-                            onFieldChange("end_date", null);
-                          }
-                        } else {
-                          onFieldChange("start_date", null);
-                        }
-                      }}
-                    />
-                    <DatePicker
-                      disabled={disabled}
-                      placeholder="End date"
-                      date={form.end_date ? new Date(`${form.end_date}T00:00:00`) : undefined}
-                      disabledDays={
-                        form.start_date
-                          ? { before: new Date(`${form.start_date}T00:00:00`) }
-                          : undefined
-                      }
-                      onDateChange={(date) => {
-                        if (date) {
-                          const year = date.getFullYear();
-                          const month = String(date.getMonth() + 1).padStart(2, "0");
-                          const day = String(date.getDate()).padStart(2, "0");
-                          onFieldChange("end_date", `${year}-${month}-${day}`);
-                        } else {
-                          onFieldChange("end_date", null);
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
+                <TripDetailsTimingSection
+                  disabled={disabled}
+                  form={form}
+                  onFieldChange={onFieldChange}
+                />
                 <StepActions
                   disabled={disabled || !complete}
                   nextLabel={
@@ -643,56 +508,16 @@ export function TripDetailsStepper({
             ) : null}
 
             {step === "budget" ? (
-              <div className="space-y-5">
-                <StepIntro>
-                  Set the budget tone you want Wandrix to work within. A posture on its own is enough for early planning, and the amount can stay optional if you do not know it yet.
-                </StepIntro>
-                <div className="space-y-3">
-                  <Label className="text-sm font-medium text-[var(--planner-board-text)]">
-                    Budget posture
-                  </Label>
-                  <div className="grid gap-2.5 sm:grid-cols-3">
-                    {BUDGET_OPTIONS.map((option) => (
-                      <ChoiceButton
-                        key={option.value}
-                        disabled={disabled}
-                        selected={form.budget_posture === option.value}
-                        onClick={() => onBudgetPostureToggle(option.value)}
-                      >
-                        {option.label}
-                      </ChoiceButton>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-3 border-t border-[var(--planner-board-border)] pt-5">
-                  <Label className="text-sm font-medium text-[var(--planner-board-text)]">
-                    Budget amount
-                  </Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="50"
-                    inputMode="numeric"
-                    disabled={disabled}
-                    placeholder="e.g. 1800"
-                    value={form.budget_gbp ?? ""}
-                    onChange={(event) => {
-                      const rawValue = event.target.value.trim();
-                      if (!rawValue) {
-                        onBudgetAmountChange(null);
-                        return;
-                      }
-                      const parsed = Number(rawValue);
-                      onBudgetAmountChange(Number.isFinite(parsed) ? parsed : null);
-                    }}
-                    className="h-11 rounded-lg border-[var(--planner-board-border)] bg-white/50 transition-colors duration-150 focus:border-[var(--planner-board-cta)]"
-                  />
-                  <p className="text-sm leading-6 text-[var(--planner-board-muted)]">
-                    Enter the total working budget in GBP if you know it. If not, the posture alone is still enough to keep the brief moving.
-                  </p>
-                </div>
-                <StepActions disabled={disabled || !complete} nextLabel={null} />
-              </div>
+              <TripDetailsBudgetSection
+                actions={
+                  <StepActions disabled={disabled || !complete} nextLabel={null} />
+                }
+                disabled={disabled}
+                form={form}
+                onBudgetAmountChange={onBudgetAmountChange}
+                onBudgetCurrencyChange={onBudgetCurrencyChange}
+                onBudgetPostureToggle={onBudgetPostureToggle}
+              />
             ) : null}
           </StepCard>
         );
@@ -731,6 +556,7 @@ export function TripDetailsFooter({
 function StepCard({
   children,
   disabled,
+  fieldMeta,
   isComplete,
   isOpen,
   isRequired,
@@ -739,14 +565,23 @@ function StepCard({
   title,
   onToggle,
 }: StepCardProps) {
+  const reduceMotion = useReducedMotion();
+
   return (
-    <section
+    <motion.section
+      layout={!reduceMotion}
       className={cn(
         "overflow-hidden rounded-2xl border transition-colors duration-150",
         isOpen
           ? "border-[var(--planner-board-cta)] bg-white"
           : "border-[var(--planner-board-border)] bg-white",
       )}
+      transition={{
+        layout: {
+          duration: reduceMotion ? 0.01 : 0.34,
+          ease: [0.16, 1, 0.3, 1],
+        },
+      }}
     >
       <button
         type="button"
@@ -780,9 +615,12 @@ function StepCard({
             ) : null}
           </div>
           {summary ? (
-            <p className="mt-1 text-sm leading-6 text-[var(--planner-board-muted)]">
-              {summary}
-            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <p className="text-sm leading-6 text-[var(--planner-board-muted)]">
+                {summary}
+              </p>
+              <TripDetailsFieldSourceLabel meta={fieldMeta} />
+            </div>
           ) : null}
         </div>
         <ChevronDown
@@ -792,12 +630,24 @@ function StepCard({
           )}
         />
       </button>
-      {isOpen ? (
-        <div className="border-t border-[var(--planner-board-border)] px-5 pb-5 pt-5">
-          {children}
-        </div>
-      ) : null}
-    </section>
+      <AnimatePresence initial={false}>
+        {isOpen ? (
+          <motion.div
+            key="step-content"
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8 }}
+            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+            transition={{
+              duration: reduceMotion ? 0.01 : 0.22,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+            className="border-t border-[var(--planner-board-border)] px-5 pb-5 pt-5"
+          >
+            {children}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </motion.section>
   );
 }
 
@@ -959,20 +809,7 @@ function getStepSummary(
   }
 
   if (step === "timing") {
-    if (form.start_date && form.end_date) {
-      return [
-        `${form.start_date} to ${form.end_date}`,
-        form.weather_preference ? capitalizeLabel(form.weather_preference) : null,
-      ]
-        .filter(Boolean)
-        .join(" / ");
-    }
-    const parts = [
-      form.travel_window,
-      form.trip_length,
-      form.weather_preference ? capitalizeLabel(form.weather_preference) : null,
-    ].filter(Boolean);
-    return parts.length ? parts.join(" / ") : "Add rough timing or exact dates.";
+    return getTripDetailsTimingSummary(form);
   }
 
   if (step === "travellers") {
@@ -1003,11 +840,19 @@ function getStepSummary(
   }
 
   if (step === "budget") {
+    const amount = form.budget_amount ?? form.budget_gbp ?? null;
+    let amountLabel: string | null = null;
+    if (amount && form.budget_currency) {
+      amountLabel = formatCurrency(amount, form.budget_currency);
+    } else if (amount) {
+      amountLabel = `${amount}`;
+    }
     const parts = [
       form.budget_posture
         ? capitalizeLabel(form.budget_posture.replace("_", "-"))
         : null,
-      form.budget_gbp ? formatCurrency(form.budget_gbp) : null,
+      form.budget_currency && amount === null ? form.budget_currency : null,
+      amountLabel,
     ].filter(Boolean);
     return parts.length ? parts.join(" / ") : "Set the working budget direction.";
   }
@@ -1062,10 +907,10 @@ function capitalizeLabel(value: string) {
     .join(" ");
 }
 
-function formatCurrency(value: number) {
+function formatCurrency(value: number, currency: string) {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
-    currency: "GBP",
+    currency,
     maximumFractionDigits: 0,
   }).format(value);
 }

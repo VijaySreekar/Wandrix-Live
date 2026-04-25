@@ -3,39 +3,38 @@
 import type { DestinationSuggestionCard } from "@/types/trip-conversation";
 
 const DESTINATION_IMAGE_CACHE = new Map<string, string>();
-const DESTINATION_IMAGE_STORAGE_PREFIX = "wandrix.destination-image.";
+const DESTINATION_IMAGE_STORAGE_PREFIX = "wandrix.destination-image.v4.";
+const TRUSTED_DESTINATION_IMAGE_HOSTS = new Set([
+  "upload.wikimedia.org",
+]);
+const GENERIC_CITY_IMAGE =
+  "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=1600&q=80";
+const GENERIC_COAST_IMAGE =
+  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=80";
+const GENERIC_HERITAGE_IMAGE =
+  "https://images.unsplash.com/photo-1524231757912-21f4fe3a7200?auto=format&fit=crop&w=1600&q=80";
 
-const CURATED_DESTINATION_IMAGES: Record<string, string> = {
-  "canary islands":
-    "https://images.unsplash.com/photo-1511527661048-7fe73d85e9a4?auto=format&fit=crop&w=1600&q=80",
-  seville:
-    "https://images.unsplash.com/photo-1562883676-8c7feb1c4d73?auto=format&fit=crop&w=1600&q=80",
-  malta:
-    "https://images.unsplash.com/photo-1573152958734-1922c188fba3?auto=format&fit=crop&w=1600&q=80",
-  madeira:
-    "https://images.unsplash.com/photo-1510097467424-192d713fd8b2?auto=format&fit=crop&w=1600&q=80",
-  marrakesh:
-    "https://images.unsplash.com/photo-1548013146-72479768bada?auto=format&fit=crop&w=1600&q=80",
-  marrakech:
-    "https://images.unsplash.com/photo-1548013146-72479768bada?auto=format&fit=crop&w=1600&q=80",
-  rome:
-    "https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&w=1600&q=80",
-  athens:
-    "https://images.unsplash.com/photo-1555993539-1732b0258235?auto=format&fit=crop&w=1600&q=80",
-  lisbon:
-    "https://images.unsplash.com/photo-1513735492246-483525079686?auto=format&fit=crop&w=1600&q=80",
-  porto:
-    "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=1600&q=80",
-  valencia:
-    "https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1600&q=80",
-  dubai:
-    "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=1600&q=80",
-};
-
-const GENERIC_IMAGE_MARKERS = [
+const UNSTABLE_IMAGE_MARKERS = [
   "source.unsplash.com",
+];
+const GENERIC_IMAGE_MARKERS = [
   "photo-1488646953014-85cb44e25828",
+  "photo-1449824913935-59a10b8d2000",
   "photo-1507525428034-b723cf961d3e",
+  "photo-1524231757912-21f4fe3a7200",
+];
+const NON_DESTINATION_IMAGE_MARKERS = [
+  "special_marker",
+  "location_map",
+  "locator_map",
+  "map_of_",
+  "_map.",
+  "flag_of_",
+  ".svg",
+  "coat_of_arms",
+  "seal_of_",
+  "emblem",
+  "logo",
 ];
 
 export async function resolveDestinationSuggestionImage(
@@ -47,10 +46,10 @@ export async function resolveDestinationSuggestionImage(
     return cached;
   }
 
-  const curated = getCuratedDestinationImage(card.destination_name);
-  if (curated) {
-    writeCachedDestinationImage(cacheKey, curated);
-    return curated;
+  const provided = normalizeProvidedImage(card.image_url);
+  if (provided) {
+    writeCachedDestinationImage(cacheKey, provided);
+    return provided;
   }
 
   const wikipediaImage = await resolveWikipediaDestinationImage(card);
@@ -59,13 +58,22 @@ export async function resolveDestinationSuggestionImage(
     return wikipediaImage;
   }
 
-  const provided = normalizeProvidedImage(card.image_url);
-  if (provided) {
-    writeCachedDestinationImage(cacheKey, provided);
-    return provided;
-  }
+  return getSafeFallbackDestinationImage(card);
+}
 
-  return getSafeFallbackDestinationImage(card.destination_name);
+export function getDestinationSuggestionImagePreview(
+  card: DestinationSuggestionCard,
+): string {
+  return (
+    normalizeProvidedImage(card.image_url) ||
+    getSafeFallbackDestinationImage(card)
+  );
+}
+
+export function getDestinationSuggestionImageFallback(
+  card: DestinationSuggestionCard,
+): string {
+  return getSafeFallbackDestinationImage(card);
 }
 
 function buildCacheKey(destinationName: string, countryOrRegion: string) {
@@ -76,8 +84,12 @@ function buildCacheKey(destinationName: string, countryOrRegion: string) {
 
 function readCachedDestinationImage(cacheKey: string) {
   const memoryHit = DESTINATION_IMAGE_CACHE.get(cacheKey);
+  const normalizedMemoryHit = normalizeProvidedImage(memoryHit);
+  if (normalizedMemoryHit) {
+    return normalizedMemoryHit;
+  }
   if (memoryHit) {
-    return memoryHit;
+    DESTINATION_IMAGE_CACHE.delete(cacheKey);
   }
 
   if (typeof window === "undefined") {
@@ -91,8 +103,16 @@ function readCachedDestinationImage(cacheKey: string) {
     return null;
   }
 
-  DESTINATION_IMAGE_CACHE.set(cacheKey, storageHit);
-  return storageHit;
+  const normalizedStorageHit = normalizeProvidedImage(storageHit);
+  if (!normalizedStorageHit) {
+    window.sessionStorage.removeItem(
+      `${DESTINATION_IMAGE_STORAGE_PREFIX}${cacheKey}`,
+    );
+    return null;
+  }
+
+  DESTINATION_IMAGE_CACHE.set(cacheKey, normalizedStorageHit);
+  return normalizedStorageHit;
 }
 
 function writeCachedDestinationImage(cacheKey: string, imageUrl: string) {
@@ -106,18 +126,6 @@ function writeCachedDestinationImage(cacheKey: string, imageUrl: string) {
     `${DESTINATION_IMAGE_STORAGE_PREFIX}${cacheKey}`,
     imageUrl,
   );
-}
-
-function getCuratedDestinationImage(destinationName: string) {
-  const normalized = destinationName.trim().toLowerCase();
-
-  for (const [key, imageUrl] of Object.entries(CURATED_DESTINATION_IMAGES)) {
-    if (normalized.includes(key)) {
-      return imageUrl;
-    }
-  }
-
-  return null;
 }
 
 async function resolveWikipediaDestinationImage(card: DestinationSuggestionCard) {
@@ -137,28 +145,36 @@ function buildWikipediaTitleCandidates(card: DestinationSuggestionCard) {
   const destination = card.destination_name.trim();
   const country = card.country_or_region.trim();
   const candidates = new Set<string>();
+  const destinationVariants = expandDestinationTitleVariants(destination);
 
-  if (destination) {
-    candidates.add(destination);
+  for (const variant of destinationVariants) {
+    candidates.add(variant);
   }
 
-  if (destination && country) {
-    candidates.add(`${destination}, ${country}`);
-    candidates.add(`${destination} ${country}`);
-  }
-
-  if (destination.toLowerCase().includes("canary islands")) {
-    candidates.add("Canary Islands");
-    candidates.add("Tenerife");
-    candidates.add("Gran Canaria");
-  }
-
-  if (destination.toLowerCase() === "madeira") {
-    candidates.add("Madeira");
-    candidates.add("Funchal");
+  if (country) {
+    for (const variant of destinationVariants) {
+      candidates.add(`${variant}, ${country}`);
+      candidates.add(`${variant} ${country}`);
+    }
   }
 
   return [...candidates];
+}
+
+function expandDestinationTitleVariants(destination: string) {
+  const normalized = destination.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const variants = new Set([normalized]);
+  const parenthetical = normalized.match(/^(.+?)\s*\((.+?)\)\s*$/);
+  if (parenthetical) {
+    variants.add(parenthetical[1].trim());
+    variants.add(parenthetical[2].trim());
+  }
+
+  return [...variants].filter(Boolean);
 }
 
 async function fetchWikipediaSummaryImage(title: string) {
@@ -202,19 +218,83 @@ function normalizeProvidedImage(imageUrl: string | null | undefined) {
     return null;
   }
 
-  if (GENERIC_IMAGE_MARKERS.some((marker) => trimmed.includes(marker))) {
+  if (UNSTABLE_IMAGE_MARKERS.some((marker) => trimmed.includes(marker))) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (
+      parsed.protocol !== "https:" ||
+      !TRUSTED_DESTINATION_IMAGE_HOSTS.has(parsed.hostname)
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  const normalized = trimmed.toLowerCase();
+  if (GENERIC_IMAGE_MARKERS.some((marker) => normalized.includes(marker))) {
+    return null;
+  }
+  if (NON_DESTINATION_IMAGE_MARKERS.some((marker) => normalized.includes(marker))) {
     return null;
   }
 
   return trimmed;
 }
 
-function getSafeFallbackDestinationImage(destinationName: string) {
-  const normalized = destinationName.trim().toLowerCase();
+function getSafeFallbackDestinationImage(card: DestinationSuggestionCard) {
+  const normalized = [
+    card.destination_name,
+    card.country_or_region,
+    card.short_reason,
+    card.practicality_label,
+    card.fit_label,
+    card.best_for,
+    card.recommendation_note,
+    card.change_note,
+    ...(card.tradeoffs ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 
-  if (normalized.includes("island")) {
-    return "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=80";
+  if (
+    [
+      "beach",
+      "beaches",
+      "coast",
+      "coastal",
+      "sea",
+      "ocean",
+      "island",
+      "riviera",
+      "harbour",
+      "harbor",
+      "waterfront",
+    ].some((marker) => normalized.includes(marker))
+  ) {
+    return GENERIC_COAST_IMAGE;
   }
 
-  return "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1600&q=80";
+  if (
+    [
+      "ancient",
+      "heritage",
+      "historic",
+      "history",
+      "old town",
+      "palace",
+      "fort",
+      "temple",
+      "monument",
+      "museum",
+    ].some((marker) => normalized.includes(marker))
+  ) {
+    return GENERIC_HERITAGE_IMAGE;
+  }
+
+  return GENERIC_CITY_IMAGE;
 }

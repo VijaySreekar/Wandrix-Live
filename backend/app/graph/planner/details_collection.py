@@ -1,6 +1,7 @@
 from app.graph.planner.location_context import ResolvedPlannerLocationContext
 from app.schemas.trip_conversation import PlannerChecklistItem, TripDetailsStepKey
 from app.schemas.trip_planning import TripConfiguration
+from app.utils.currency import format_currency_amount
 
 
 def get_active_modules(configuration: TripConfiguration) -> list[str]:
@@ -54,6 +55,7 @@ def compute_scope_missing_fields(
     *,
     allow_flexible_origin: bool = False,
     allow_flexible_travelers: bool = False,
+    selected_modules_explicit: bool = False,
 ) -> list[str]:
     active_modules = get_active_modules(configuration)
     default_modules = TripConfiguration().selected_modules
@@ -75,9 +77,7 @@ def compute_scope_missing_fields(
         flights_active
         and not configuration.from_location
         and not (allow_flexible_origin and configuration.from_location_flexible)
-        and not (
-        resolved_location_context and resolved_location_context.summary
-        )
+        and not _usable_resolved_origin_summary(resolved_location_context)
     ):
         missing_fields.append("from_location")
     has_any_timing_signal = bool(
@@ -101,9 +101,19 @@ def compute_scope_missing_fields(
         missing_fields.append("adults")
     if activities_active and not configuration.activity_styles and not configuration.custom_style:
         missing_fields.append("activity_styles")
-    if budget_relevant and configuration.budget_posture is None and configuration.budget_gbp is None:
+    if (
+        budget_relevant
+        and configuration.budget_posture is None
+        and configuration.budget_amount is None
+    ):
         missing_fields.append("budget_posture")
-    if not active_modules or configuration.selected_modules == default_modules:
+    if (
+        not active_modules
+        or (
+            configuration.selected_modules == default_modules
+            and not selected_modules_explicit
+        )
+    ):
         missing_fields.append("selected_modules")
 
     return missing_fields
@@ -112,19 +122,28 @@ def compute_scope_missing_fields(
 def build_details_checklist_sections(
     configuration: TripConfiguration,
     resolved_location_context: ResolvedPlannerLocationContext | None = None,
+    *,
+    selected_modules_explicit: bool = False,
 ) -> tuple[list[PlannerChecklistItem], list[PlannerChecklistItem]]:
     route_origin = configuration.from_location or (
-        resolved_location_context.summary if resolved_location_context else None
+        _usable_resolved_origin_summary(resolved_location_context)
     )
+    active_modules = get_active_modules(configuration)
+    flights_active = "flights" in active_modules
     route_value = _format_route_value(
         destination=configuration.to_location,
         route_origin=route_origin,
         from_location_flexible=configuration.from_location_flexible,
     )
+    if flights_active and not route_origin and not configuration.from_location_flexible:
+        route_value = None
     travellers_value = format_travellers_value(configuration)
     budget_value = _format_budget_value(configuration)
-    modules_value = _format_module_scope(configuration)
-    active_modules = get_active_modules(configuration)
+    modules_value = (
+        _format_module_scope(configuration)
+        if selected_modules_explicit
+        else None
+    )
 
     items = [
         _build_checklist_item("route", "Route", route_value),
@@ -180,12 +199,22 @@ def has_origin_signal_for_details(
     return bool(
         configuration.from_location
         or configuration.from_location_flexible
-        or (resolved_location_context and resolved_location_context.summary)
+        or _usable_resolved_origin_summary(resolved_location_context)
     )
 
 
 def has_flexible_origin(configuration: TripConfiguration) -> bool:
     return bool(configuration.from_location_flexible)
+
+
+def _usable_resolved_origin_summary(
+    resolved_location_context: ResolvedPlannerLocationContext | None,
+) -> str | None:
+    if not resolved_location_context:
+        return None
+    if resolved_location_context.source == "profile_home_base":
+        return None
+    return resolved_location_context.summary
 
 
 def _build_checklist_item(
@@ -233,12 +262,16 @@ def format_travellers_value(configuration: TripConfiguration) -> str | None:
 
 
 def _format_budget_value(configuration: TripConfiguration) -> str | None:
+    amount = configuration.budget_amount
+    currency = configuration.budget_currency
     parts = [
         configuration.budget_posture.replace("_", "-")
         if configuration.budget_posture
         else None,
-        f"GBP {configuration.budget_gbp:.0f}"
-        if configuration.budget_gbp is not None
+        format_currency_amount(amount, currency)
+        if amount is not None and currency
+        else f"{amount:.0f}"
+        if amount is not None
         else None,
     ]
     summary = ", ".join(part for part in parts if part)

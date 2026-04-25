@@ -51,6 +51,16 @@ def apply_board_action_updates(
         merged_update.planner_intent = "reopen_plan"
         return merged_update
 
+    if action.type == "confirm_destination_suggestion":
+        merged_update = llm_update.model_copy(deep=True)
+        if action.destination_name:
+            destination = action.destination_name.strip()
+            if action.country_or_region:
+                destination = f"{destination}, {action.country_or_region.strip()}"
+            merged_update.to_location = destination
+            _mark_confirmed(merged_update, "to_location")
+        return merged_update
+
     if action.type == "keep_current_stay_choice":
         merged_update = llm_update.model_copy(deep=True)
         merged_update.requested_review_resolutions.append(
@@ -289,9 +299,23 @@ def apply_board_action_updates(
         merged_update.budget_posture = action.budget_posture
         _mark_confirmed(merged_update, "budget_posture")
 
+    if action.budget_amount is not None:
+        merged_update.budget_amount = action.budget_amount
+        _mark_confirmed(merged_update, "budget_amount")
+
+    if action.budget_currency:
+        merged_update.budget_currency = action.budget_currency
+        _mark_confirmed(merged_update, "budget_currency")
+
     if action.budget_gbp is not None:
         merged_update.budget_gbp = action.budget_gbp
         _mark_confirmed(merged_update, "budget_gbp")
+        if merged_update.budget_amount is None:
+            merged_update.budget_amount = action.budget_gbp
+            _mark_confirmed(merged_update, "budget_amount")
+        if merged_update.budget_currency is None:
+            merged_update.budget_currency = "GBP"
+            _mark_confirmed(merged_update, "budget_currency")
 
     merged_update.confirmed_trip_brief = True
 

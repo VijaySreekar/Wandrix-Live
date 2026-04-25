@@ -93,6 +93,7 @@ def test_understanding_prompt_teaches_rough_timing_preservation(monkeypatch) -> 
         in prompt
     )
     assert "Do not auto-convert rough timing into exact dates just to be helpful." in prompt
+    assert "The dedicated timing_choice board owns early timing intake." in prompt
     assert 'User: "Maybe early October for five-ish days."' in prompt
 
 
@@ -188,6 +189,10 @@ def test_understanding_prompt_teaches_budget_nuance(monkeypatch) -> None:
     prompt = captured["messages"][1][1]
 
     assert "Budget language is often nuanced and mixed." in prompt
+    assert (
+        "If the user asks to keep planning in a currency such as GBP, EUR, or USD, set budget_currency to that 3-letter code without inventing budget_amount."
+        in prompt
+    )
     assert (
         'If the user says things like "not too expensive", "keep hotels sensible", "happy to splurge on food", or "don\'t need luxury but don\'t want it cheap", interpret budget posture carefully and keep it inferred unless they made the posture explicit.'
         in prompt
@@ -524,6 +529,52 @@ def test_understanding_prompt_teaches_destination_option_preservation(monkeypatc
     )
 
 
+def test_understanding_prompt_teaches_destination_shortlist_quality(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="Somewhere warm with amazing food for a long weekend.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={"summary": "London, England"},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert "Destination suggestions should be decision-useful, not four near-duplicates." in prompt
+    assert "Vary geography, trip texture, pace, and tradeoffs" in prompt
+    assert "Never use source.unsplash.com" in prompt
+    assert "Each practicality_label should be concrete" in prompt
+    assert "Never say \"the user\"" in prompt
+    assert "Avoid repeated section labels like \"Quick read\"" in prompt
+    assert "treat X as the working origin/base" in prompt
+    assert "Coventry can influence the comparison through Birmingham first" in prompt
+    assert "The destination names in assistant_response must match destination_suggestions" in prompt
+    assert "Do not name optional future ideas" in prompt
+    assert "never say \"here are ten\"" in prompt
+    assert "that destination must be included in destination_suggestions" in prompt
+    assert "Otherwise describe the idea without naming a city" in prompt
+    assert "If the user says \"not Spain\", no Spanish city belongs in destination_suggestions" in prompt
+    assert "avoid pipe tables, \"Tradeoff:\", \"Verdict:\", \"Board:\", \"on the board\"" in prompt
+    assert "make the shortlist genuinely less obvious" in prompt
+    assert "do not set from_location or confirm the origin unless the latest user message adopts that base" in prompt
+    assert "still give a fit-first destination shortlist" in prompt
+    assert "include that destination plus alternatives as cards, and do not set to_location yet" in prompt
+    assert "default the destination_suggestions to those named options" in prompt
+    assert "with at least one replacement option instead of only repeating or narrowing to the remaining cards" in prompt
+    assert "The replacement must appear as a card, not just as prose" in prompt
+
+
 def test_understanding_prompt_teaches_custom_trip_style_preservation(monkeypatch) -> None:
     captured: dict = {}
     monkeypatch.setattr(
@@ -625,5 +676,41 @@ def test_understanding_prompt_teaches_planning_mode_is_explicit(monkeypatch) -> 
     )
     assert (
         "Only set requested_planning_mode when the user is clearly asking to start that mode, not when they are just approving the trip brief in general."
+        in prompt
+    )
+    assert (
+        "Do not set requested_planning_mode in the same turn as confirmed_trip_brief unless the user separately and explicitly says Quick Plan or Advanced Planning by name."
+        in prompt
+    )
+
+
+def test_understanding_prompt_preserves_business_conference_purpose(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        understanding,
+        "create_chat_model",
+        lambda temperature=0.1: _FakeChatModel(captured),
+    )
+
+    understanding.generate_llm_trip_update(
+        user_input="I am going for a business conference.",
+        configuration=TripConfiguration(),
+        title="Trip planner",
+        status=TripDraftStatus(),
+        conversation=TripConversationState(),
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[],
+    )
+
+    prompt = captured["messages"][1][1]
+
+    assert (
+        "preserve that as custom_style. Plan around the work commitment instead of treating the trip as a normal leisure break."
+        in prompt
+    )
+    assert (
+        "A conference trip may need flights and hotel first, with activities only as light evenings if the user wants that"
         in prompt
     )

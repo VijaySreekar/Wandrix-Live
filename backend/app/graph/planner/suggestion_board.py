@@ -5,12 +5,24 @@ from app.graph.planner.details_collection import (
     get_required_steps,
     get_visible_steps,
     has_flexible_origin,
-    has_origin_signal_for_details,
+)
+from app.graph.planner.destination_discovery import (
+    build_destination_mentioned_options,
+    build_unresolved_destination_title,
+    resolve_destination_cards,
+    resolve_unconfirmed_destination_options,
+    should_show_destination_suggestions,
 )
 from app.graph.planner.location_context import ResolvedPlannerLocationContext
+from app.graph.planner.timing_intake import (
+    build_timing_choice_board_state,
+    should_show_timing_choice,
+)
+from app.graph.planner.trip_brief_board import (
+    build_details_field_meta,
+    get_suggested_details_step,
+)
 from app.graph.planner.turn_models import (
-    ConversationOptionCandidate,
-    DestinationSuggestionCandidate,
     TripTurnUpdate,
 )
 from app.integrations.llm.client import create_chat_model
@@ -20,7 +32,6 @@ from app.schemas.trip_conversation import (
     AdvancedStayHotelOptionCard,
     AdvancedStayHotelFilters,
     AdvancedAnchorChoiceCard,
-    DestinationSuggestionCard,
     PlannerHotelResultsStatus,
     PlannerHotelSortOrder,
     PlannerHotelStyleTag,
@@ -41,6 +52,25 @@ from app.schemas.trip_planning import HotelStayDetail, TripConfiguration
 
 OWN_CHOICE_PROMPT = "Tell me the destination you already have in mind."
 HOTEL_WORKSPACE_PAGE_SIZE = 6
+
+
+def _has_selected_modules_signal(
+    *,
+    current: TripConversationState,
+    llm_update: TripTurnUpdate,
+    configuration: TripConfiguration,
+) -> bool:
+    if "selected_modules" in {
+        *llm_update.confirmed_fields,
+        *llm_update.inferred_fields,
+    }:
+        return True
+
+    memory = current.memory.field_memory.get("selected_modules")
+    if memory is None:
+        return configuration.selected_modules != TripConfiguration().selected_modules
+
+    return memory.value == configuration.selected_modules.model_dump(mode="json")
 
 
 class _HotelCopyCandidate(BaseModel):
@@ -203,10 +233,17 @@ def build_suggestion_board_state(
                 configuration=configuration,
                 brief_confirmed=brief_confirmed,
             )
+        if should_show_timing_choice(
+            configuration=configuration,
+            brief_confirmed=brief_confirmed,
+            planning_mode=current.planning_mode,
+        ):
+            return build_timing_choice_board_state(configuration=configuration)
         details_collection_state = _build_details_collection_state(
             current=current,
             configuration=configuration,
             phase=phase,
+            llm_update=llm_update,
             resolved_location_context=resolved_location_context,
             action=action,
             brief_confirmed=brief_confirmed,
@@ -214,14 +251,6 @@ def build_suggestion_board_state(
         )
         if details_collection_state:
             return details_collection_state
-        if current.decision_cards:
-            return TripSuggestionBoardState(
-                mode="decision_cards",
-                source_context=None,
-                title="Next trip decisions",
-                subtitle="Choose the next detail to keep shaping this trip.",
-                own_choice_prompt=None,
-            )
         return TripSuggestionBoardState(
             mode="helper",
             title="The destination is set.",
@@ -229,14 +258,14 @@ def build_suggestion_board_state(
             own_choice_prompt=None,
         )
 
-    next_cards = _resolve_destination_cards(
+    next_cards = resolve_destination_cards(
         current=current,
         current_board=current_board,
         llm_suggestions=llm_update.destination_suggestions,
         action=action,
     )
 
-    if _should_show_destination_suggestions(
+    if should_show_destination_suggestions(
         configuration=configuration,
         llm_update=llm_update,
         action=action,
@@ -263,29 +292,24 @@ def build_suggestion_board_state(
             source_context=source_context,
             title=title,
             subtitle=subtitle,
-            cards=next_cards[:4],
+            cards=next_cards[:6],
+            discovery_turn_kind=llm_update.discovery_turn_kind,
+            comparison_summary=llm_update.destination_comparison_summary,
+            leading_recommendation=llm_update.leading_destination_recommendation,
             own_choice_prompt=OWN_CHOICE_PROMPT,
         )
 
-    unresolved_destinations = _resolve_unconfirmed_destination_options(
+    unresolved_destinations = resolve_unconfirmed_destination_options(
         current=current,
         llm_update=llm_update,
     )
     if not configuration.to_location and len(unresolved_destinations) >= 2:
         return TripSuggestionBoardState(
             mode="helper",
-            title=_build_unresolved_destination_title(unresolved_destinations),
+            title=build_unresolved_destination_title(unresolved_destinations),
             subtitle=(
                 "Both options are still in play. Pick one in chat when you are ready, or tell me to keep comparing them without locking the destination yet."
             ),
-            own_choice_prompt=None,
-        )
-
-    if current.decision_cards:
-        return TripSuggestionBoardState(
-            mode="decision_cards",
-            title="Next trip decisions",
-            subtitle="These are the next choices that will sharpen the trip.",
             own_choice_prompt=None,
         )
 
@@ -302,6 +326,7 @@ def _build_details_collection_state(
     current: TripConversationState,
     configuration: TripConfiguration,
     phase: str,
+    llm_update: TripTurnUpdate,
     resolved_location_context: ResolvedPlannerLocationContext | None,
     action: ConversationBoardAction | None,
     brief_confirmed: bool,
@@ -313,27 +338,26 @@ def _build_details_collection_state(
     if not configuration.to_location:
         return None
 
-    require_origin_signal = planning_mode != "advanced"
-    if require_origin_signal and not has_origin_signal_for_details(
-        configuration,
-        resolved_location_context,
-    ):
-        return None
-
+    selected_modules_explicit = _has_selected_modules_signal(
+        current=current,
+        llm_update=llm_update,
+        configuration=configuration,
+    )
     have_details, need_details = build_details_checklist_sections(
         configuration=configuration,
         resolved_location_context=resolved_location_context,
+        selected_modules_explicit=selected_modules_explicit,
     )
     all_required_details_present = len(need_details) == 0
 
     return TripSuggestionBoardState(
         mode="details_collection",
-        title="Review the trip details"
+        title="Review the trip brief"
         if all_required_details_present
         else (
             "Build the Advanced Planning brief"
             if planning_mode == "advanced"
-            else "Fill in the rest of the trip details"
+            else "Build the trip brief"
         ),
         subtitle=_build_details_subtitle(
             configuration,
@@ -345,6 +369,12 @@ def _build_details_collection_state(
         need_details=need_details,
         visible_steps=get_visible_steps(configuration),
         required_steps=get_required_steps(configuration),
+        suggested_step=get_suggested_details_step(
+            configuration,
+            resolved_location_context=resolved_location_context,
+            selected_modules_explicit=selected_modules_explicit,
+        ),
+        details_field_meta=build_details_field_meta(current.memory.field_memory),
         details_form=_build_details_form_state(
             configuration,
             resolved_location_context,
@@ -2508,20 +2538,6 @@ def _format_hotel_amount(amount: float, currency: str | None) -> str:
     return f"{symbol}{rounded:.2f}"
 
 
-def build_destination_mentioned_options(
-    suggestions: list[DestinationSuggestionCandidate],
-):
-    from app.graph.planner.turn_models import ConversationOptionCandidate
-
-    return [
-        ConversationOptionCandidate(
-            kind="destination",
-            value=f"{suggestion.destination_name}, {suggestion.country_or_region}",
-        )
-        for suggestion in suggestions
-    ]
-
-
 def build_default_decision_cards(configuration: TripConfiguration) -> list[PlannerDecisionCard]:
     cards: list[PlannerDecisionCard] = []
     active_modules = [
@@ -2529,22 +2545,6 @@ def build_default_decision_cards(configuration: TripConfiguration) -> list[Plann
         for name, enabled in configuration.selected_modules.model_dump(mode="json").items()
         if enabled
     ]
-
-    if configuration.to_location and not (
-        configuration.start_date or configuration.travel_window
-    ):
-        cards.append(
-            PlannerDecisionCard(
-                title=f"Choose the timing shape for {configuration.to_location}",
-                description="A rough travel window is the next useful choice, and it matters more than exact dates right now.",
-                options=[
-                    "Spring city break",
-                    "Early summer escape",
-                    "Autumn weekend",
-                    "I'm flexible",
-                ],
-            )
-        )
 
     if configuration.to_location and (
         configuration.start_date or configuration.travel_window
@@ -2590,7 +2590,7 @@ def _build_details_subtitle(
     if all_required_details_present:
         if planning_mode == "advanced":
             return "The core brief is almost ready. Review it here if you want to tweak anything, or confirm in chat and Wandrix can move into the first Advanced Planning anchor."
-        return "Everything important is filled in. Review it on the board if you want to tweak anything, or confirm in chat and Wandrix can move ahead."
+        return "Everything important is filled in. Review the trip brief here if you want to tweak anything, or confirm in chat and Wandrix can move ahead."
 
     active_modules = [
         name
@@ -2621,7 +2621,7 @@ def _build_details_subtitle(
         return "Set the stay details here if you want to narrow the trip around hotels first."
     if active_modules == ["flights"]:
         return "Set the travel basics here and I can keep the next steps flight-first."
-    return "You can keep typing naturally in chat, or use the board to confirm the remaining details in one go."
+    return "You can keep typing naturally in chat, or use the brief to confirm the remaining details in one go."
 
 def _build_details_form_state(
     configuration: TripConfiguration,
@@ -2648,160 +2648,7 @@ def _build_details_form_state(
         activity_styles=list(configuration.activity_styles),
         custom_style=configuration.custom_style,
         budget_posture=configuration.budget_posture,
+        budget_amount=configuration.budget_amount,
+        budget_currency=configuration.budget_currency,
         budget_gbp=configuration.budget_gbp,
     )
-def _resolve_destination_cards(
-    *,
-    current: TripConversationState,
-    current_board: TripSuggestionBoardState,
-    llm_suggestions: list[DestinationSuggestionCandidate],
-    action: ConversationBoardAction | None,
-) -> list[DestinationSuggestionCard]:
-    if action and action.type == "own_choice":
-        return []
-
-    if llm_suggestions:
-        cards = [
-            DestinationSuggestionCard(
-                id=suggestion.id,
-                destination_name=suggestion.destination_name,
-                country_or_region=suggestion.country_or_region,
-                image_url=suggestion.image_url,
-                short_reason=suggestion.short_reason,
-                practicality_label=suggestion.practicality_label,
-                selection_status="suggested",
-            )
-            for suggestion in llm_suggestions
-        ]
-        cards = _filter_rejected_destination_cards(cards, current)
-    else:
-        cards = current_board.cards
-
-    if not cards:
-        return []
-
-    if action and action.type == "select_destination_suggestion":
-        updated_cards: list[DestinationSuggestionCard] = []
-        for card in cards:
-            is_selected = (
-                action.suggestion_id == card.id
-                or (
-                    action.destination_name
-                    and card.destination_name.lower() == action.destination_name.lower()
-                )
-            )
-            updated_cards.append(
-                card.model_copy(
-                    update={
-                        "selection_status": "leading" if is_selected else "suggested"
-                    }
-                )
-            )
-        return updated_cards
-
-    return cards
-
-
-def _filter_rejected_destination_cards(
-    cards: list[DestinationSuggestionCard],
-    current: TripConversationState,
-) -> list[DestinationSuggestionCard]:
-    rejected_destination_keys = {
-        key
-        for option in current.memory.rejected_options
-        if option.kind == "destination"
-        for key in _destination_option_keys(option.value)
-    }
-    seen_destination_keys: set[str] = set()
-    filtered: list[DestinationSuggestionCard] = []
-
-    for card in cards:
-        card_keys = _destination_option_keys(
-            f"{card.destination_name}, {card.country_or_region}"
-        )
-        if rejected_destination_keys.intersection(card_keys):
-            continue
-
-        primary_key = _normalize_destination_value(card.destination_name)
-        if primary_key in seen_destination_keys:
-            continue
-
-        seen_destination_keys.add(primary_key)
-        filtered.append(card)
-
-    return filtered
-
-
-def _destination_option_keys(value: str) -> set[str]:
-    normalized = _normalize_destination_value(value)
-    if not normalized:
-        return set()
-
-    keys = {normalized}
-    primary = normalized.split(",")[0].strip()
-    if primary:
-        keys.add(primary)
-    return keys
-
-
-def _normalize_destination_value(value: str) -> str:
-    return " ".join(value.strip().lower().split())
-
-
-def _should_show_destination_suggestions(
-    *,
-    configuration: TripConfiguration,
-    llm_update: TripTurnUpdate,
-    action: ConversationBoardAction | None,
-    next_cards: list[DestinationSuggestionCard],
-) -> bool:
-    if configuration.to_location:
-        return False
-    if action and action.type == "own_choice":
-        return False
-    if llm_update.to_location:
-        return False
-    return bool(next_cards)
-
-
-def _resolve_unconfirmed_destination_options(
-    *,
-    current: TripConversationState,
-    llm_update: TripTurnUpdate,
-) -> list[str]:
-    values: list[str] = []
-    seen: set[str] = set()
-    rejected_keys = {
-        key
-        for option in current.memory.rejected_options
-        if option.kind == "destination"
-        for key in _destination_option_keys(option.value)
-    }
-
-    candidates = [
-        *llm_update.mentioned_options,
-        *[
-            ConversationOptionCandidate(kind=option.kind, value=option.value)
-            for option in current.memory.mentioned_options
-        ],
-    ]
-
-    for candidate in candidates:
-        if candidate.kind != "destination":
-            continue
-        option_keys = _destination_option_keys(candidate.value)
-        if option_keys.intersection(rejected_keys):
-            continue
-        normalized = _normalize_destination_value(candidate.value)
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        values.append(candidate.value.strip())
-
-    return values[:3]
-
-
-def _build_unresolved_destination_title(options: list[str]) -> str:
-    if len(options) == 2:
-        return f"{options[0]} and {options[1]} are both still in play"
-    return f"{', '.join(options[:-1])}, and {options[-1]} are still in play"

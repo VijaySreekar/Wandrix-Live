@@ -9,6 +9,406 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-25 - Fixed Brief Confirmation And Planning Mode Handoff
+
+Technical Summary:
+- Added a lifecycle guard so a newly confirmed trip brief does not immediately select Quick Plan when module scope is still implicit.
+- Updated planning-mode gate copy to summarize the full structured brief before asking the user to choose Quick Plan or Advanced Planning.
+- Treated default all-on modules as an open scope choice until the user or board explicitly confirms module scope.
+- Preserved work-led trip purpose such as business conferences in `custom_style` and tightened prompt guidance around conference module scope.
+- Added smooth motion transitions for trip-detail board refreshes and step expansion/collapse.
+- Added regression coverage for the Valencia conference-style confirmation flow and updated old copy expectations.
+
+Plain-English Summary:
+- Wandrix now shows the trip brief it is about to use, waits for a real Quick/Advanced planning choice, and handles business conference trips as work-led plans instead of jumping straight into a leisure-style draft.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/details_collection.py`
+- `backend/app/graph/planner/trip_brief_board.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/trip_brief_response.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Improved Trip Brief Chat Framing
+
+Technical Summary:
+- Split details-collection assistant copy into a dedicated backend trip brief response module.
+- Made trip brief chat copy prefer the LLM-authored `assistant_response`, with a guardrail that rejects known repetitive checklist phrasing.
+- Replaced the old repeated missing-field checklist fallback with a compact current-shape, next-detail, remaining-gaps fallback based only on validated board state.
+- Updated LLM understanding guidance so details-stage responses avoid copied checklist language and refer to the editable brief naturally.
+- Added regression coverage for clean LLM copy, Seville-style brief framing, and Advanced Planning wording.
+
+Plain-English Summary:
+- When the trip brief is open, Wandrix should now sound like a helpful planner instead of listing every missing field with the same instruction over and over.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/trip_brief_response.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Added Trip Brief Intelligence
+
+Technical Summary:
+- Added currency-aware budget fields (`budget_amount`, `budget_currency`) while preserving `budget_gbp` as a legacy GBP alias.
+- Added an LLM-first trip brief intelligence pass that can carry earlier conversation details into the structured brief without deterministic extraction.
+- Split trip-brief board metadata into a dedicated backend helper and exposed `details_field_meta` plus `suggested_step` on the board contract.
+- Added dedicated frontend trip-details files for field source labels and budget controls.
+- Updated brochure budget copy to format the selected currency instead of hardcoding GBP.
+- Added regression tests for currency-only budget intent, trip brief metadata, and the Lisbon mid-June prefilled brief flow.
+
+Plain-English Summary:
+- After a traveller chooses Lisbon and gives rough timing, the board now moves to an editable trip brief and can prefill remembered details like “relaxed long weekend” and “GBP” without pretending it knows the budget amount.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/brief_intelligence.py`
+- `backend/app/graph/planner/trip_brief_board.py`
+- `backend/app/graph/planner/details_collection.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/services/brochure_service.py`
+- `backend/app/utils/currency.py`
+- `backend/tests/test_trip_brief_intelligence.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/components/package/trip-details-budget-section.tsx`
+- `frontend/src/components/package/trip-details-field-meta.tsx`
+- `frontend/src/components/package/trip-details-board.tsx`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Pruned Stale Timing Decision Cards
+
+Technical Summary:
+- Made the dedicated timing board the only default surface for timing intake after a destination is known.
+- Stopped generating default timing-shape decision cards now that `timing_choice` owns that flow.
+- Changed decision-card merging to use the current turn's cards instead of carrying stale cards forward across turns.
+- Removed the noninteractive `decision_cards` board fallback so usable trip shape now moves into the editable trip brief instead.
+- Stopped routing stale `decision_cards` board states through the frontend board renderer.
+- Moved timing-specific LLM prompt guidance into a dedicated backend timing prompt module.
+- Extracted the trip-details timing step UI and timing completion/summary helpers into dedicated frontend timing files.
+- Softened decision-card assistant copy so it no longer says it is "stopping filler questions" or repeats stale timing prompts.
+- Added regression coverage for the Lisbon mid-June case where an old timing card could survive beside a newer timing prompt.
+
+Plain-English Summary:
+- After someone chooses a destination and gives a rough date, Wandrix should stop showing old timing prompts and move the board to the next real trip gap instead of asking the same timing question twice.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/timing_prompt.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/package/trip-details-timing-section.tsx`
+- `frontend/src/components/package/trip-details-timing-model.ts`
+- `frontend/src/components/package/trip-details-board-sections.tsx`
+- `frontend/src/components/package/trip-details-board-model.ts`
+- `frontend/src/components/package/trip-timing-board-model.ts`
+- `frontend/src/components/package/trip-timing-choice-board.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Added Discovery QA Reviews
+
+Technical Summary:
+- Added an LLM-first destination discovery review pass that checks structured suggestions against the assistant response before board state is merged.
+- Added focused LLM-origin safety review for saved profile home bases so profile context can personalize recommendations without silently becoming `from_location`.
+- Tightened discovery guidance for small named comparisons, hidden-gem requests, rejected options, capped shortlists, and uncarded destination mentions.
+- Updated details checklist handling so saved profile home base no longer counts as a completed route.
+- Cleaned details-collection copy to avoid clunky "on the board" phrasing.
+- Re-ran a 50-scenario real-LLM discovery sweep and targeted real-LLM follow-up checks for the remaining edge cases.
+
+Plain-English Summary:
+- Wandrix is now better at keeping the chat and destination board aligned, avoiding silent destination/origin locks, and helping users choose without sounding like an internal planning system leaked into the conversation.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/destination_discovery_review.py`
+- `backend/app/graph/planner/profile_origin_review.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/details_collection.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Added LLM-First Timing Intake
+
+Technical Summary:
+- Added a dedicated `timing_choice` suggestion-board mode for trips with a known destination but incomplete timing.
+- Added isolated backend timing intake and response helpers so timing flow logic stays out of the larger planner files.
+- Added a dedicated frontend timing choice board that composes natural chat messages for rough windows, trip lengths, and exact dates.
+- Routed timing board clicks through the normal chat/LLM path instead of persisting timing through a backend board action.
+- Strengthened LLM instructions so a single softly stated destination can become an inferred working destination before timing intake.
+- Clarified LLM handling for single-location exact date ranges so "Vancouver from Aug 20 until Aug 27" is treated as a destination/date range, not an origin.
+- Added timing validation cleanup so placeholder phrases like "length TBD" do not count as completed timing.
+- Added regression coverage for timing-board visibility and Advanced Planning intake behavior.
+
+Plain-English Summary:
+- When a destination is known but timing is missing, Wandrix now asks for the trip window in a more natural way and gives users a focused board shortcut without bypassing conversational understanding.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/timing_intake.py`
+- `backend/app/graph/planner/timing_response.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/trip-timing-choice-board.tsx`
+- `frontend/src/components/package/trip-timing-board-model.ts`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/types/planner-board.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Tightened Discovery Decision Behavior
+
+Technical Summary:
+- Strengthened LLM planner instructions so discovery chat destinations must match board cards and explicit exclusions must be reflected in structured destination suggestions.
+- Updated discovery guidance to keep fit-first suggestions active even when origin is missing, then ask for origin to re-rank logistics.
+- Clarified that saved profile home-base context can personalize rankings but must not be committed as `from_location` unless the user adopts it for the trip.
+- Clarified that named destination comparison requests should stay in discovery mode instead of locking `to_location`.
+- Added guidance for replacing rejected shortlist options when the user asks "what else".
+- Added stricter guidance that chat must not mention destinations absent from board cards, including wildcard/replacement names.
+- Added stricter copy guidance for requests above six options so the assistant says it is capping to the strongest six instead of saying it is showing the larger requested count.
+- Added guidance to avoid "Board" / "on the board" phrasing in discovery chat.
+- Updated documentation and prompt regression coverage for these discovery decision rules.
+
+Plain-English Summary:
+- Discovery should now be more reliable when users exclude places, ask for alternatives, reject an option, or have a saved home base that should personalize but not silently lock the trip.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/understanding.py`
+- `backend/tests/test_planner_understanding.py`
+- `docs/chat-planner-spec.md`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Humanized Discovery Personalization
+
+Technical Summary:
+- Replaced the fixed discovery response guidance around repeated `Quick read`, `The choice`, and `My lean` sections with a more natural pattern: personal opening, compact bullets, and one recommendation line.
+- Added planner guidance to personalize destination discovery when the user adds a home base or origin, including treating statements like "I live in Coventry" as a working origin/base for this trip.
+- Added guidance for nearby-airport/access language so home bases like Coventry can influence rankings without inventing exact flight routes.
+- Updated fallback discovery copy to avoid section-heavy headings and keep the assistant response closer to a concise advisor note.
+- Updated prompt regression coverage and the chat planner spec for the new discovery voice.
+
+Plain-English Summary:
+- Destination discovery should now feel more personal and less templated, especially when the user gives a home base that should change the recommendation.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/destination_discovery_response.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `docs/chat-planner-spec.md`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Made Discovery Copy LLM-First
+
+Technical Summary:
+- Updated the planner prompt so destination discovery responses use warm advisor-style markdown directly from the LLM, with direct "you" phrasing and no pipe-table, "Tradeoff", "Verdict", or "Board" labels.
+- Changed discovery response building to preserve and render the LLM's assistant response when destination suggestions are present, using app-composed copy only for card-click confirmation or empty-response fallbacks.
+- Preserved assistant-response paragraph spacing so bold sections and bullets render cleanly in chat.
+- Removed the deterministic copy-rewrite layer and kept the app focused on validation, rendering, and fallback behavior.
+- Improved destination image resolution for parenthetical names like `Visakhapatnam (Vizag)` and replaced city-specific image catalogs with Wikimedia lookup plus category-level fallbacks.
+- Added flexible destination-board layouts so 2, 3, 4, and 5-6 cards use layouts sized to the card count instead of one fixed grid.
+
+Plain-English Summary:
+- Destination discovery should now sound like a human travel advisor because the planner is asked to write that way directly, while the board stays cleaner, better balanced, and less likely to show generic map imagery.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/destination_discovery_response.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/utils/destination_images.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/components/package/destination-discovery-card.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/lib/destination-images.ts`
+- `docs/chat-planner-spec.md`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Polished Discovery Chat and Destination Images
+
+Technical Summary:
+- Reworked destination discovery responses into short labeled sections with bold emphasis and bullet-style comparison rows instead of dense pipe-table text.
+- Added lightweight assistant-message formatting on the frontend so structured chat copy preserves sections, bullets, and bold emphasis.
+- Removed hardcoded destination image catalogs from backend and frontend discovery code.
+- Switched destination-card imagery to dynamic Wikimedia lookup first, then validated model/provider URLs, then generic travel fallbacks.
+- Removed TripAdvisor as a trusted destination-card source because those URLs can point to hotels or unrelated provider imagery.
+- Versioned the browser destination-image cache and added image error fallback handling for discovery cards.
+- Added regression coverage for dynamic Wikimedia image selection and unsafe provider-image rejection.
+
+Plain-English Summary:
+- Destination discovery now feels calmer and easier to read in chat, while destination images come from a scalable lookup flow instead of a growing list of city-specific URLs in the codebase.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/destination_discovery_response.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/utils/destination_images.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/package/destination-discovery-card.tsx`
+- `frontend/src/lib/destination-images.ts`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Added Discovery Intelligence V1
+
+Technical Summary:
+- Added structured discovery turn metadata for broad destination shortlists, refinements, pivots, narrowing, expansion, and comparison.
+- Expanded destination suggestion cards to support 2-6 options and richer decision fields including fit labels, best-for summaries, tradeoffs, recommendation notes, and change notes.
+- Replaced fixed destination-suggestion copy with advisor-style comparison responses and leading-destination confirmation.
+- Added a `confirm_destination_suggestion` board action so card clicks first mark a leading option and a later action locks the destination.
+- Split backend destination discovery helpers and response copy into dedicated modules, and split the frontend discovery card into its own component.
+- Added regression coverage for broad discovery, region pivots, leading-card clicks, and destination confirmation.
+
+Plain-English Summary:
+- Wandrix now behaves more like a travel advisor during destination discovery: it can refine or replace the shortlist as the user’s taste changes, explain the tradeoffs in chat, and let the board help choose without locking the destination too early.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/destination_discovery.py`
+- `backend/app/graph/planner/destination_discovery_response.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/destination-discovery-card.tsx`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/types/conversation.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `docs/chat-planner-spec.md`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Added Wikimedia Destination Image Source
+
+Technical Summary:
+- Added a backend Wikimedia/Wikipedia summary image resolver for destination suggestion cards when curated or trusted provider imagery is unavailable.
+- Added destination title aliases for Asian destinations that need better page targets, including Bali and Hoi An.
+- Rejected map, marker, generic fallback, and unstable image URLs before accepting a destination card image.
+- Updated the destination board preview image path so stable backend-provided images render immediately instead of briefly showing generic fallbacks.
+- Added regression coverage for uncatalogued Asian destination images and invalid-host fallbacks.
+
+Plain-English Summary:
+- Asian destination cards should now show real place imagery much more often, using Wikimedia photos before falling back to generic travel images.
+
+Files / Areas Touched:
+- `backend/app/utils/destination_images.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `frontend/src/lib/destination-images.ts`
+- `frontend/src/components/package/trip-suggestion-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Reopened Advanced Brief Intake Selection
+
+Technical Summary:
+- Allowed the `select_advanced_plan` board action to enter Advanced Planning intake before the full trip brief is confirmed.
+- Kept premature Quick Plan generation gated behind brief confirmation.
+- Restored the Advanced Planning details board's ability to collect route details instead of requiring origin context before the board can appear.
+
+Plain-English Summary:
+- Users can now choose Advanced Planning earlier and use the guided board to fill in missing trip details, while Quick Plan still waits until the brief is ready.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Strengthened Destination Discovery Images
+
+Technical Summary:
+- Made destination suggestion image URLs optional in structured LLM output so the model no longer has to invent photo URLs.
+- Added backend destination-card image normalization that prefers curated stable imagery, rejects unstable `source.unsplash.com` URLs, and ignores image hosts the frontend cannot render.
+- Updated destination discovery prompt guidance to produce more diverse, decision-useful shortlists with concrete practicality labels.
+- Let the frontend trust stable backend-provided destination images before attempting browser-side Wikipedia image repair.
+- Added regression coverage for destination shortlist prompt quality and backend image normalization.
+
+Plain-English Summary:
+- Destination discovery should now feel smarter and the card images should load more reliably instead of depending on fragile generated image links.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/graph/planner/understanding.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/utils/destination_images.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_planner_understanding.py`
+- `frontend/src/lib/destination-images.ts`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Restored Quick Plan Brief Collection
+
+Technical Summary:
+- Restored the pre-Advanced ordering where destination discovery and route confidence happen before the trip brief/details board and Quick/Advanced planning-mode choice.
+- Kept the origin precondition for structured details collection so the planner still asks for the route before opening the full brief board.
+- Ignored premature Quick/Advanced board selections until the trip brief is confirmed.
+- Reprioritized assistant copy so a details-collection board gets the checklist response before the generic Quick Plan waiting response.
+- Marked the route checklist item as missing when flights are active and no origin or flexible-origin choice exists.
+- Added regression tests for destination discovery, origin gating, and premature Quick Plan selection.
+
+Plain-English Summary:
+- Wandrix now preserves the smart planning order: discover or confirm the destination, get enough route signal, collect the trip brief, then offer Quick or Advanced planning.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/suggestion_board.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/details_collection.py`
+- `backend/tests/test_planner_bootstrap.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Prioritized Detail Board Before Quick Live Board
+
+Technical Summary:
+- Reordered `/chat` board view resolution so active suggestion and detail-collection board states render before the generic Quick Plan live board.
+- Kept the live board available once the quick plan no longer has an active board prompt to answer.
+
+Plain-English Summary:
+- Choosing Quick Plan should now show the detail review step when the planner needs more information, instead of jumping straight to the live board.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Smoothed First Board Handoff
+
+Technical Summary:
+- Wrapped the `/chat` live board preview states in a Motion `AnimatePresence` handoff.
+- Added crossfade, blur, scale, and horizontal easing between the starter board carousel and structured board views.
+- Preserved reduced-motion behavior and existing structured trip draft rendering.
+
+Plain-English Summary:
+- After the first prompt, the right-side trip board now eases into place instead of snapping suddenly from the starter preview to the planning board.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `CHANGELOG.md`
+
 ## 2026-04-25 - Matched Starter Destination Images
 
 Technical Summary:

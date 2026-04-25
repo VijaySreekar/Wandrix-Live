@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { TripDetailsBoard } from "@/components/package/trip-details-board";
 import { TripLiveBoard } from "@/components/package/trip-live-board";
 import { TripSuggestionBoard } from "@/components/package/trip-suggestion-board";
+import { TripTimingChoiceBoard } from "@/components/package/trip-timing-choice-board";
 import { TravelBoardSpinner } from "@/components/package/travel-board-spinner";
 import type { BrowserAuthSnapshot } from "@/lib/supabase/auth-snapshot";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
@@ -17,6 +19,35 @@ type TripBoardPreviewProps = {
   isSwitchingTrips: boolean;
   requestedTripId: string | null;
   onAction: (action: PlannerBoardActionIntent) => void;
+};
+
+type BoardPreviewDirection = "forward" | "backward";
+
+const BOARD_VIEW_TRANSITION = {
+  enter: (direction: BoardPreviewDirection) => ({
+    opacity: 0,
+    filter: "blur(10px)",
+    scale: 0.988,
+    x: direction === "forward" ? 28 : -18,
+  }),
+  center: {
+    opacity: 1,
+    filter: "blur(0px)",
+    scale: 1,
+    x: 0,
+  },
+  exit: (direction: BoardPreviewDirection) => ({
+    opacity: 0,
+    filter: "blur(6px)",
+    scale: 0.996,
+    x: direction === "forward" ? -18 : 18,
+  }),
+};
+
+const REDUCED_BOARD_VIEW_TRANSITION = {
+  enter: { opacity: 0 },
+  center: { opacity: 1 },
+  exit: { opacity: 0 },
 };
 
 const STARTER_BOARD_SLIDES = [
@@ -63,23 +94,108 @@ export function TripBoardPreview({
   requestedTripId,
   onAction,
 }: TripBoardPreviewProps) {
+  const reduceMotion = useReducedMotion();
   const conversation = workspace?.tripDraft.conversation;
   const suggestionBoard = conversation?.suggestion_board;
   const showInitialBoardShell = isBootstrapping && !workspace;
+  const view = buildBoardPreviewView({
+    authSnapshot,
+    workspace,
+    suggestionBoard,
+    conversation,
+    showInitialBoardShell,
+    isBootstrapping,
+    isSwitchingTrips,
+    onAction,
+  });
 
-  if (workspace && conversation?.planning_mode === "quick") {
-    return (
-      <section className="relative flex h-full min-h-0 flex-col bg-shell">
-        <div
-          data-switching={isSwitchingTrips ? "true" : "false"}
-          className="trip-switch-content flex h-full min-h-0 flex-col"
+  return (
+    <section className="relative h-full min-h-0 overflow-hidden bg-shell">
+      <AnimatePresence
+        initial={false}
+        mode="sync"
+        custom={view.direction}
+      >
+        <motion.div
+          key={view.key}
+          className="absolute inset-0 flex min-h-0 flex-col"
+          custom={view.direction}
+          variants={
+            reduceMotion
+              ? REDUCED_BOARD_VIEW_TRANSITION
+              : BOARD_VIEW_TRANSITION
+          }
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={{
+            opacity: { duration: reduceMotion ? 0.01 : 0.28, ease: "easeOut" },
+            filter: { duration: reduceMotion ? 0.01 : 0.34, ease: "easeOut" },
+            scale: {
+              duration: reduceMotion ? 0.01 : 0.44,
+              ease: [0.16, 1, 0.3, 1],
+            },
+            x: {
+              duration: reduceMotion ? 0.01 : 0.5,
+              ease: [0.16, 1, 0.3, 1],
+            },
+          }}
         >
-          <BoardHeader />
-          <TripLiveBoard workspace={workspace} onAction={onAction} />
-        </div>
-        {isSwitchingTrips ? <BoardSwitchOverlay requestedTripId={requestedTripId} /> : null}
-      </section>
-    );
+          <div
+            data-switching={isSwitchingTrips ? "true" : "false"}
+            className="trip-switch-content flex h-full min-h-0 flex-col"
+          >
+            {view.content}
+          </div>
+        </motion.div>
+      </AnimatePresence>
+      {isSwitchingTrips ? (
+        <BoardSwitchOverlay requestedTripId={requestedTripId} />
+      ) : null}
+    </section>
+  );
+}
+
+type BoardPreviewView = {
+  key: string;
+  direction: BoardPreviewDirection;
+  content: ReactNode;
+};
+
+function buildBoardPreviewView({
+  authSnapshot,
+  workspace,
+  suggestionBoard,
+  conversation,
+  showInitialBoardShell,
+  isBootstrapping,
+  isSwitchingTrips,
+  onAction,
+}: {
+  authSnapshot: BrowserAuthSnapshot | null;
+  workspace: PlannerWorkspaceState | null;
+  suggestionBoard: PlannerWorkspaceState["tripDraft"]["conversation"]["suggestion_board"] | undefined;
+  conversation: PlannerWorkspaceState["tripDraft"]["conversation"] | undefined;
+  showInitialBoardShell: boolean;
+  isBootstrapping: boolean;
+  isSwitchingTrips: boolean;
+  onAction: (action: PlannerBoardActionIntent) => void;
+}): BoardPreviewView {
+  if (
+    workspace &&
+    suggestionBoard?.mode === "timing_choice"
+  ) {
+    return {
+      key: `timing:${workspace.trip.trip_id}`,
+      direction: "forward",
+      content: (
+        <TripTimingChoiceBoard
+          board={suggestionBoard}
+          disabled={isBootstrapping || isSwitchingTrips}
+          onAction={onAction}
+        />
+      ),
+    };
   }
 
   if (
@@ -87,7 +203,6 @@ export function TripBoardPreview({
     suggestionBoard &&
     [
       "destination_suggestions",
-      "decision_cards",
       "planning_mode_choice",
       "advanced_date_resolution",
       "advanced_anchor_choice",
@@ -106,65 +221,72 @@ export function TripBoardPreview({
       "advanced_review_workspace",
     ].includes(suggestionBoard.mode)
   ) {
-    return (
-      <section className="relative flex h-full min-h-0 flex-col bg-shell">
-        <div
-          data-switching={isSwitchingTrips ? "true" : "false"}
-          className="trip-switch-content flex h-full min-h-0 flex-col"
-        >
-          <TripSuggestionBoard
-            board={suggestionBoard}
-            decisionCards={conversation?.decision_cards ?? []}
-            disabled={isBootstrapping || isSwitchingTrips}
-            onAction={onAction}
-          />
-        </div>
-        {isSwitchingTrips ? (
-          <BoardSwitchOverlay requestedTripId={requestedTripId} />
-        ) : null}
-      </section>
-    );
+    return {
+      key: `suggestion:${workspace.trip.trip_id}:${suggestionBoard.mode}`,
+      direction: "forward",
+      content: (
+        <TripSuggestionBoard
+          board={suggestionBoard}
+          decisionCards={conversation?.decision_cards ?? []}
+          disabled={isBootstrapping || isSwitchingTrips}
+          onAction={onAction}
+        />
+      ),
+    };
   }
 
   if (workspace && suggestionBoard?.mode === "details_collection") {
-    return (
-      <section className="relative flex h-full min-h-0 flex-col bg-shell">
-        <div
-          data-switching={isSwitchingTrips ? "true" : "false"}
-          className="trip-switch-content flex h-full min-h-0 flex-col"
-        >
-          <TripDetailsBoard
-            key={JSON.stringify(suggestionBoard.details_form ?? {})}
-            accessToken={authSnapshot?.accessToken}
-            board={suggestionBoard}
-            disabled={isBootstrapping || isSwitchingTrips}
-            onAction={onAction}
-          />
-        </div>
-        {isSwitchingTrips ? (
-          <BoardSwitchOverlay requestedTripId={requestedTripId} />
-        ) : null}
-      </section>
-    );
+    return {
+      key: `details:${workspace.trip.trip_id}`,
+      direction: "forward",
+      content: (
+        <TripDetailsBoard
+          key={JSON.stringify(suggestionBoard.details_form ?? {})}
+          accessToken={authSnapshot?.accessToken}
+          board={suggestionBoard}
+          disabled={isBootstrapping || isSwitchingTrips}
+          onAction={onAction}
+        />
+      ),
+    };
+  }
+
+  if (workspace && conversation?.planning_mode === "quick") {
+    return {
+      key: `live:${workspace.trip.trip_id}`,
+      direction: "forward",
+      content: (
+        <>
+          <BoardHeader />
+          <TripLiveBoard workspace={workspace} onAction={onAction} />
+        </>
+      ),
+    };
   }
 
   if (showInitialBoardShell) {
-    return (
-      <section className="flex h-full min-h-0 flex-col bg-shell">
-        <BoardHeader />
-        <InitialBoardShell />
-      </section>
-    );
+    return {
+      key: "initial-shell",
+      direction: "backward",
+      content: (
+        <>
+          <BoardHeader />
+          <InitialBoardShell />
+        </>
+      ),
+    };
   }
 
-  const isLoading = isBootstrapping;
-
-  return (
-    <section className="flex h-full min-h-0 flex-col bg-shell">
-      <BoardHeader />
-      <StarterBoardCarousel isLoading={isLoading} />
-    </section>
-  );
+  return {
+    key: `starter:${isBootstrapping ? "loading" : "idle"}`,
+    direction: "backward",
+    content: (
+      <>
+        <BoardHeader />
+        <StarterBoardCarousel isLoading={isBootstrapping} />
+      </>
+    ),
+  };
 }
 
 function BoardHeader() {

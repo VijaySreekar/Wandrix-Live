@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.trip_conversation import (
     CheckpointConversationMessage,
@@ -49,6 +49,7 @@ class ConversationBoardAction(BaseModel):
     action_id: str = Field(..., min_length=1, max_length=80)
     type: Literal[
         "select_destination_suggestion",
+        "confirm_destination_suggestion",
         "own_choice",
         "confirm_trip_details",
         "confirm_trip_brief",
@@ -144,7 +145,19 @@ class ConversationBoardAction(BaseModel):
     activity_styles: list[ActivityStyle] = Field(default_factory=list)
     custom_style: str | None = Field(default=None, max_length=160)
     budget_posture: BudgetPosture | None = None
+    budget_amount: float | None = Field(default=None, gt=0)
+    budget_currency: str | None = Field(default=None, min_length=3, max_length=3)
     budget_gbp: float | None = Field(default=None, gt=0)
+
+    @field_validator("budget_currency", mode="before")
+    @classmethod
+    def normalize_budget_currency(cls, value):
+        if value in (None, ""):
+            return None
+        normalized = str(value).strip().upper()
+        if len(normalized) != 3 or not normalized.isalpha():
+            raise ValueError("budget_currency must be a 3-letter ISO currency code")
+        return normalized
 
 
 class TripConversationMessageRequest(BaseModel):

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import {
   TripDetailsFooter,
@@ -48,6 +49,8 @@ const EMPTY_FORM: TripDetailsCollectionFormState = {
   activity_styles: [],
   custom_style: null,
   budget_posture: null,
+  budget_amount: null,
+  budget_currency: null,
   budget_gbp: null,
 };
 
@@ -57,21 +60,38 @@ export function TripDetailsBoard({
   disabled,
   onAction,
 }: TripDetailsBoardProps) {
+  const reduceMotion = useReducedMotion();
   const initialForm = useMemo(
     () => normalizeForm(board.details_form),
     [board.details_form],
   );
-  const formKey = useMemo(() => JSON.stringify(initialForm), [initialForm]);
+  const formKey = useMemo(
+    () => JSON.stringify({ form: initialForm, suggestedStep: board.suggested_step }),
+    [board.suggested_step, initialForm],
+  );
 
   return (
-    <TripDetailsBoardContent
-      accessToken={accessToken}
-      key={formKey}
-      board={board}
-      disabled={disabled}
-      initialForm={initialForm}
-      onAction={onAction}
-    />
+    <AnimatePresence initial={false} mode="wait">
+      <motion.div
+        key={formKey}
+        className="h-full min-h-0"
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12 }}
+        animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+        exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -10 }}
+        transition={{
+          duration: reduceMotion ? 0.01 : 0.24,
+          ease: [0.16, 1, 0.3, 1],
+        }}
+      >
+        <TripDetailsBoardContent
+          accessToken={accessToken}
+          board={board}
+          disabled={disabled}
+          initialForm={initialForm}
+          onAction={onAction}
+        />
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
@@ -86,7 +106,9 @@ function TripDetailsBoardContent({
 }) {
   const [form, setForm] = useState<TripDetailsCollectionFormState>(initialForm);
   const [activeStep, setActiveStep] = useState<TripDetailsStepKey>(
-    getFirstIncompleteStep(initialForm),
+    board.suggested_step && getVisibleSteps(initialForm).includes(board.suggested_step)
+      ? board.suggested_step
+      : getFirstIncompleteStep(initialForm),
   );
   const activeModules = useMemo(
     () => getActiveModules(form.selected_modules),
@@ -121,6 +143,7 @@ function TripDetailsBoardContent({
             focusNote={focusNote}
             form={form}
             visibleSteps={visibleSteps}
+            detailsFieldMeta={board.details_field_meta}
             onActiveStepChange={setActiveStep}
             onAdultsChange={(value) =>
               setForm((current) => ({
@@ -131,7 +154,18 @@ function TripDetailsBoardContent({
             onBudgetAmountChange={(value) =>
               setForm((current) => ({
                 ...current,
-                budget_gbp: value,
+                budget_amount: value,
+                budget_gbp: current.budget_currency === "GBP" ? value : null,
+              }))
+            }
+            onBudgetCurrencyChange={(value) =>
+              setForm((current) => ({
+                ...current,
+                budget_currency: value,
+                budget_gbp:
+                  value === "GBP"
+                    ? current.budget_amount ?? current.budget_gbp ?? null
+                    : null,
               }))
             }
             onBudgetPostureToggle={(posture) =>
@@ -217,7 +251,12 @@ function TripDetailsBoardContent({
                   activity_styles: form.activity_styles,
                   custom_style: form.custom_style ?? null,
                   budget_posture: form.budget_posture ?? null,
-                  budget_gbp: form.budget_gbp ?? null,
+                  budget_amount: form.budget_amount ?? form.budget_gbp ?? null,
+                  budget_currency: form.budget_currency ?? null,
+                  budget_gbp:
+                    form.budget_currency === "GBP"
+                      ? form.budget_amount ?? form.budget_gbp ?? null
+                      : null,
                 })
               }
             />
@@ -236,6 +275,10 @@ function normalizeForm(
     ...form,
     adults: form?.adults ?? EMPTY_FORM.adults,
     children: form?.children ?? EMPTY_FORM.children,
+    budget_amount: form?.budget_amount ?? form?.budget_gbp ?? null,
+    budget_currency:
+      form?.budget_currency ?? (form?.budget_gbp ? "GBP" : EMPTY_FORM.budget_currency),
+    budget_gbp: form?.budget_gbp ?? null,
     selected_modules: {
       ...EMPTY_FORM.selected_modules,
       ...(form?.selected_modules ?? {}),
