@@ -5,7 +5,6 @@ from app.api.routes import (
     brochures,
     browser_sessions,
     conversation,
-    packages,
     providers,
     system,
     trips,
@@ -24,4 +23,3 @@ api_v1_router.include_router(brochures.router)
 api_v1_router.include_router(providers.router)
 api_v1_router.include_router(conversation.router)
 api_v1_router.include_router(conversation.chat_router)
-api_v1_router.include_router(packages.router)

@@ -9,6 +9,29 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Remove Repo Junk And Starter Package Endpoint
+
+Technical Summary:
+- Removed tracked local scratch artifacts from `.codex-temp/`, `tmp/`, root `tmp-chat-*` screenshots, and the backend development log.
+- Removed the orphaned starter package generator backend route, schema, and service now that planning lives in the conversation-first `/chat` flow.
+- Removed the package router registration from the FastAPI API router.
+- Updated README endpoint and backend structure wording to describe the current product rather than starter scaffolding.
+
+Plain-English Summary:
+- The repository is cleaner for submission: local screenshots/logs are gone, and the old starter package endpoint no longer appears as part of the app surface.
+
+Files / Areas Touched:
+- `.codex-temp/`
+- `tmp/`
+- `tmp-chat-*.png`
+- `backend/uvicorn-dev.log`
+- `backend/app/api/router.py`
+- `backend/app/api/routes/packages.py`
+- `backend/app/schemas/package.py`
+- `backend/app/services/package_generator.py`
+- `README.md`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Document Environment Ownership
 
 Technical Summary:
