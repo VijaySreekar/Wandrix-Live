@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, LogOut, UserRound } from "lucide-react";
+import { LogOut, UserRound } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -102,12 +102,6 @@ export function UserAccountPopover({
             <Link href="/profile" className="flex w-full items-center">
               <UserRound className="h-4 w-4" />
               Profile
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href="/providers" className="flex w-full items-center">
-              <BarChart3 className="h-4 w-4" />
-              Provider usage
             </Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>

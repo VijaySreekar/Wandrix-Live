@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   let next = searchParams.get("next") ?? "/chat";
 
   if (!next.startsWith("/")) {
-    next = "/packages";
+    next = "/chat";
   }
 
   if (code) {

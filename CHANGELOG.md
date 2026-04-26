@@ -9,6 +9,35 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Prune Frontend Submission Noise
+
+Technical Summary:
+- Removed unused starter SVGs, design concept images, old navbar/logo concepts, and unreferenced homepage reference assets from the frontend public folder.
+- Removed unused frontend-only package generator files, provider usage page, stale redirect route, old onboarding flow, unused shadcn studio examples, and unreferenced decorative/demo components.
+- Removed frontend-local agent/Claude notes and the default generated Next.js README from the deployable frontend tree.
+- Updated the Supabase callback fallback route to return to `/chat` instead of the removed `/packages` route and removed the provider usage link from the account menu.
+
+Plain-English Summary:
+- The frontend is now cleaner for submission: users only see the real Wandrix product routes and the repo no longer carries unused starter files, concept assets, or internal tool notes in the frontend package.
+
+Files / Areas Touched:
+- `frontend/public/`
+- `frontend/src/app/auth/callback/route.ts`
+- `frontend/src/app/packages/`
+- `frontend/src/app/providers/`
+- `frontend/src/components/auth/user-account-popover.tsx`
+- `frontend/src/components/package/`
+- `frontend/src/components/profile/profile-onboarding.tsx`
+- `frontend/src/components/providers/`
+- `frontend/src/components/shadcn-studio/`
+- `frontend/src/components/ui/`
+- `frontend/src/lib/api/packages.ts`
+- `frontend/src/types/package.ts`
+- `frontend/AGENTS.md`
+- `frontend/CLAUDE.md`
+- `frontend/README.md`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Remove Frontend Demo Routes
 
 Technical Summary:
