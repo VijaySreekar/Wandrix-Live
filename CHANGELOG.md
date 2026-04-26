@@ -9,6 +9,30 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Remove Frontend Demo Routes
+
+Technical Summary:
+- Removed standalone frontend demo and preview routes used for visual iteration, including board, spinner, agent-thinking, chat-bar, and flight preview pages.
+- Removed route-only support components for flight previews, board sandbox previews, and alternate spinner experiments.
+- Updated the public route list so it reflects the deployable product surface.
+
+Plain-English Summary:
+- The app no longer exposes internal design/demo pages, making the frontend route list cleaner for submission and deployment while preserving the real chat-first planner experience.
+
+Files / Areas Touched:
+- `frontend/src/app/agent-thinking-demo/`
+- `frontend/src/app/board-preview/`
+- `frontend/src/app/chat-bar-previews/`
+- `frontend/src/app/chat-spinner-demo/`
+- `frontend/src/app/flight-previews/`
+- `frontend/src/app/spinner-demo/`
+- `frontend/src/components/flights/flight-preview-pages.tsx`
+- `frontend/src/components/package/trip-board-sandbox.tsx`
+- `frontend/src/components/package/travel-board-spinner-alt.tsx`
+- `frontend/src/components/spinner-demo/more-travel-spinners.tsx`
+- `README.md`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Provider-Backed Quick Plan Itinerary Stage
 
 Technical Summary:
