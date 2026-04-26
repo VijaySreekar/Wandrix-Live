@@ -43,7 +43,9 @@ Frontend production variables belong in Vercel:
 
 Backend production variables belong in Render:
 
+- `APP_ENV` - set to `production` in production and `testing` in the testing environment
 - `FRONTEND_ORIGIN`
+- `FRONTEND_ORIGINS` - comma-separated allowed browser origins; use this instead of `FRONTEND_ORIGIN` when more than one origin is allowed
 - `DATABASE_URL`
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
@@ -87,6 +89,10 @@ Backend production variables belong in Render:
 Use separate values for testing and production. At minimum, testing and
 production should have separate Supabase projects/databases, distinct
 `DATABASE_URL` values, and distinct frontend/backend domains.
+
+When `APP_ENV=production`, the backend fails fast if core production values are
+missing or still set to local/placeholder values. Optional travel provider keys
+can stay blank, but auth, database, CORS, and LLM runtime values must be real.
 
 ## API endpoints
 

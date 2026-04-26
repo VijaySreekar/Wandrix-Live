@@ -2,12 +2,16 @@ import os
 from pathlib import Path
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Final
 
 from dotenv import load_dotenv
 
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
-load_dotenv(ROOT_ENV_PATH, override=True)
+load_dotenv(ROOT_ENV_PATH, override=False)
+
+LOCAL_FRONTEND_ORIGIN: Final = "http://127.0.0.1:3000"
+PRODUCTION_ENVIRONMENTS: Final = {"production", "prod"}
 
 
 @dataclass(frozen=True)
@@ -15,9 +19,10 @@ class Settings:
     app_name: str
     app_description: str
     app_version: str
+    environment: str
     api_v1_prefix: str
     frontend_origin: str
-    local_frontend_origin: str
+    frontend_origins: tuple[str, ...]
     supabase_url: str
     supabase_publishable_key: str
     supabase_secret_key: str | None
@@ -62,6 +67,8 @@ class Settings:
 
 @lru_cache
 def get_settings() -> Settings:
+    environment = _get_environment()
+    frontend_origins = _get_frontend_origins(environment)
     amadeus_env = os.getenv("AMADEUS_ENV", "test")
     amadeus_base_url = (
         "https://api.amadeus.com"
@@ -69,13 +76,14 @@ def get_settings() -> Settings:
         else "https://test.api.amadeus.com"
     )
 
-    return Settings(
+    settings = Settings(
         app_name="Wandrix API",
-        app_description="FastAPI backend for the Wandrix travel package generator.",
+        app_description="FastAPI backend for the Wandrix conversation-first travel planner.",
         app_version="0.1.0",
+        environment=environment,
         api_v1_prefix="/api/v1",
-        frontend_origin=os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"),
-        local_frontend_origin="http://127.0.0.1:3000",
+        frontend_origin=frontend_origins[0],
+        frontend_origins=frontend_origins,
         supabase_url=os.getenv(
             "SUPABASE_URL",
             "https://your-project-ref.supabase.co",
@@ -157,6 +165,82 @@ def get_settings() -> Settings:
         ),
         travelpayouts_api_token=os.getenv("TRAVELPAYOUTS_API_TOKEN") or None,
     )
+
+    _validate_production_settings(settings)
+
+    return settings
+
+
+def _get_environment() -> str:
+    return (
+        os.getenv("APP_ENV")
+        or os.getenv("ENVIRONMENT")
+        or "development"
+    ).strip().lower()
+
+
+def _get_frontend_origins(environment: str) -> tuple[str, ...]:
+    configured_origins = os.getenv("FRONTEND_ORIGINS") or os.getenv(
+        "FRONTEND_ORIGIN",
+        "http://localhost:3000",
+    ) or "http://localhost:3000"
+    origins = _parse_csv(configured_origins)
+
+    if environment not in PRODUCTION_ENVIRONMENTS:
+        origins.append(LOCAL_FRONTEND_ORIGIN)
+
+    deduped: list[str] = []
+    for origin in origins:
+        normalized_origin = origin.rstrip("/")
+        if normalized_origin and normalized_origin not in deduped:
+            deduped.append(normalized_origin)
+
+    return tuple(deduped)
+
+
+def _parse_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _validate_production_settings(settings: Settings) -> None:
+    if settings.environment not in PRODUCTION_ENVIRONMENTS:
+        return
+
+    required_values = {
+        "FRONTEND_ORIGINS": ",".join(settings.frontend_origins),
+        "DATABASE_URL": settings.database_url,
+        "SUPABASE_URL": settings.supabase_url,
+        "SUPABASE_PUBLISHABLE_KEY": settings.supabase_publishable_key,
+        "SUPABASE_SECRET_KEY": settings.supabase_secret_key or "",
+        "CODEX_LB_BASE_URL": settings.codex_lb_base_url,
+        "CODEX_LB_API_KEY": settings.codex_lb_api_key,
+    }
+    invalid_names = [
+        name
+        for name, value in required_values.items()
+        if _is_missing_or_placeholder(value)
+    ]
+
+    if invalid_names:
+        missing = ", ".join(sorted(invalid_names))
+        raise RuntimeError(
+            f"Production backend configuration is incomplete: {missing}."
+        )
+
+
+def _is_missing_or_placeholder(value: str) -> bool:
+    normalized = value.strip().lower()
+    if not normalized:
+        return True
+
+    placeholder_markers = (
+        "your-",
+        "your_",
+        "example.com",
+        "localhost",
+        "127.0.0.1",
+    )
+    return any(marker in normalized for marker in placeholder_markers)
 
 
 def get_sqlalchemy_database_url() -> str:

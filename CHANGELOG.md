@@ -9,6 +9,27 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Harden Backend Production Config And CORS
+
+Technical Summary:
+- Added explicit backend environment handling through `APP_ENV`/`ENVIRONMENT`, with production validation for core auth, database, CORS, and LLM runtime settings.
+- Changed dotenv loading so real process environment values take precedence over the local root `.env` file.
+- Added comma-separated `FRONTEND_ORIGINS` support while preserving local frontend aliases outside production.
+- Updated CORS middleware to use the normalized configured origin list.
+- Added focused backend coverage for development CORS aliases, production validation failures, and production core config acceptance.
+- Documented `APP_ENV` and `FRONTEND_ORIGINS` in the env template and README.
+
+Plain-English Summary:
+- The backend is safer to deploy: production will not boot with local placeholder settings, and testing/production can each allow the right frontend domains.
+
+Files / Areas Touched:
+- `backend/app/core/config.py`
+- `backend/app/core/cors.py`
+- `backend/tests/test_config.py`
+- `.env.example`
+- `README.md`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Remove Repo Junk And Starter Package Endpoint
 
 Technical Summary:

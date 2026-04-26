@@ -6,7 +6,7 @@ from app.core.config import get_settings
 
 def get_allowed_origins() -> list[str]:
     settings = get_settings()
-    return [settings.frontend_origin, settings.local_frontend_origin]
+    return list(settings.frontend_origins)
 
 
 def configure_cors(app: FastAPI) -> None:
