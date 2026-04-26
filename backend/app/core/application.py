@@ -5,17 +5,22 @@ from fastapi import FastAPI
 from app.api.router import api_v1_router, root_router
 from app.core.config import get_settings
 from app.core.cors import configure_cors
-from app.graph.checkpointer import get_postgres_checkpointer_context
-from app.graph.compiled import compile_planning_graph
+from app.graph.checkpointer import create_postgres_checkpointer_pool
+from langgraph.checkpoint.postgres import PostgresSaver
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    with get_postgres_checkpointer_context() as checkpointer:
-        if checkpointer is not None:
-            checkpointer.setup()
-        app.state.planning_graph = compile_planning_graph(checkpointer=checkpointer)
+    pool = create_postgres_checkpointer_pool()
+    if pool is not None:
+        pool.open(wait=True)
+        PostgresSaver(pool).setup()
+    app.state.checkpointer_pool = pool
+    try:
         yield
+    finally:
+        if pool is not None:
+            pool.close()
 
 
 def create_app() -> FastAPI:

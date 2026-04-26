@@ -24,15 +24,17 @@ export function AppNavLinks({
       aria-label="Primary"
       className={
         mobile
-          ? "mx-auto flex max-w-[1600px] items-center gap-1 overflow-x-auto"
-          : "hidden items-center gap-1 rounded-full bg-transparent p-1 lg:flex"
+          ? "mx-auto flex w-full max-w-[1600px] items-center gap-1 overflow-x-auto pb-1"
+          : "hidden items-center gap-1 lg:flex"
       }
     >
       {items.map((item) => {
         const isActive =
           pathname === item.href ||
-          (item.href === "/chat" && pathname.startsWith("/chat")) ||
-          (item.href === "/brochure" && pathname.startsWith("/brochure"));
+          ((item.href === "/chat" || item.href === "/chat/new") &&
+            pathname.startsWith("/chat")) ||
+          (item.href === "/trips" &&
+            (pathname.startsWith("/trips") || pathname.startsWith("/brochure")));
 
         return (
           <Link
@@ -40,13 +42,13 @@ export function AppNavLinks({
             href={item.href}
             aria-current={isActive ? "page" : undefined}
             className={[
-              "relative rounded-xl px-3.5 py-2.5 text-[length:var(--nav-link-size)] font-medium transition-colors",
+              "inline-flex shrink-0 items-center justify-center rounded-full text-[0.98rem] font-medium transition-all duration-200",
               mobile
-                ? "whitespace-nowrap"
-                : "",
-              "text-muted hover:bg-background/70 hover:text-foreground lg:text-foreground/72 lg:hover:bg-foreground/[0.05] lg:hover:text-foreground",
+                ? "min-h-10 whitespace-nowrap px-4 py-2"
+                : "min-h-11 px-5 py-2.5",
+              "text-[color:var(--nav-link)] hover:bg-[color:var(--nav-hover)] hover:text-foreground",
               isActive
-                ? "bg-background text-foreground shadow-sm lg:bg-foreground/[0.06] lg:shadow-none"
+                ? "bg-[color:var(--nav-active-bg)] text-[color:var(--nav-active-text)] shadow-[var(--nav-active-shadow)]"
                 : "",
             ]
               .filter(Boolean)

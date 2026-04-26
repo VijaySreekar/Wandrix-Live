@@ -48,3 +48,9 @@ class TripModel(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    brochure_snapshots = relationship(
+        "BrochureSnapshotModel",
+        back_populates="trip",
+        cascade="all, delete-orphan",
+        order_by="BrochureSnapshotModel.version_number.desc()",
+    )

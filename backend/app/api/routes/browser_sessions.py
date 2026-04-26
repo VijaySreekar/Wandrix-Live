@@ -15,7 +15,7 @@ router = APIRouter(prefix="/browser-sessions", tags=["browser-sessions"])
 
 
 @router.post("", response_model=BrowserSessionCreateResponse)
-async def create_browser_session_route(
+def create_browser_session_route(
     payload: BrowserSessionCreateRequest,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),

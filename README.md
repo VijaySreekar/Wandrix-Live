@@ -32,6 +32,8 @@ This repo uses a single root `.env` file for local setup.
 
 Set these before wiring real AI logic:
 
+Quick Plan uses `QUICK_PLAN_MODEL=gpt-5.5` and `QUICK_PLAN_REASONING_EFFORT=medium` by default; normal planner chat remains on `OPENAI_MODEL`.
+
 - `NEXT_PUBLIC_API_BASE_URL`
 - `FRONTEND_ORIGIN`
 - `NEXT_PUBLIC_SUPABASE_URL`
@@ -42,6 +44,8 @@ Set these before wiring real AI logic:
 - `CODEX_LB_BASE_URL`
 - `CODEX_LB_API_KEY`
 - `OPENAI_MODEL`
+- `QUICK_PLAN_MODEL`
+- `QUICK_PLAN_REASONING_EFFORT`
 - `LANGSMITH_TRACING`
 - `LANGSMITH_API_KEY`
 - `LANGSMITH_PROJECT`
@@ -77,6 +81,10 @@ Set these before wiring real AI logic:
 - `GET /api/v1/trips/{trip_id}` - load one saved trip
 - `GET /api/v1/trips/{trip_id}/draft` - load the structured trip board data
 - `PUT /api/v1/trips/{trip_id}/draft` - save the structured trip board data
+- `GET /api/v1/trips/{trip_id}/brochures` - list saved brochure versions for a trip
+- `GET /api/v1/trips/{trip_id}/brochures/latest` - load the latest saved brochure snapshot
+- `GET /api/v1/trips/{trip_id}/brochures/{snapshot_id}` - load one brochure version
+- `POST /api/v1/trips/{trip_id}/brochures/{snapshot_id}/pdf` - render and download a brochure PDF
 - `POST /api/v1/trips/{trip_id}/conversation` - send one authenticated chat message through the backend bridge
 - `POST /api/v1/packages/generate` - starter AI travel package generator payload
 
@@ -89,7 +97,7 @@ Set these before wiring real AI logic:
 - `/hotels` - saved-trip hotel reference view
 - `/activities` - saved-trip activities and highlights reference view
 - `/trips` - saved trip library
-- `/brochure/[tripId]` - brochure-style trip presentation
+- `/brochure/[tripId]` - latest saved brochure snapshot with version history and PDF download
 
 ## Backend structure
 
@@ -108,6 +116,7 @@ Set these before wiring real AI logic:
 - [Backend coding rules](docs/backend-coding-rules.md)
 - [Frontend coding rules](docs/frontend-coding-rules.md)
 - [Architecture](docs/architecture.md)
+- [Chat planner spec](docs/chat-planner-spec.md)
 - [Decision log](docs/decision-log.md)
 - [Future improvements](docs/future-improvements.md)
 - [Planner improvement plan](docs/planner-improvement-plan.md)

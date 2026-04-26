@@ -3,32 +3,28 @@
 import { Check, Palette } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-type AccentName = "wandr" | "blue" | "violet" | "emerald" | "rose" | "amber";
+type AccentName = "emerald" | "violet" | "rose" | "amber";
 
 const ACCENTS: Record<
   AccentName,
   { label: string; accent: string; accent2: string }
 > = {
-  wandr: { label: "Wandrix", accent: "#1d4ed8", accent2: "#f4b400" },
-  blue: { label: "Blue + Gold", accent: "#2563eb", accent2: "#f4b400" },
+  emerald: { label: "Wandrix", accent: "#059669", accent2: "#84cc16" },
   violet: { label: "Violet + Pink", accent: "#7c3aed", accent2: "#ec4899" },
-  emerald: { label: "Emerald + Lime", accent: "#059669", accent2: "#84cc16" },
   rose: { label: "Rose + Amber", accent: "#e11d48", accent2: "#f59e0b" },
   amber: { label: "Amber + Rose", accent: "#d97706", accent2: "#f43f5e" },
 };
 
 function getCurrentAccent(): AccentName {
   if (typeof window === "undefined") {
-    return "wandr";
+    return "emerald";
   }
 
   try {
     const stored = localStorage.getItem("accent");
     if (
-      stored === "wandr" ||
-      stored === "blue" ||
-      stored === "violet" ||
       stored === "emerald" ||
+      stored === "violet" ||
       stored === "rose" ||
       stored === "amber"
     ) {
@@ -36,7 +32,7 @@ function getCurrentAccent(): AccentName {
     }
   } catch {}
 
-  return "wandr";
+  return "emerald";
 }
 
 function subscribe(onStoreChange: () => void) {
@@ -82,7 +78,7 @@ function applyAccent(accent: AccentName) {
 }
 
 export function AccentPicker() {
-  const accent = useSyncExternalStore(subscribe, getCurrentAccent, () => "wandr");
+  const accent = useSyncExternalStore(subscribe, getCurrentAccent, () => "emerald");
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -119,13 +115,13 @@ export function AccentPicker() {
         onClick={() => setIsOpen((current) => !current)}
         aria-label="Accent color"
         aria-expanded={isOpen}
-        className="relative inline-grid h-10 w-10 place-items-center rounded-xl bg-transparent text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        className="relative inline-grid h-10 w-10 place-items-center rounded-full border border-transparent bg-transparent text-[color:var(--nav-utility-icon)] transition-colors hover:bg-[color:var(--nav-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--nav-utility-border)]"
       >
         <Palette className="h-4 w-4" />
       </button>
 
       {isOpen ? (
-        <div className="absolute right-0 top-12 z-50 min-w-56 rounded-2xl border border-border bg-background p-2 shadow-lg">
+        <div className="absolute right-0 top-12 z-50 min-w-56 rounded-[1.35rem] border border-[color:var(--nav-border)] bg-[color:var(--nav-shell)] p-2 shadow-[var(--nav-shadow)]">
           {(Object.keys(ACCENTS) as AccentName[]).map((key) => {
             const isActive = accent === key;
             const palette = ACCENTS[key];
@@ -138,7 +134,7 @@ export function AccentPicker() {
                   applyAccent(key);
                   setIsOpen(false);
                 }}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left text-sm transition-colors hover:bg-[color:var(--nav-hover)]"
               >
                 <span
                   className="h-3.5 w-3.5 rounded-full ring-1 ring-border"
@@ -148,7 +144,9 @@ export function AccentPicker() {
                   aria-hidden="true"
                 />
                 <span className="flex-1">{palette.label}</span>
-                {isActive ? <Check className="h-4 w-4 text-accent" /> : null}
+                {isActive ? (
+                  <Check className="h-4 w-4 text-[color:var(--nav-brand-mark)]" />
+                ) : null}
               </button>
             );
           })}

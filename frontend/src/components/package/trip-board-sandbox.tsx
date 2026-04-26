@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
+import { useChatSidebarCollapsedState } from "@/components/chat/use-chat-sidebar-collapsed-state";
 import { TripBoardPreview } from "@/components/package/trip-board-preview";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { TripListItemResponse } from "@/types/trip";
@@ -34,17 +35,10 @@ const SANDBOX_SCENARIOS: Array<{
   },
 ];
 
-const CHAT_SIDEBAR_COLLAPSED_KEY = "wandrix.chat_sidebar_collapsed";
-
 export function TripBoardSandbox() {
   const [activeScenario, setActiveScenario] = useState<SandboxScenarioKey>("kyoto");
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return window.localStorage.getItem(CHAT_SIDEBAR_COLLAPSED_KEY) === "true";
-  });
+  const { isSidebarCollapsed, setIsSidebarCollapsed } =
+    useChatSidebarCollapsedState();
 
   const workspace = useMemo(
     () => buildSandboxWorkspace(activeScenario),
@@ -58,13 +52,6 @@ export function TripBoardSandbox() {
     [activeScenario],
   );
 
-  useEffect(() => {
-    window.localStorage.setItem(
-      CHAT_SIDEBAR_COLLAPSED_KEY,
-      isSidebarCollapsed ? "true" : "false",
-    );
-  }, [isSidebarCollapsed]);
-
   return (
     <main className="h-[calc(100vh-4.75rem)] overflow-hidden bg-background">
       <section
@@ -76,8 +63,17 @@ export function TripBoardSandbox() {
         ].join(" ")}
       >
         <ChatSidebar
+          activeTripId={workspace.trip.trip_id}
           collapsed={isSidebarCollapsed}
+          onSelectTrip={() => undefined}
+          onPrefetchTrip={() => undefined}
           onToggleCollapsed={() => setIsSidebarCollapsed((current) => !current)}
+          onCreateTrip={() => undefined}
+          onRenameTrip={async () => undefined}
+          onDeleteTrip={async () => undefined}
+          isCreatingTrip={false}
+          renamingTripId={null}
+          deletingTripId={null}
           workspace={workspace}
           recentTrips={recentTrips}
         />
@@ -141,8 +137,13 @@ export function TripBoardSandbox() {
 
         <section className="min-h-0 bg-shell">
           <TripBoardPreview
+            authSnapshot={null}
             workspace={workspace}
             isBootstrapping={false}
+            isSwitchingTrips={false}
+            requestedTripId={workspace.trip.trip_id}
+            pendingBoardAction={null}
+            onAction={() => undefined}
           />
         </section>
       </section>
@@ -165,10 +166,15 @@ function buildSandboxTrips(
       updated_at: "2026-04-19T09:00:00Z",
       phase: currentWorkspace.tripDraft.status.phase,
       brochure_ready: currentWorkspace.tripDraft.status.brochure_ready,
+      latest_brochure_snapshot_id: null,
+      latest_brochure_version: null,
+      brochure_versions_count: 0,
       from_location: currentWorkspace.tripDraft.configuration.from_location,
       to_location: currentWorkspace.tripDraft.configuration.to_location,
       start_date: currentWorkspace.tripDraft.configuration.start_date,
       end_date: currentWorkspace.tripDraft.configuration.end_date,
+      travel_window: currentWorkspace.tripDraft.configuration.travel_window,
+      trip_length: currentWorkspace.tripDraft.configuration.trip_length,
       selected_modules: Object.entries(
         currentWorkspace.tripDraft.configuration.selected_modules,
       )
@@ -185,12 +191,17 @@ function buildSandboxTrips(
       thread_status: "ready",
       created_at: "2026-04-17T09:00:00Z",
       updated_at: "2026-04-17T13:00:00Z",
-      phase: "planning",
+      phase: "reviewing",
       brochure_ready: false,
+      latest_brochure_snapshot_id: null,
+      latest_brochure_version: null,
+      brochure_versions_count: 0,
       from_location: "London",
       to_location: "Rome",
       start_date: "2026-05-14",
       end_date: "2026-05-18",
+      travel_window: null,
+      trip_length: null,
       selected_modules: ["flights", "activities", "hotels"],
       timeline_item_count: 5,
     },
@@ -205,10 +216,15 @@ function buildSandboxTrips(
       updated_at: "2026-04-15T11:00:00Z",
       phase: "collecting_requirements",
       brochure_ready: false,
+      latest_brochure_snapshot_id: null,
+      latest_brochure_version: null,
+      brochure_versions_count: 0,
       from_location: "Heathrow",
       to_location: "Tokyo",
       start_date: null,
       end_date: null,
+      travel_window: "Autumn 2026",
+      trip_length: "5 nights",
       selected_modules: ["flights", "activities"],
       timeline_item_count: 0,
     },
@@ -230,6 +246,7 @@ function buildSandboxWorkspace(
   switch (scenario) {
     case "barcelona":
       return {
+        isEphemeral: false,
         browserSession: commonBrowserSession,
         trip: {
           trip_id: "preview-trip-barcelona",
@@ -249,10 +266,13 @@ function buildSandboxWorkspace(
             to_location: "Barcelona",
             start_date: "2026-08-12",
             end_date: "2026-08-17",
+            travel_window: null,
+            trip_length: null,
             travelers: {
               adults: 2,
               children: 2,
             },
+            budget_posture: "mid_range",
             budget_gbp: 2900,
             selected_modules: {
               flights: true,
@@ -360,15 +380,72 @@ function buildSandboxWorkspace(
             ],
           },
           status: {
-            phase: "planning",
+            phase: "enriching_modules",
+            confirmation_status: "unconfirmed",
+            finalized_at: null,
+            finalized_via: null,
             missing_fields: ["hotels"],
+            confirmed_fields: ["from_location", "to_location", "start_date", "end_date"],
+            inferred_fields: ["activity_styles"],
             brochure_ready: false,
             last_updated_at: "2026-04-19T09:00:00Z",
+          },
+          conversation: {
+            phase: "enriching_modules",
+            planning_mode: "quick",
+            planning_mode_status: "selected",
+            confirmation_status: "unconfirmed",
+            finalized_at: null,
+            finalized_via: null,
+            open_questions: [
+              {
+                id: "question-barcelona-hotel",
+                question: "Do you want me to keep the hotel area family-friendly and walkable?",
+                field: "selected_modules",
+                priority: 1,
+                status: "open",
+              },
+            ],
+            decision_cards: [],
+            last_turn_summary: "The route and timing are stable, but the stay area still needs a clearer hotel direction.",
+            active_goals: ["Narrow the hotel area", "Keep the family pace relaxed"],
+            planner_conflicts: [],
+            suggestion_board: {
+              mode: "helper",
+              cards: [],
+              planning_mode_cards: [],
+              date_option_cards: [],
+              hotel_filters: {
+                max_nightly_rate: null,
+                area_filter: null,
+                style_filter: null,
+              },
+              hotel_sort_order: "best_fit",
+              available_hotel_areas: [],
+              available_hotel_styles: [],
+              advanced_anchor_cards: [],
+              have_details: [],
+              need_details: [],
+              visible_steps: [],
+              required_steps: [],
+              details_form: null,
+              confirm_cta_label: null,
+              own_choice_prompt: null,
+            },
+            memory: {
+              field_memory: {},
+              decision_memory: [],
+              mentioned_options: [],
+              rejected_options: [],
+              decision_history: [],
+              turn_summaries: [],
+            },
           },
         },
       };
     case "lisbon":
       return {
+        isEphemeral: false,
         browserSession: commonBrowserSession,
         trip: {
           trip_id: "preview-trip-lisbon",
@@ -388,10 +465,13 @@ function buildSandboxWorkspace(
             to_location: "Lisbon",
             start_date: null,
             end_date: null,
+            travel_window: "Late April or early May",
+            trip_length: "3 or 4 nights",
             travelers: {
               adults: 2,
               children: 0,
             },
+            budget_posture: "mid_range",
             budget_gbp: 2200,
             selected_modules: {
               flights: true,
@@ -410,15 +490,85 @@ function buildSandboxWorkspace(
           },
           status: {
             phase: "collecting_requirements",
-            missing_fields: ["from_location", "start_date", "end_date"],
+            confirmation_status: "unconfirmed",
+            finalized_at: null,
+            finalized_via: null,
+            missing_fields: ["from_location"],
+            confirmed_fields: [
+              "to_location",
+              "budget_gbp",
+              "activity_styles",
+              "start_date",
+              "end_date",
+            ],
+            inferred_fields: [],
             brochure_ready: false,
             last_updated_at: "2026-04-19T09:00:00Z",
+          },
+          conversation: {
+            phase: "collecting_requirements",
+            planning_mode: null,
+            planning_mode_status: "not_selected",
+            confirmation_status: "unconfirmed",
+            finalized_at: null,
+            finalized_via: null,
+            open_questions: [
+              {
+                id: "question-lisbon-origin",
+                question: "Where would you be traveling from?",
+                field: "from_location",
+                priority: 1,
+                status: "open",
+              },
+            ],
+            decision_cards: [
+              {
+                title: "Keep Lisbon or compare alternatives",
+                description:
+                  "The brief already points toward a relaxed, food-forward city break, so a quick direction choice would sharpen the board faster.",
+                options: ["Keep Lisbon", "Compare Porto", "Compare Valencia"],
+              },
+              {
+                title: "Narrow the spring window",
+                description:
+                  "The planner already has a rough window and length, so one sharper timing nudge would help flights and weather settle next.",
+                options: ["Late April", "May bank holiday", "Keep it flexible"],
+              },
+            ],
+            last_turn_summary: "Lisbon is the front-runner, but the departure point still needs to be locked.",
+            active_goals: ["Confirm the origin", "Tighten the spring timing"],
+            planner_conflicts: [],
+            suggestion_board: {
+              mode: "decision_cards",
+              title: "Next planning decisions",
+              subtitle:
+                "These are the next choices that will sharpen the trip.",
+              cards: [],
+              planning_mode_cards: [],
+              advanced_anchor_cards: [],
+              have_details: [],
+              need_details: [],
+              visible_steps: [],
+              required_steps: [],
+              details_form: null,
+              confirm_cta_label: null,
+              own_choice_prompt: null,
+            },
+            memory: {
+              field_memory: {},
+              decision_memory: [],
+              mentioned_options: [],
+              rejected_options: [],
+              decision_history: [],
+              turn_summaries: [],
+            },
           },
         },
       };
     case "kyoto":
     default:
       return {
+        isEphemeral: false,
         browserSession: commonBrowserSession,
         trip: {
           trip_id: "preview-trip-kyoto",
@@ -438,10 +588,13 @@ function buildSandboxWorkspace(
             to_location: "Kyoto",
             start_date: "2026-10-03",
             end_date: "2026-10-09",
+            travel_window: null,
+            trip_length: null,
             travelers: {
               adults: 2,
               children: 0,
             },
+            budget_posture: "premium",
             budget_gbp: 4800,
             selected_modules: {
               flights: true,
@@ -666,10 +819,49 @@ function buildSandboxWorkspace(
             ],
           },
           status: {
-            phase: "planning",
+            phase: "finalized",
+            confirmation_status: "finalized",
+            finalized_at: "2026-04-19T09:00:00Z",
+            finalized_via: "chat",
             missing_fields: [],
+            confirmed_fields: ["from_location", "to_location", "start_date", "end_date", "activity_styles"],
+            inferred_fields: ["selected_modules"],
             brochure_ready: true,
             last_updated_at: "2026-04-19T09:00:00Z",
+          },
+          conversation: {
+            phase: "finalized",
+            planning_mode: "quick",
+            planning_mode_status: "selected",
+            confirmation_status: "finalized",
+            finalized_at: "2026-04-19T09:00:00Z",
+            finalized_via: "chat",
+            open_questions: [],
+            decision_cards: [],
+            last_turn_summary: "The Kyoto trip is coherent enough to review as a full planner draft.",
+            active_goals: ["Review the flow", "Tighten any remaining choices"],
+            planner_conflicts: [],
+            suggestion_board: {
+              mode: "helper",
+              cards: [],
+              planning_mode_cards: [],
+              advanced_anchor_cards: [],
+              have_details: [],
+              need_details: [],
+              visible_steps: [],
+              required_steps: [],
+              details_form: null,
+              confirm_cta_label: null,
+              own_choice_prompt: null,
+            },
+            memory: {
+              field_memory: {},
+              decision_memory: [],
+              mentioned_options: [],
+              rejected_options: [],
+              decision_history: [],
+              turn_summaries: [],
+            },
           },
         },
       };

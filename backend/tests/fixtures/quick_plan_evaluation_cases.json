@@ -1,0 +1,68 @@
+[
+  {
+    "id": "kyoto_calm_food_culture_full_trip",
+    "category": "full_trip",
+    "prompt": "Plan a calm 5-day food and culture trip to Kyoto from London for two adults.",
+    "expected_modules": ["flights", "hotels", "activities", "weather"],
+    "excluded_modules": [],
+    "expected_days": 5,
+    "require_acceptance": true,
+    "require_budget_when_accepted": true,
+    "notes": "Covers the primary Quick Plan target scenario with complete logistics."
+  },
+  {
+    "id": "activities_only_city_plan",
+    "category": "narrow_scope",
+    "prompt": "I already booked travel and stay. Build an activities-only city plan for Lisbon.",
+    "expected_modules": ["activities"],
+    "excluded_modules": ["flights", "hotels", "weather"],
+    "expected_days": 3,
+    "require_acceptance": true,
+    "require_budget_when_accepted": false,
+    "notes": "Narrow scope should not require flight or hotel anchors."
+  },
+  {
+    "id": "beach_rest_weather_scope",
+    "category": "weather_trip",
+    "prompt": "Plan a restful beach trip with weather in scope for Malaga.",
+    "expected_modules": ["hotels", "activities", "weather"],
+    "excluded_modules": ["flights"],
+    "expected_days": 4,
+    "require_acceptance": true,
+    "require_budget_when_accepted": true,
+    "notes": "Weather should appear as structured context for a beach/rest plan."
+  },
+  {
+    "id": "long_haul_arrival_recovery",
+    "category": "long_haul",
+    "prompt": "Plan a long-haul Tokyo trip from London with a light arrival recovery day.",
+    "expected_modules": ["flights", "hotels", "activities", "weather"],
+    "excluded_modules": [],
+    "expected_days": 6,
+    "require_acceptance": true,
+    "require_budget_when_accepted": true,
+    "notes": "Arrival and departure logistics should be visible and timed."
+  },
+  {
+    "id": "family_hotels_activities",
+    "category": "family",
+    "prompt": "Plan a family-friendly 4-day Amsterdam trip with hotels and activities.",
+    "expected_modules": ["hotels", "activities", "weather"],
+    "excluded_modules": ["flights"],
+    "expected_days": 4,
+    "require_acceptance": true,
+    "require_budget_when_accepted": true,
+    "notes": "Family scope should include stay and activity anchors."
+  },
+  {
+    "id": "rough_dates_assistant_working_dates",
+    "category": "rough_dates",
+    "prompt": "Plan Kyoto this month for a calm long weekend, use working dates if needed.",
+    "expected_modules": ["flights", "hotels", "activities", "weather"],
+    "excluded_modules": [],
+    "expected_days": 5,
+    "require_acceptance": true,
+    "require_budget_when_accepted": true,
+    "notes": "Assistant-derived working dates should be explicit as assumptions."
+  }
+]

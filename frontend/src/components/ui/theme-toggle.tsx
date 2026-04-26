@@ -60,7 +60,7 @@ export function ThemeToggle() {
       onClick={() => applyTheme(isDark ? "light" : "dark")}
       aria-label="Toggle theme"
       aria-pressed={isDark}
-      className="relative inline-grid h-10 w-10 place-items-center rounded-xl bg-transparent text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+      className="relative inline-grid h-10 w-10 place-items-center rounded-full border border-transparent bg-transparent text-[color:var(--nav-utility-icon)] transition-colors hover:bg-[color:var(--nav-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--nav-utility-border)]"
     >
       <Sun
         className={[

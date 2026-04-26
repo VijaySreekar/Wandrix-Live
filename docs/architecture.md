@@ -10,7 +10,7 @@ The product is organized around:
 - trip
 - LangGraph thread
 - trip draft
-- brochure output
+- brochure snapshot output
 
 ## Ownership Model
 
@@ -19,7 +19,7 @@ The product is organized around:
 - One trip represents one planning conversation.
 - One trip owns one LangGraph `thread_id`.
 - One trip owns one live trip draft.
-- The brochure is a rendered output of the trip draft.
+- One trip can own many immutable brochure snapshots created from finalized trip state.
 
 ## System Layout
 
@@ -73,11 +73,28 @@ The trip draft is the canonical source of truth for:
 - timeline items
 - selected modules
 - trip configuration
+- conversation memory and planner questions
 - brochure readiness
+- brochure snapshot generation inputs
+
+### Conversation Memory
+
+Raw chat messages are owned by LangGraph checkpoint state.
+
+Structured conversation memory is owned by the persisted trip draft and should capture:
+- open questions
+- decision cards
+- confirmed vs inferred facts
+- mentioned and rejected options
+- recent turn summaries
+
+This split keeps the agent resumable without turning raw chat text into the product source of truth.
 
 ### Brochure
 
 The brochure should be derived from structured trip draft data, not reconstructed from freeform messages.
+
+The live trip draft is not the brochure itself. Finalizing a trip creates an immutable brochure snapshot, and the brochure route should render the latest or selected snapshot version rather than reading mutable draft data directly.
 
 ## Provider Roles
 
@@ -95,6 +112,7 @@ Initial owned tables:
 - `browser_sessions`
 - `trips`
 - `trip_drafts`
+- `brochure_snapshots`
 
 Alembic migrations must only manage app-owned tables.
 
@@ -106,4 +124,3 @@ The product should converge toward:
 - final route/view: brochure
 
 The UI should feel like a premium travel-planning experience, not a generic dashboard.
-

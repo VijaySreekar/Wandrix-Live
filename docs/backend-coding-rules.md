@@ -71,13 +71,16 @@ Functions, service inputs, service outputs, and internal helpers should be typed
 2. Prefer small modules with one clear responsibility.
 If a file starts mixing routing, prompt construction, pricing, and formatting, split it.
 
-3. Prefer pure helpers for domain logic.
+3. Do not let backend files grow into giant all-in-one modules.
+When a service, graph node, schema file, or route file becomes too long or starts carrying multiple responsibilities, split it before adding more behavior.
+
+4. Prefer pure helpers for domain logic.
 Pricing calculations, scoring logic, and itinerary formatting should be easy to test without spinning up FastAPI.
 
-4. Avoid large utility dumping grounds.
+5. Avoid large utility dumping grounds.
 Only put code in `utils/` when it is truly generic and not part of a clearer domain layer.
 
-5. Keep comments rare and high-value.
+6. Keep comments rare and high-value.
 Explain non-obvious decisions, not obvious syntax.
 
 ## Testing Rules

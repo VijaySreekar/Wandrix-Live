@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, UserRound } from "lucide-react";
+import { BarChart3, LogOut, UserRound } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -58,22 +58,26 @@ export function UserAccountPopover({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-3 rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-left transition-colors hover:border-shell-border/80 hover:bg-[color:var(--nav-surface-strong)] focus:outline-none"
+          className="inline-flex items-center gap-2 rounded-full px-1 py-1 text-left transition-colors hover:bg-[color:var(--nav-hover)] focus:outline-none"
         >
           <AvatarChip
             avatarUrl={avatarUrl}
             initials={initials || "W"}
             name={displayName}
           />
-          <div className="hidden min-w-0 sm:block">
-            <p className="max-w-44 truncate text-sm font-medium text-foreground">
+          <div className="hidden min-w-0 pr-1 sm:block">
+            <p className="max-w-40 truncate text-sm font-medium text-foreground">
               {displayName}
             </p>
           </div>
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent side="bottom" align="start" className="w-64">
+      <DropdownMenuContent
+        side="bottom"
+        align="end"
+        className="w-64 border-[color:var(--nav-border)] bg-[color:var(--nav-shell)]"
+      >
         <DropdownMenuLabel className="pb-1">
           <div className="flex items-center gap-3">
             <AvatarChip
@@ -98,6 +102,12 @@ export function UserAccountPopover({
             <Link href="/profile" className="flex w-full items-center">
               <UserRound className="h-4 w-4" />
               Profile
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/providers" className="flex w-full items-center">
+              <BarChart3 className="h-4 w-4" />
+              Provider usage
             </Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>
@@ -138,15 +148,19 @@ function AvatarChip({
         src={avatarUrl}
         width={large ? 40 : 36}
         height={large ? 40 : 36}
-        className={cn("rounded-full object-cover", size)}
+        className={cn(
+          "rounded-full border border-[color:var(--nav-utility-border)] object-cover",
+          size,
+        )}
       />
     );
   }
 
   return (
     <span
+      style={{ backgroundImage: "var(--nav-avatar-bg)" }}
       className={cn(
-        "inline-flex items-center justify-center rounded-full bg-[linear-gradient(135deg,var(--accent),var(--accent2))] font-medium text-accent-foreground",
+        "inline-flex items-center justify-center rounded-full border border-white/40 font-medium text-[color:var(--nav-avatar-text)] shadow-sm",
         size,
       )}
     >

@@ -8,7 +8,7 @@ router = APIRouter(prefix="/packages", tags=["packages"])
 
 
 @router.post("/generate", response_model=TravelPackageResponse)
-async def generate_package(
+def generate_package(
     payload: TravelPackageRequest,
 ) -> TravelPackageResponse:
     return generate_travel_package(payload)

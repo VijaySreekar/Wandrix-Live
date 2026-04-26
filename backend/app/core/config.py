@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
-load_dotenv(ROOT_ENV_PATH)
+load_dotenv(ROOT_ENV_PATH, override=True)
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,9 @@ class Settings:
     codex_lb_base_url: str
     codex_lb_api_key: str
     openai_model: str
+    quick_plan_model: str
+    quick_plan_reasoning_effort: str
+    quick_plan_stage_one_only: bool
     langsmith_tracing: bool
     langsmith_api_key: str | None
     langsmith_project: str
@@ -41,12 +44,20 @@ class Settings:
     poi_provider: str
     geoapify_base_url: str
     geoapify_api_key: str
+    hotel_provider: str
+    rapidapi_key: str | None
+    rapidapi_xotelo_base_url: str
+    rapidapi_agoda_base_url: str
+    rapidapi_hotels_com_base_url: str
+    rapidapi_travel_advisor_base_url: str
     events_provider: str
     ticketmaster_base_url: str
     ticketmaster_consumer_key: str
     ticketmaster_consumer_secret: str
     travel_content_provider: str
     wikimedia_travel_base_url: str
+    travelpayouts_base_url: str
+    travelpayouts_api_token: str | None
 
 
 @lru_cache
@@ -77,6 +88,16 @@ def get_settings() -> Settings:
         ),
         codex_lb_api_key=os.getenv("CODEX_LB_API_KEY", ""),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+        quick_plan_model=os.getenv("QUICK_PLAN_MODEL", "gpt-5.5"),
+        quick_plan_reasoning_effort=os.getenv(
+            "QUICK_PLAN_REASONING_EFFORT",
+            "medium",
+        ),
+        quick_plan_stage_one_only=os.getenv(
+            "QUICK_PLAN_STAGE_ONE_ONLY",
+            "true",
+        ).lower()
+        in {"1", "true", "yes", "on"},
         langsmith_tracing=os.getenv("LANGSMITH_TRACING", "false").lower() == "true",
         langsmith_api_key=os.getenv("LANGSMITH_API_KEY") or None,
         langsmith_project=os.getenv("LANGSMITH_PROJECT", "wandrix"),
@@ -100,6 +121,24 @@ def get_settings() -> Settings:
         poi_provider=os.getenv("POI_PROVIDER", "geoapify"),
         geoapify_base_url=os.getenv("GEOAPIFY_BASE_URL", "https://api.geoapify.com/v2"),
         geoapify_api_key=os.getenv("GEOAPIFY_API_KEY", ""),
+        hotel_provider=os.getenv("HOTEL_PROVIDER", "xotelo"),
+        rapidapi_key=os.getenv("RAPIDAPI_KEY") or None,
+        rapidapi_xotelo_base_url=os.getenv(
+            "RAPIDAPI_XOTELO_BASE_URL",
+            "https://xotelo-hotel-prices.p.rapidapi.com",
+        ),
+        rapidapi_agoda_base_url=os.getenv(
+            "RAPIDAPI_AGODA_BASE_URL",
+            "https://agoda-com.p.rapidapi.com",
+        ),
+        rapidapi_hotels_com_base_url=os.getenv(
+            "RAPIDAPI_HOTELS_COM_BASE_URL",
+            "https://hotels-com6.p.rapidapi.com",
+        ),
+        rapidapi_travel_advisor_base_url=os.getenv(
+            "RAPIDAPI_TRAVEL_ADVISOR_BASE_URL",
+            "https://travel-advisor.p.rapidapi.com",
+        ),
         events_provider=os.getenv("EVENTS_PROVIDER", "ticketmaster"),
         ticketmaster_base_url=os.getenv(
             "TICKETMASTER_BASE_URL",
@@ -112,6 +151,11 @@ def get_settings() -> Settings:
             "WIKIMEDIA_TRAVEL_BASE_URL",
             "https://api.wikimedia.org/wiki/Travel",
         ),
+        travelpayouts_base_url=os.getenv(
+            "TRAVELPAYOUTS_BASE_URL",
+            "https://api.travelpayouts.com",
+        ),
+        travelpayouts_api_token=os.getenv("TRAVELPAYOUTS_API_TOKEN") or None,
     )
 
 

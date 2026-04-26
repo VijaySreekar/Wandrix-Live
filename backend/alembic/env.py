@@ -13,7 +13,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from app.core.config import get_sqlalchemy_database_url
 from app.db.base import Base
-from app.models import browser_session, trip, trip_draft  # noqa: F401
+from app.models import browser_session, brochure_snapshot, trip, trip_draft  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

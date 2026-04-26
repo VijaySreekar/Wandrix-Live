@@ -46,7 +46,7 @@ def get_access_token() -> str:
     return access_token
 
 
-def create_amadeus_client():
+def create_amadeus_client(*, timeout: float | None = None):
     settings = get_settings()
     access_token = get_access_token()
     return build_sync_client(
@@ -55,4 +55,5 @@ def create_amadeus_client():
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/json",
         },
+        timeout=timeout or 30.0,
     )

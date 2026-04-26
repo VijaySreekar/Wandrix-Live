@@ -1,4 +1,5 @@
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_API_TIMEOUT_MS = 15000;
 
 
 export function getApiBaseUrl(): string {
@@ -8,14 +9,58 @@ export function getApiBaseUrl(): string {
 
 type JsonRequestOptions = {
   accessToken?: string;
-  method?: "GET" | "POST" | "PUT";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   payload?: unknown;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 
 async function requestJson<TResponse>(
   path: string,
-  { accessToken, method = "GET", payload }: JsonRequestOptions = {},
+  {
+    accessToken,
+    method = "GET",
+    payload,
+    signal,
+    timeoutMs,
+  }: JsonRequestOptions = {},
+): Promise<TResponse> {
+  const baseUrls = getCandidateApiBaseUrls();
+  let lastError: unknown = null;
+
+  for (const baseUrl of baseUrls) {
+    try {
+      const response = await requestJsonFromBaseUrl<TResponse>(baseUrl, path, {
+        accessToken,
+        method,
+        payload,
+        signal,
+        timeoutMs,
+      });
+      return response;
+    } catch (error) {
+      lastError = error;
+
+      if (!shouldRetryWithAnotherBaseUrl(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Request failed.");
+}
+
+async function requestJsonFromBaseUrl<TResponse>(
+  baseUrl: string,
+  path: string,
+  {
+    accessToken,
+    method = "GET",
+    payload,
+    signal,
+    timeoutMs,
+  }: JsonRequestOptions = {},
 ): Promise<TResponse> {
   const headers = new Headers();
 
@@ -27,12 +72,54 @@ async function requestJson<TResponse>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    method,
-    headers,
-    body: payload !== undefined ? JSON.stringify(payload) : undefined,
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => {
+    controller.abort(new DOMException("API request timed out.", "TimeoutError"));
+  }, timeoutMs ?? DEFAULT_API_TIMEOUT_MS);
+
+  const relayAbort = () => {
+    controller.abort(signal?.reason);
+  };
+
+  if (signal) {
+    if (signal.aborted) {
+      relayAbort();
+    } else {
+      signal.addEventListener("abort", relayAbort, { once: true });
+    }
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers,
+      body: payload !== undefined ? JSON.stringify(payload) : undefined,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (
+      controller.signal.aborted &&
+      !(signal?.aborted)
+    ) {
+      throw new Error("API request timed out.");
+    }
+
+    if (error instanceof TypeError) {
+      throw new Error(
+        "Wandrix could not reach the backend. Check that the FastAPI server is still running, then retry the message.",
+      );
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    if (signal) {
+      signal.removeEventListener("abort", relayAbort);
+    }
+  }
 
   if (!response.ok) {
     let message = "Request failed.";
@@ -55,6 +142,21 @@ async function requestJson<TResponse>(
   }
 
   return (await response.json()) as TResponse;
+}
+
+function getCandidateApiBaseUrls() {
+  return [getApiBaseUrl()];
+}
+
+function shouldRetryWithAnotherBaseUrl(error: unknown) {
+  if (error instanceof Error) {
+    return (
+      error.message === "API request timed out." ||
+      error.name === "TypeError"
+    );
+  }
+
+  return false;
 }
 
 
@@ -88,5 +190,16 @@ export function putJson<TResponse, TPayload>(
     ...options,
     method: "PUT",
     payload,
+  });
+}
+
+
+export function deleteJson<TResponse>(
+  path: string,
+  options?: Omit<JsonRequestOptions, "method" | "payload">,
+): Promise<TResponse> {
+  return requestJson<TResponse>(path, {
+    ...options,
+    method: "DELETE",
   });
 }
