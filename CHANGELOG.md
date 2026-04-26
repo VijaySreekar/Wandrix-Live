@@ -9,6 +9,25 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Harden Frontend Production Metadata And API Config
+
+Technical Summary:
+- Updated frontend API base URL resolution to require `NEXT_PUBLIC_API_BASE_URL` in production while keeping the local FastAPI default for development.
+- Normalized configured API base URLs by trimming trailing slashes before requests are made.
+- Replaced generic starter metadata with Wandrix product metadata, Open Graph details, and Twitter card data.
+- Removed the now-unused frontend provider usage API helper and type contract after the provider usage page was pruned.
+- Tidied the root layout font setup formatting without changing the visual system.
+
+Plain-English Summary:
+- The frontend now has real Wandrix sharing metadata and will fail clearly if production is missing its backend API URL, instead of accidentally trying to call a local developer server.
+
+Files / Areas Touched:
+- `frontend/src/app/layout.tsx`
+- `frontend/src/lib/api/client.ts`
+- `frontend/src/lib/api/providers.ts`
+- `frontend/src/types/provider-usage.ts`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Prune Frontend Submission Noise
 
 Technical Summary:

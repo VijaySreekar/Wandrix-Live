@@ -1,15 +1,20 @@
 import type { Metadata } from "next";
 import {
   Cormorant_Garamond,
+  Geist,
   Geist_Mono,
-  Sora, Geist } from "next/font/google";
+  Sora,
+} from "next/font/google";
 
 import { AppearanceInitializer } from "@/components/app/appearance-initializer";
 import { AppTopNav } from "@/components/app/app-top-nav";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const geist = Geist({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
 
 const cormorant = Cormorant_Garamond({
   variable: "--font-display",
@@ -28,9 +33,39 @@ const sora = Sora({
   weight: ["600", "700"],
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+const siteDescription =
+  "Wandrix is a conversation-first AI travel planner with a live trip board and brochure-ready output.";
+
 export const metadata: Metadata = {
-  title: "Wandrix",
-  description: "Next.js frontend paired with a FastAPI backend.",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "Wandrix",
+    template: "%s | Wandrix",
+  },
+  description: siteDescription,
+  openGraph: {
+    title: "Wandrix",
+    description: siteDescription,
+    url: siteUrl,
+    siteName: "Wandrix",
+    images: [
+      {
+        url: "/images/homepage-hero-wandrix-v1.png",
+        width: 1200,
+        height: 900,
+        alt: "Wandrix conversation-first travel planner workspace",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Wandrix",
+    description: siteDescription,
+    images: ["/images/homepage-hero-wandrix-v1.png"],
+  },
 };
 
 export default async function RootLayout({
@@ -42,7 +77,15 @@ export default async function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("h-full", "antialiased", cormorant.variable, geistMono.variable, sora.variable, "font-sans", geist.variable)}
+      className={cn(
+        "h-full",
+        "antialiased",
+        cormorant.variable,
+        geistMono.variable,
+        sora.variable,
+        "font-sans",
+        geist.variable,
+      )}
     >
       <body className="min-h-full bg-background text-foreground">
         <AppearanceInitializer />

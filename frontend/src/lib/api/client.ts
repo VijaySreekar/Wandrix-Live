@@ -3,7 +3,19 @@ const DEFAULT_API_TIMEOUT_MS = 15000;
 
 
 export function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+  const configuredBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl.replace(/\/+$/, "");
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "NEXT_PUBLIC_API_BASE_URL must be configured for production frontend builds.",
+    );
+  }
+
+  return DEFAULT_API_BASE_URL;
 }
 
 
