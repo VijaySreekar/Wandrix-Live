@@ -1,10 +1,10 @@
-FROM node:22-bookworm-slim AS deps
+FROM node:25-bookworm-slim AS deps
 
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
-FROM node:22-bookworm-slim AS builder
+FROM node:25-bookworm-slim AS builder
 
 WORKDIR /app/frontend
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -24,7 +24,7 @@ COPY frontend/ ./
 RUN npm run build \
     && npm prune --omit=dev
 
-FROM node:22-bookworm-slim AS runner
+FROM node:25-bookworm-slim AS runner
 
 WORKDIR /app/frontend
 ENV NODE_ENV=production \
