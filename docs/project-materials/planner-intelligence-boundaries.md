@@ -9,10 +9,10 @@ It exists to keep us aligned while the planner gets smarter:
 - what good planner behavior should look like before and after improvements
 
 This document should be read alongside:
-- `AGENTS.md`
-- `docs/chat-planner-spec.md`
-- `docs/planner-improvement-plan.md`
-- `docs/architecture.md`
+- local agent instructions (`AGENTS.md`, ignored by Git)
+- `docs/project-materials/chat-planner-spec.md`
+- `docs/project-materials/planner-improvement-plan.md`
+- `docs/project-materials/architecture.md`
 
 ## Why This Document Exists
 

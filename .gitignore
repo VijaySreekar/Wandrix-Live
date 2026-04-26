@@ -5,6 +5,9 @@ Thumbs.db
 .env.local
 .env.*.local
 *.log
+AGENTS.md
+CLAUDE.md
+docs/agent-instructions/
 
 
 backend/.venv/

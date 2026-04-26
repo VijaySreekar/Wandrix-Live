@@ -9,6 +9,25 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Organize Project Docs And Ignore Agent Notes
+
+Technical Summary:
+- Moved committed project documentation and reference assets under `docs/project-materials/`.
+- Removed root-level and docs-level agent instruction files from Git tracking while keeping them available locally.
+- Added ignore rules for root `AGENTS.md`, `CLAUDE.md`, and `docs/agent-instructions/`.
+- Updated README project document links and internal documentation references to the new project-material paths.
+
+Plain-English Summary:
+- Project documentation is now grouped under one docs folder, while AI-agent working instructions stay local and out of the committed repo.
+
+Files / Areas Touched:
+- `.gitignore`
+- `AGENTS.md`
+- `docs/agent-instructions/`
+- `docs/project-materials/`
+- `README.md`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Harden Backend Production Config And CORS
 
 Technical Summary:

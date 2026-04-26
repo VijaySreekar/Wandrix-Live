@@ -8,7 +8,7 @@ This file captures the next product step after the current Advanced Planning flo
 - hotel workspace
 - working hotel selection
 
-It exists separately from `docs/future-improvements.md` so the larger roadmap can stay stable while this narrower execution plan evolves.
+It exists separately from `docs/project-materials/future-improvements.md` so the larger roadmap can stay stable while this narrower execution plan evolves.
 
 ## Core Decision
 

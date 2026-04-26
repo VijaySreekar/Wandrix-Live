@@ -133,15 +133,17 @@ can stay blank, but auth, database, CORS, and LLM runtime values must be real.
 - `app/repositories/` - persistence access layer for app-owned tables
 - `tests/` - backend test files
 
-## Coding Rules
+## Project Docs
 
-- [Repo agent rules](AGENTS.md)
-- [Backend coding rules](docs/backend-coding-rules.md)
-- [Frontend coding rules](docs/frontend-coding-rules.md)
-- [Architecture](docs/architecture.md)
-- [Chat planner spec](docs/chat-planner-spec.md)
-- [Decision log](docs/decision-log.md)
-- [Future improvements](docs/future-improvements.md)
-- [Planner improvement plan](docs/planner-improvement-plan.md)
-- [UI rules](docs/ui-rules.md)
+- [Advanced planning next steps](docs/project-materials/advanced-planning-next-steps.md)
+- [Architecture](docs/project-materials/architecture.md)
+- [Chat planner spec](docs/project-materials/chat-planner-spec.md)
+- [Decision log](docs/project-materials/decision-log.md)
+- [Future improvements](docs/project-materials/future-improvements.md)
+- [Planner improvement plan](docs/project-materials/planner-improvement-plan.md)
+- [Planner intelligence boundaries](docs/project-materials/planner-intelligence-boundaries.md)
 - [Changelog](CHANGELOG.md)
+
+Agent instruction files such as `AGENTS.md`, `CLAUDE.md`, and
+`docs/agent-instructions/` are local development material and intentionally
+ignored by Git.

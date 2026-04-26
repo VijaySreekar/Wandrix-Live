@@ -10,7 +10,7 @@ It is intentionally practical:
 Use this as the continuity document when restarting chat sessions.
 
 For the current target planner structure, use:
-- `docs/chat-planner-spec.md`
+- `docs/project-materials/chat-planner-spec.md`
 
 ## Current Baseline
 
@@ -41,7 +41,7 @@ These are the most valuable next improvements.
 The chat loop works, but the planner still needs deeper travel intelligence.
 
 Improve:
-- follow the `docs/chat-planner-spec.md` lifecycle and memory model
+- follow the `docs/project-materials/chat-planner-spec.md` lifecycle and memory model
 - make turn understanding more reliable without reverting to deterministic parsing
 - improve follow-up questions, decision cards, and confirmation semantics
 - strengthen provider activation discipline and summary-first board behavior
