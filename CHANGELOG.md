@@ -9,6 +9,25 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Document Environment Ownership
+
+Technical Summary:
+- Added a safe root `.env.example` covering local frontend, backend, Supabase, AI runtime, and travel provider configuration without committing secrets.
+- Reworked the README environment section to separate local `.env` usage from Vercel frontend variables and Render backend variables.
+- Added `NEXT_PUBLIC_SITE_URL` to documented frontend configuration now that frontend metadata uses it.
+- Documented that testing and production should use separate Supabase/database and domain values.
+- Stopped tracking the real root `.env` file and expanded root ignore rules for local env, log, Codex temp, and root screenshot artifacts.
+
+Plain-English Summary:
+- The repo now gives a clear, safe checklist for configuring local, testing, and production environments without exposing real keys.
+
+Files / Areas Touched:
+- `.gitignore`
+- `.env`
+- `.env.example`
+- `README.md`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Harden Frontend Production Metadata And API Config
 
 Technical Summary:

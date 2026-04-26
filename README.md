@@ -1,12 +1,14 @@
 # Wandrix
 
-Starter workspace with a Next.js frontend and a FastAPI backend in separate folders.
+Conversation-first AI travel planner with a Next.js frontend, FastAPI backend,
+Supabase Auth/Postgres persistence, and an embedded LangGraph planning runtime.
 
 ## Structure
 
 - `frontend/` - Next.js app router project
 - `backend/` - FastAPI service with a Python virtual environment
-- `.env` - shared local environment variables for both apps
+- `.env.example` - safe local environment template
+- `.env` - local environment variables for both apps, never commit real secrets
 
 ## Run the frontend
 
@@ -28,16 +30,21 @@ The backend will start on `http://127.0.0.1:8000`.
 
 ## Environment
 
-This repo uses a single root `.env` file for local setup.
+Copy `.env.example` to `.env` for local development. The root `.env` is loaded
+by both the backend and frontend config locally, but production values should be
+set in the hosting platform instead of committed.
 
-Set these before wiring real AI logic:
+Frontend production variables belong in Vercel:
 
-Quick Plan uses `QUICK_PLAN_MODEL=gpt-5.5` and `QUICK_PLAN_REASONING_EFFORT=medium` by default; normal planner chat remains on `OPENAI_MODEL`.
-
-- `NEXT_PUBLIC_API_BASE_URL`
-- `FRONTEND_ORIGIN`
+- `NEXT_PUBLIC_SITE_URL` - deployed frontend URL, for example `https://app.example.com`
+- `NEXT_PUBLIC_API_BASE_URL` - deployed FastAPI URL, for example `https://api.example.com`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+
+Backend production variables belong in Render:
+
+- `FRONTEND_ORIGIN`
+- `DATABASE_URL`
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
@@ -46,10 +53,10 @@ Quick Plan uses `QUICK_PLAN_MODEL=gpt-5.5` and `QUICK_PLAN_REASONING_EFFORT=medi
 - `OPENAI_MODEL`
 - `QUICK_PLAN_MODEL`
 - `QUICK_PLAN_REASONING_EFFORT`
+- `QUICK_PLAN_STAGE_ONE_ONLY`
 - `LANGSMITH_TRACING`
 - `LANGSMITH_API_KEY`
 - `LANGSMITH_PROJECT`
-- `DATABASE_URL`
 - `AMADEUS_ENV`
 - `AMADEUS_CLIENT_ID`
 - `AMADEUS_CLIENT_SECRET`
@@ -62,12 +69,24 @@ Quick Plan uses `QUICK_PLAN_MODEL=gpt-5.5` and `QUICK_PLAN_REASONING_EFFORT=medi
 - `POI_PROVIDER`
 - `GEOAPIFY_BASE_URL`
 - `GEOAPIFY_API_KEY`
+- `HOTEL_PROVIDER`
+- `RAPIDAPI_KEY`
+- `RAPIDAPI_XOTELO_BASE_URL`
+- `RAPIDAPI_AGODA_BASE_URL`
+- `RAPIDAPI_HOTELS_COM_BASE_URL`
+- `RAPIDAPI_TRAVEL_ADVISOR_BASE_URL`
 - `EVENTS_PROVIDER`
 - `TICKETMASTER_BASE_URL`
 - `TICKETMASTER_CONSUMER_KEY`
 - `TICKETMASTER_CONSUMER_SECRET`
 - `TRAVEL_CONTENT_PROVIDER`
 - `WIKIMEDIA_TRAVEL_BASE_URL`
+- `TRAVELPAYOUTS_BASE_URL`
+- `TRAVELPAYOUTS_API_TOKEN`
+
+Use separate values for testing and production. At minimum, testing and
+production should have separate Supabase projects/databases, distinct
+`DATABASE_URL` values, and distinct frontend/backend domains.
 
 ## API starter endpoints
 

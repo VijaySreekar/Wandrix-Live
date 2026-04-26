@@ -1,9 +1,16 @@
 .DS_Store
 Thumbs.db
 
+.env
+.env.local
+.env.*.local
+*.log
+
 
 backend/.venv/
 backend/__pycache__/
 backend/.pytest_cache/
 tmp/
 .codex/
+.codex-temp/
+tmp-*.png
