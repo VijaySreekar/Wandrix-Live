@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from typing import Literal
+
 from app.integrations.amadeus.client import create_amadeus_client
 
 
@@ -28,10 +31,98 @@ CITY_IATA_ALIASES: dict[str, str] = {
     "tokyo": "TYO",
     "osaka": "OSA",
     "kyoto": "OSA",
+    "kyto": "OSA",
     "new york": "NYC",
     "san francisco": "SFO",
     "los angeles": "LAX",
 }
+
+GatewayRole = Literal["origin", "destination"]
+
+
+@dataclass(frozen=True)
+class FlightGateway:
+    requested_location: str
+    search_iata: str
+    gateway_label: str
+    ground_transfer_label: str | None = None
+
+    @property
+    def uses_ground_transfer(self) -> bool:
+        return bool(self.ground_transfer_label)
+
+    def planning_note(self, role: GatewayRole) -> str | None:
+        if not self.ground_transfer_label:
+            return None
+        if role == "origin":
+            return (
+                f"Start with a ground transfer from {self.requested_location} to "
+                f"{self.ground_transfer_label} before flying from {self.search_iata}."
+            )
+        return (
+            f"{self.requested_location} is reached by flying into "
+            f"{self.ground_transfer_label}, then continuing by ground transfer."
+        )
+
+
+FLIGHT_GATEWAY_ALIASES: dict[str, tuple[str, str, str]] = {
+    "kyoto": ("OSA", "Osaka gateway", "Osaka/Kansai or Itami"),
+    "kyto": ("OSA", "Osaka gateway", "Osaka/Kansai or Itami"),
+    "amalfi coast": ("NAP", "Naples gateway", "Naples"),
+    "positano": ("NAP", "Naples gateway", "Naples"),
+    "lake como": ("MIL", "Milan gateway", "Milan"),
+    "cinque terre": ("PSA", "Pisa gateway", "Pisa"),
+    "interlaken": ("ZRH", "Zurich gateway", "Zurich"),
+    "st moritz": ("ZRH", "Zurich gateway", "Zurich"),
+    "saint moritz": ("ZRH", "Zurich gateway", "Zurich"),
+    "banff": ("YYC", "Calgary gateway", "Calgary"),
+    "tulum": ("CUN", "Cancun gateway", "Cancun"),
+}
+
+
+def resolve_flight_gateway(keyword: str) -> FlightGateway | None:
+    cleaned_keyword = keyword.strip()
+    if not cleaned_keyword:
+        return None
+
+    gateway_match = _match_flight_gateway_alias(cleaned_keyword)
+    if gateway_match:
+        search_iata, gateway_label, ground_transfer_label = gateway_match
+        return FlightGateway(
+            requested_location=cleaned_keyword,
+            search_iata=search_iata,
+            gateway_label=gateway_label,
+            ground_transfer_label=ground_transfer_label,
+        )
+
+    iata_code = resolve_location_iata(cleaned_keyword)
+    if not iata_code:
+        return None
+
+    return FlightGateway(
+        requested_location=cleaned_keyword,
+        search_iata=iata_code,
+        gateway_label=cleaned_keyword,
+    )
+
+
+def _match_flight_gateway_alias(keyword: str) -> tuple[str, str, str] | None:
+    normalized_keyword = _normalize_location_key(keyword)
+    direct_match = FLIGHT_GATEWAY_ALIASES.get(normalized_keyword)
+    if direct_match:
+        return direct_match
+
+    for alias, gateway in FLIGHT_GATEWAY_ALIASES.items():
+        if normalized_keyword.startswith(f"{alias} "):
+            return gateway
+    return None
+
+
+def _normalize_location_key(keyword: str) -> str:
+    normalized = keyword.lower()
+    for character in [",", ".", "(", ")", "/", "-"]:
+        normalized = normalized.replace(character, " ")
+    return " ".join(normalized.split())
 
 
 def resolve_location_iata(keyword: str) -> str | None:

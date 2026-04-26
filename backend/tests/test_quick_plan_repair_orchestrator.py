@@ -44,13 +44,9 @@ def test_repair_loop_accepts_first_candidate_without_repair() -> None:
 
 def test_repair_loop_runs_second_quality_repair_and_accepts_latest_attempt() -> None:
     repair_payloads: list[dict] = []
-    repair_attempts = [
-        _attempt("repair one", activity_id="repair_one"),
-        _attempt("repair two", activity_id="repair_two"),
-    ]
+    repair_attempts = [_attempt("repair one", activity_id="repair_one")]
     quality_results = [
         _quality("repairable", local_specificity=4),
-        _quality("repairable", pacing=5),
         _quality("pass"),
     ]
 
@@ -75,23 +71,22 @@ def test_repair_loop_runs_second_quality_repair_and_accepts_latest_attempt() -> 
     )
 
     assert result.accepted_plan is not None
-    assert result.accepted_plan.module_outputs.activities[0].id == "repair_two"
-    assert result.repair_metadata["repair_attempt_count"] == 2
-    assert result.repair_metadata["repair_goals"] == ["quality", "quality"]
+    assert result.accepted_plan.module_outputs.activities[0].id == "repair_one"
+    assert result.repair_metadata["repair_attempt_count"] == 1
+    assert result.repair_metadata["repair_goals"] == ["quality"]
     assert result.repair_metadata["stopped_reason"] == "accepted"
-    assert repair_payloads[1]["final_repair_chance"] is True
-    assert repair_payloads[1]["original_attempt"]["draft"]["timeline_preview"][0]["title"] == "initial"
-    assert repair_payloads[1]["previous_repair_attempts"][0]["draft"]["timeline_preview"][0]["title"] == "repair one"
-    assert "pacing" in repair_payloads[1]["unresolved_quality_dimensions"]
+    assert repair_payloads[0]["final_repair_chance"] is True
+    assert repair_payloads[0]["original_attempt"]["draft"]["timeline_preview"][0]["title"] == "initial"
+    assert repair_payloads[0]["unresolved_quality_dimensions"] == ["local_specificity"]
+    assert result.repair_metadata["timing_ms"]["overall"] >= 0
 
 
 def test_repair_loop_accepts_non_blocking_repairable_after_repair_limit() -> None:
     quality_results = [
         _quality("repairable", local_specificity=4),
         _quality("repairable", pacing=5),
-        _quality("repairable", pacing=5),
     ]
-    repair_attempts = [_attempt("repair one"), _attempt("repair two")]
+    repair_attempts = [_attempt("repair one")]
 
     result = run_quick_plan_repair_loop(
         dossier=_dossier(),
@@ -110,8 +105,8 @@ def test_repair_loop_accepts_non_blocking_repairable_after_repair_limit() -> Non
     )
 
     assert result.accepted_plan is not None
-    assert result.accepted_plan.timeline_preview[0].title == "repair two"
-    assert result.repair_metadata["repair_attempt_count"] == 2
+    assert result.accepted_plan.timeline_preview[0].title == "repair one"
+    assert result.repair_metadata["repair_attempt_count"] == 1
     assert result.repair_metadata["final_visible"] is True
     assert result.repair_metadata["quality_blocking"] is False
     assert result.repair_metadata["stopped_reason"] == "accepted"

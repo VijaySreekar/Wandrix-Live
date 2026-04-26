@@ -3,7 +3,7 @@ from datetime import datetime
 from app.integrations.amadeus.client import create_amadeus_client
 from app.integrations.travelpayouts.client import create_travelpayouts_client
 from app.schemas.trip_planning import FlightDetail, FlightLegDetail, TripConfiguration
-from app.services.providers.iata_lookup import resolve_location_iata
+from app.services.providers.iata_lookup import FlightGateway, resolve_flight_gateway
 
 
 def enrich_flights(
@@ -50,10 +50,10 @@ def enrich_flights_from_amadeus(
     if not _can_search_flights(configuration):
         return []
 
-    origin_code = resolve_location_iata(configuration.from_location or "")
-    destination_code = resolve_location_iata(configuration.to_location or "")
+    origin_gateway = resolve_flight_gateway(configuration.from_location or "")
+    destination_gateway = resolve_flight_gateway(configuration.to_location or "")
 
-    if not origin_code or not destination_code:
+    if not origin_gateway or not destination_gateway:
         return []
 
     adults = max(configuration.travelers.adults or 1, 1)
@@ -61,8 +61,8 @@ def enrich_flights_from_amadeus(
 
     with create_amadeus_client(timeout=timeout) as client:
         params = {
-            "originLocationCode": origin_code,
-            "destinationLocationCode": destination_code,
+            "originLocationCode": origin_gateway.search_iata,
+            "destinationLocationCode": destination_gateway.search_iata,
             "departureDate": configuration.start_date.isoformat(),
             "adults": adults,
             "max": 2,
@@ -92,6 +92,10 @@ def enrich_flights_from_amadeus(
                 offer,
                 carriers,
                 offer_index=offer_index,
+                gateway_notes_by_direction=_build_gateway_notes_by_direction(
+                    origin_gateway=origin_gateway,
+                    destination_gateway=destination_gateway,
+                ),
             )
         )
     return mapped_flights
@@ -106,15 +110,15 @@ def enrich_flights_from_travelpayouts(
     if not _can_search_flights(configuration):
         return []
 
-    origin_code = resolve_location_iata(configuration.from_location or "")
-    destination_code = resolve_location_iata(configuration.to_location or "")
+    origin_gateway = resolve_flight_gateway(configuration.from_location or "")
+    destination_gateway = resolve_flight_gateway(configuration.to_location or "")
 
-    if not origin_code or not destination_code:
+    if not origin_gateway or not destination_gateway:
         return []
 
     offers = _search_travelpayouts_offers(
-        origin_code=origin_code,
-        destination_code=destination_code,
+        origin_code=origin_gateway.search_iata,
+        destination_code=destination_gateway.search_iata,
         configuration=configuration,
         timeout=timeout,
         parameter_sets_limit=parameter_sets_limit,
@@ -124,7 +128,16 @@ def enrich_flights_from_travelpayouts(
 
     mapped_flights: list[FlightDetail] = []
     for offer_index, offer in enumerate(offers[:3]):
-        mapped_flights.extend(_map_travelpayouts_offer_to_flights(offer, offer_index=offer_index))
+        mapped_flights.extend(
+            _map_travelpayouts_offer_to_flights(
+                offer,
+                offer_index=offer_index,
+                gateway_notes_by_direction=_build_gateway_notes_by_direction(
+                    origin_gateway=origin_gateway,
+                    destination_gateway=destination_gateway,
+                ),
+            )
+        )
     return mapped_flights
 
 
@@ -133,6 +146,7 @@ def _map_offer_to_flights(
     carriers: dict[str, str],
     *,
     offer_index: int = 0,
+    gateway_notes_by_direction: dict[str, list[str]] | None = None,
 ) -> list[FlightDetail]:
     itineraries = offer.get("itineraries") or []
     price = (offer.get("price") or {}).get("total")
@@ -154,7 +168,8 @@ def _map_offer_to_flights(
         price_text = _format_price_text(price=price, currency=currency)
         legs = _build_amadeus_legs(segments=segments, carriers=carriers)
         layover_summary = _build_layover_summary(legs)
-        notes = []
+        direction = "outbound" if itinerary_index == 0 else "return"
+        notes = list((gateway_notes_by_direction or {}).get(direction, []))
 
         if price_text:
             notes.append(f"Estimated fare: {price_text}.")
@@ -168,7 +183,7 @@ def _map_offer_to_flights(
         flights.append(
             FlightDetail(
                 id=f"amadeus_offer_{offer_index + 1}_flight_{itinerary_index + 1}",
-                direction="outbound" if itinerary_index == 0 else "return",
+                direction=direction,
                 carrier=carrier_name,
                 flight_number=first_segment.get("number"),
                 departure_airport=(first_segment.get("departure") or {}).get("iataCode") or "TBD",
@@ -188,7 +203,7 @@ def _map_offer_to_flights(
                 layover_summary=layover_summary,
                 legs=legs,
                 timing_quality=_build_timing_quality(
-                    direction="outbound" if itinerary_index == 0 else "return",
+                    direction=direction,
                     departure_time=_parse_amadeus_datetime(
                         (first_segment.get("departure") or {}).get("at")
                     ),
@@ -205,24 +220,31 @@ def _map_offer_to_flights(
     return flights
 
 
-def _map_travelpayouts_offer_to_flights(offer: dict, *, offer_index: int = 0) -> list[FlightDetail]:
-    notes = []
+def _map_travelpayouts_offer_to_flights(
+    offer: dict,
+    *,
+    offer_index: int = 0,
+    gateway_notes_by_direction: dict[str, list[str]] | None = None,
+) -> list[FlightDetail]:
     price = offer.get("price")
     price_text = _format_price_text(price=price, currency="GBP")
     fare_amount = _coerce_price_amount(price)
+    outbound_notes = list((gateway_notes_by_direction or {}).get("outbound", []))
+    return_notes = list((gateway_notes_by_direction or {}).get("return", []))
     if price_text is not None:
-        notes.append(f"Estimated fare: {price_text}.")
+        outbound_notes.append(f"Estimated fare: {price_text}.")
+        return_notes.append(f"Estimated fare: {price_text}.")
 
     transfers = offer.get("transfers")
     return_transfers = offer.get("return_transfers")
     if isinstance(transfers, int):
-        notes.append(
+        outbound_notes.append(
             "Direct outbound route."
             if transfers == 0
             else f"{transfers} stop(s) outbound; stop airports are not supplied yet."
         )
     if isinstance(return_transfers, int) and offer.get("return_at"):
-        notes.append(
+        return_notes.append(
             "Direct return route."
             if return_transfers == 0
             else f"{return_transfers} stop(s) returning; stop airports are not supplied yet."
@@ -262,7 +284,7 @@ def _map_travelpayouts_offer_to_flights(offer: dict, *, offer_index: int = 0) ->
             timing_quality=None,
             inventory_notice=inventory_notice,
             inventory_source="cached",
-            notes=notes,
+            notes=outbound_notes,
         )
     ]
 
@@ -296,7 +318,7 @@ def _map_travelpayouts_offer_to_flights(offer: dict, *, offer_index: int = 0) ->
                 timing_quality=None,
                 inventory_notice=inventory_notice,
                 inventory_source="cached",
-                notes=notes,
+                notes=return_notes,
             )
         )
 
@@ -356,6 +378,35 @@ def _search_travelpayouts_offers(
                 return offers
 
     return []
+
+
+def _build_gateway_notes_by_direction(
+    *,
+    origin_gateway: FlightGateway,
+    destination_gateway: FlightGateway,
+) -> dict[str, list[str]]:
+    return {
+        "outbound": _build_gateway_notes(
+            origin_gateway=origin_gateway,
+            destination_gateway=destination_gateway,
+        ),
+        "return": _build_gateway_notes(
+            origin_gateway=destination_gateway,
+            destination_gateway=origin_gateway,
+        ),
+    }
+
+
+def _build_gateway_notes(
+    *,
+    origin_gateway: FlightGateway,
+    destination_gateway: FlightGateway,
+) -> list[str]:
+    notes = [
+        origin_gateway.planning_note("origin"),
+        destination_gateway.planning_note("destination"),
+    ]
+    return [note for note in notes if note]
 
 
 def _build_amadeus_legs(

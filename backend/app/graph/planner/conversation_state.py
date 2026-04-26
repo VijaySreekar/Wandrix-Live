@@ -83,6 +83,7 @@ from app.schemas.trip_conversation import (
     TripConversationMemory,
     TripConversationState,
     TripFieldKey,
+    QuickPlanBuildState,
     QuickPlanFinalizationState,
 )
 from app.schemas.trip_draft import TripDraftStatus
@@ -332,6 +333,10 @@ def build_conversation_state(
         current=current.quick_plan_finalization,
         provider_activation=provider_activation,
     )
+    conversation.quick_plan_build = _sync_quick_plan_build_state(
+        current=current.quick_plan_build,
+        provider_activation=provider_activation,
+    )
     conversation.advanced_review_planning = merge_advanced_review_planning_state(
         configuration=next_configuration,
         stay_planning=conversation.stay_planning,
@@ -378,6 +383,16 @@ def _sync_quick_plan_finalization_state(
     return QuickPlanFinalizationState.model_validate(
         provider_activation["quick_plan_finalization"]
     )
+
+
+def _sync_quick_plan_build_state(
+    *,
+    current: QuickPlanBuildState,
+    provider_activation: dict | None,
+) -> QuickPlanBuildState:
+    if not provider_activation or not provider_activation.get("quick_plan_build"):
+        return current
+    return QuickPlanBuildState.model_validate(provider_activation["quick_plan_build"])
 
 
 def build_status(

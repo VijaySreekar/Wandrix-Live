@@ -26,6 +26,7 @@ class Settings:
     openai_model: str
     quick_plan_model: str
     quick_plan_reasoning_effort: str
+    quick_plan_stage_one_only: bool
     langsmith_tracing: bool
     langsmith_api_key: str | None
     langsmith_project: str
@@ -92,6 +93,11 @@ def get_settings() -> Settings:
             "QUICK_PLAN_REASONING_EFFORT",
             "medium",
         ),
+        quick_plan_stage_one_only=os.getenv(
+            "QUICK_PLAN_STAGE_ONE_ONLY",
+            "true",
+        ).lower()
+        in {"1", "true", "yes", "on"},
         langsmith_tracing=os.getenv("LANGSMITH_TRACING", "false").lower() == "true",
         langsmith_api_key=os.getenv("LANGSMITH_API_KEY") or None,
         langsmith_project=os.getenv("LANGSMITH_PROJECT", "wandrix"),

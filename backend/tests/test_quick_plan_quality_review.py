@@ -14,12 +14,17 @@ from app.schemas.trip_planning import TripConfiguration
 
 
 def test_quality_review_passes_coherent_complete_candidate(monkeypatch) -> None:
-    _patch_specialists(
+    _patch_combined_review(
         monkeypatch,
-        geography=_quality_result("pass", geography=8),
-        pacing=_quality_result("pass", pacing=8),
-        local_quality=_quality_result("pass", local_specificity=8, user_fit=8),
-        logistics=_quality_result("pass", logistics_realism=8, fact_safety=8),
+        _quality_result(
+            "pass",
+            geography=8,
+            pacing=8,
+            local_specificity=8,
+            user_fit=8,
+            logistics_realism=8,
+            fact_safety=8,
+        ),
     )
 
     result = quick_plan_quality_review.review_quick_plan_quality(
@@ -40,21 +45,22 @@ def test_quality_review_passes_coherent_complete_candidate(monkeypatch) -> None:
 
 
 def test_quality_review_blocks_generic_itinerary(monkeypatch) -> None:
-    _patch_specialists(
+    _patch_combined_review(
         monkeypatch,
-        geography=_quality_result("pass", geography=8),
-        pacing=_quality_result("pass", pacing=8),
-        local_quality=_quality_result(
+        _quality_result(
             "repairable",
+            geography=8,
+            pacing=8,
             local_specificity=4,
             user_fit=6,
+            logistics_realism=8,
+            fact_safety=8,
             issue=QuickPlanQualityIssue(
                 dimension="local_specificity",
                 issue="Activities are generic and not Kyoto-specific.",
                 repair_instruction="Use named Kyoto food and culture places.",
             ),
         ),
-        logistics=_quality_result("pass", logistics_realism=8, fact_safety=8),
     )
 
     result = quick_plan_quality_review.review_quick_plan_quality(
@@ -71,19 +77,21 @@ def test_quality_review_blocks_generic_itinerary(monkeypatch) -> None:
 
 
 def test_quality_review_blocks_geographically_incoherent_itinerary(monkeypatch) -> None:
-    _patch_specialists(
+    _patch_combined_review(
         monkeypatch,
-        geography=_quality_result(
+        _quality_result(
             "repairable",
             geography=3,
+            pacing=8,
+            local_specificity=8,
+            user_fit=8,
+            logistics_realism=8,
+            fact_safety=8,
             issue=QuickPlanQualityIssue(
                 dimension="geography",
                 issue="The day zigzags across distant areas without a route idea.",
             ),
         ),
-        pacing=_quality_result("pass", pacing=8),
-        local_quality=_quality_result("pass", local_specificity=8, user_fit=8),
-        logistics=_quality_result("pass", logistics_realism=8, fact_safety=8),
     )
 
     result = quick_plan_quality_review.review_quick_plan_quality(
@@ -99,20 +107,21 @@ def test_quality_review_blocks_geographically_incoherent_itinerary(monkeypatch) 
 
 
 def test_quality_review_blocks_overpacked_calm_itinerary(monkeypatch) -> None:
-    _patch_specialists(
+    _patch_combined_review(
         monkeypatch,
-        geography=_quality_result("pass", geography=8),
-        pacing=_quality_result(
+        _quality_result(
             "repairable",
+            geography=8,
             pacing=5,
+            local_specificity=8,
             user_fit=5,
+            logistics_realism=8,
+            fact_safety=8,
             issue=QuickPlanQualityIssue(
                 dimension="pacing",
                 issue="The calm trip has too many timed stops and no buffers.",
             ),
         ),
-        local_quality=_quality_result("pass", local_specificity=8, user_fit=8),
-        logistics=_quality_result("pass", logistics_realism=8, fact_safety=8),
     )
 
     result = quick_plan_quality_review.review_quick_plan_quality(
@@ -128,13 +137,14 @@ def test_quality_review_blocks_overpacked_calm_itinerary(monkeypatch) -> None:
 
 
 def test_quality_review_blocks_unsafe_provider_fact_copy(monkeypatch) -> None:
-    _patch_specialists(
+    _patch_combined_review(
         monkeypatch,
-        geography=_quality_result("pass", geography=8),
-        pacing=_quality_result("pass", pacing=8),
-        local_quality=_quality_result("pass", local_specificity=8, user_fit=8),
-        logistics=_quality_result(
+        _quality_result(
             "fail",
+            geography=8,
+            pacing=8,
+            local_specificity=8,
+            user_fit=8,
             logistics_realism=4,
             fact_safety=2,
             issue=QuickPlanQualityIssue(
@@ -165,11 +175,9 @@ def test_quality_review_clamps_long_assistant_summary(monkeypatch) -> None:
         )
         for index in range(12)
     ]
-    _patch_specialists(
+    _patch_combined_review(
         monkeypatch,
-        geography=_quality_result("pass", geography=8),
-        pacing=_quality_result("pass", pacing=8),
-        local_quality=QuickPlanQualityReviewResult(
+        QuickPlanQualityReviewResult(
             status="repairable",
             show_to_user=False,
             scorecard=QuickPlanQualityScorecard(
@@ -182,7 +190,6 @@ def test_quality_review_clamps_long_assistant_summary(monkeypatch) -> None:
             ),
             issues=issues,
         ),
-        logistics=_quality_result("pass", logistics_realism=8, fact_safety=8),
     )
 
     result = quick_plan_quality_review.review_quick_plan_quality(
@@ -201,7 +208,7 @@ def test_quality_review_clamps_long_assistant_summary(monkeypatch) -> None:
 def test_quality_review_skips_when_completeness_fails(monkeypatch) -> None:
     monkeypatch.setattr(
         quick_plan_quality_review,
-        "review_quick_plan_geography",
+        "_run_combined_quality_review",
         lambda **_: (_ for _ in ()).throw(AssertionError("quality should not run")),
     )
 
@@ -215,33 +222,14 @@ def test_quality_review_skips_when_completeness_fails(monkeypatch) -> None:
     assert result is None
 
 
-def _patch_specialists(
+def _patch_combined_review(
     monkeypatch,
-    *,
-    geography: QuickPlanQualityReviewResult,
-    pacing: QuickPlanQualityReviewResult,
-    local_quality: QuickPlanQualityReviewResult,
-    logistics: QuickPlanQualityReviewResult,
+    result: QuickPlanQualityReviewResult,
 ) -> None:
     monkeypatch.setattr(
         quick_plan_quality_review,
-        "review_quick_plan_geography",
-        lambda **_: geography,
-    )
-    monkeypatch.setattr(
-        quick_plan_quality_review,
-        "review_quick_plan_pacing",
-        lambda **_: pacing,
-    )
-    monkeypatch.setattr(
-        quick_plan_quality_review,
-        "review_quick_plan_local_quality",
-        lambda **_: local_quality,
-    )
-    monkeypatch.setattr(
-        quick_plan_quality_review,
-        "review_quick_plan_logistics_quality",
-        lambda **_: logistics,
+        "_run_combined_quality_review",
+        lambda **_: result,
     )
 
 

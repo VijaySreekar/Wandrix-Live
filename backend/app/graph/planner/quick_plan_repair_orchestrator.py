@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any, Callable
 
 from pydantic import BaseModel, Field
@@ -8,16 +9,16 @@ from app.graph.planner.quick_plan_dossier import QuickPlanDossier
 from app.graph.planner.quick_plan_generation import (
     AcceptedQuickPlan,
     QuickPlanGenerationAttempt,
+    accept_quick_plan_candidate,
     build_quick_plan_completeness_repair_context,
     build_quick_plan_quality_repair_context,
-    accept_quick_plan_candidate,
     is_quick_plan_quality_blocking,
 )
 from app.schemas.trip_conversation import TripConversationState
 from app.schemas.trip_planning import TripConfiguration, TripModuleOutputs
 
 
-MAX_QUICK_PLAN_REPAIR_ATTEMPTS = 2
+MAX_QUICK_PLAN_REPAIR_ATTEMPTS = 1
 
 
 class QuickPlanRepairAttemptRecord(BaseModel):
@@ -27,6 +28,10 @@ class QuickPlanRepairAttemptRecord(BaseModel):
     completeness_review: dict[str, Any] | None = None
     quality_review: dict[str, Any] | None = None
     final_repair_chance: bool = False
+    generation_duration_ms: int | None = None
+    completeness_review_duration_ms: int | None = None
+    quality_review_duration_ms: int | None = None
+    total_attempt_duration_ms: int | None = None
 
 
 class QuickPlanRepairLoopResult(BaseModel):
@@ -52,6 +57,9 @@ def run_quick_plan_repair_loop(
     review_completeness: Callable[..., Any],
     review_quality: Callable[..., Any],
 ) -> QuickPlanRepairLoopResult:
+    loop_started_at = perf_counter()
+
+    generation_started_at = perf_counter()
     original_attempt = run_generation(
         dossier=dossier,
         configuration=configuration,
@@ -60,18 +68,23 @@ def run_quick_plan_repair_loop(
         trip_title=trip_title,
         conversation=conversation,
     )
+    original_generation_duration_ms = _elapsed_ms(generation_started_at)
     current_attempt = original_attempt
     repaired_attempts: list[QuickPlanGenerationAttempt] = []
     repair_attempt_records: list[QuickPlanRepairAttemptRecord] = []
     repair_goals: list[str] = []
 
+    completeness_started_at = perf_counter()
     current_completeness = _review_completeness(
         review_completeness=review_completeness,
         dossier=dossier,
         attempt=current_attempt,
         configuration=configuration,
     )
+    original_completeness_duration_ms = _elapsed_ms(completeness_started_at)
     first_completeness = current_completeness
+
+    quality_started_at = perf_counter()
     current_quality = _review_quality_if_complete(
         review_quality=review_quality,
         dossier=dossier,
@@ -79,6 +92,7 @@ def run_quick_plan_repair_loop(
         configuration=configuration,
         completeness_review=current_completeness,
     )
+    original_quality_duration_ms = _elapsed_ms(quality_started_at)
     first_quality = current_quality
     stopped_reason = _stopped_reason(
         attempt=current_attempt,
@@ -95,6 +109,7 @@ def run_quick_plan_repair_loop(
     ):
         next_index = len(repair_attempt_records) + 1
         final_repair_chance = next_index >= MAX_QUICK_PLAN_REPAIR_ATTEMPTS
+        attempt_started_at = perf_counter()
         repair_context = _build_repair_context(
             original_attempt=original_attempt,
             current_attempt=current_attempt,
@@ -105,6 +120,8 @@ def run_quick_plan_repair_loop(
             final_repair_chance=final_repair_chance,
         )
         repair_goals.append(repair_context.repair_goal)
+
+        generation_started_at = perf_counter()
         current_attempt = run_repair(
             dossier=dossier,
             configuration=configuration,
@@ -114,13 +131,19 @@ def run_quick_plan_repair_loop(
             conversation=conversation,
             repair_context=repair_context,
         )
+        generation_duration_ms = _elapsed_ms(generation_started_at)
         repaired_attempts.append(current_attempt)
+
+        completeness_started_at = perf_counter()
         current_completeness = _review_completeness(
             review_completeness=review_completeness,
             dossier=dossier,
             attempt=current_attempt,
             configuration=configuration,
         )
+        completeness_duration_ms = _elapsed_ms(completeness_started_at)
+
+        quality_started_at = perf_counter()
         current_quality = _review_quality_if_complete(
             review_quality=review_quality,
             dossier=dossier,
@@ -128,6 +151,8 @@ def run_quick_plan_repair_loop(
             configuration=configuration,
             completeness_review=current_completeness,
         )
+        quality_duration_ms = _elapsed_ms(quality_started_at)
+
         repair_attempt_records.append(
             QuickPlanRepairAttemptRecord(
                 attempt_index=next_index,
@@ -136,6 +161,10 @@ def run_quick_plan_repair_loop(
                 completeness_review=_dump_model(current_completeness),
                 quality_review=_dump_model(current_quality),
                 final_repair_chance=final_repair_chance,
+                generation_duration_ms=generation_duration_ms,
+                completeness_review_duration_ms=completeness_duration_ms,
+                quality_review_duration_ms=quality_duration_ms,
+                total_attempt_duration_ms=_elapsed_ms(attempt_started_at),
             )
         )
         stopped_reason = _stopped_reason(
@@ -153,6 +182,10 @@ def run_quick_plan_repair_loop(
         final_completeness_review=current_completeness,
         final_quality_review=current_quality,
         stopped_reason=stopped_reason,
+        initial_generation_duration_ms=original_generation_duration_ms,
+        initial_completeness_review_duration_ms=original_completeness_duration_ms,
+        initial_quality_review_duration_ms=original_quality_duration_ms,
+        total_duration_ms=_elapsed_ms(loop_started_at),
     )
     accepted_plan = accept_quick_plan_candidate(
         attempt=current_attempt,
@@ -219,11 +252,7 @@ def _should_repair(
             attempt=attempt,
             completeness_review=completeness_review,
         )
-    if _is_quality_pass(quality_review):
-        return False
-    if repair_count >= 1 and not _quality_allows_second_repair(quality_review):
-        return False
-    return _is_quality_repairable(quality_review)
+    return not _is_quality_pass(quality_review) and _is_quality_repairable(quality_review)
 
 
 def _can_repair_completeness(
@@ -236,22 +265,6 @@ def _can_repair_completeness(
     if completeness_review.status == "incomplete":
         return True
     return completeness_review.status == "failed" and attempt.status == "empty"
-
-
-def _quality_allows_second_repair(quality_review: Any | None) -> bool:
-    if not _is_quality_repairable(quality_review):
-        return False
-    payload = _dump_model(quality_review) or {}
-    scorecard = payload.get("scorecard") or {}
-    if scorecard.get("fact_safety", 10) <= 3:
-        return False
-    for issue in payload.get("issues") or []:
-        if issue.get("severity") == "high" and issue.get("dimension") in {
-            "fact_safety",
-            "logistics_realism",
-        }:
-            return False
-    return True
 
 
 def _review_completeness(
@@ -295,6 +308,10 @@ def _build_repair_metadata(
     final_completeness_review: Any,
     final_quality_review: Any | None,
     stopped_reason: str,
+    initial_generation_duration_ms: int,
+    initial_completeness_review_duration_ms: int,
+    initial_quality_review_duration_ms: int,
+    total_duration_ms: int,
 ) -> dict[str, Any]:
     repair_count = len(repair_attempt_records)
     return {
@@ -322,6 +339,16 @@ def _build_repair_metadata(
         and not is_quick_plan_quality_blocking(final_quality_review),
         "quality_blocking": is_quick_plan_quality_blocking(final_quality_review),
         "stopped_reason": stopped_reason,
+        "timing_ms": {
+            "initial_generation": initial_generation_duration_ms,
+            "initial_completeness_review": initial_completeness_review_duration_ms,
+            "initial_quality_review": initial_quality_review_duration_ms,
+            "repairs_total": sum(
+                record.total_attempt_duration_ms or 0
+                for record in repair_attempt_records
+            ),
+            "overall": total_duration_ms,
+        },
     }
 
 
@@ -349,8 +376,6 @@ def _stopped_reason(
     if quality_review.status == "repairable":
         if repair_count >= MAX_QUICK_PLAN_REPAIR_ATTEMPTS:
             return "quality_repair_limit_reached"
-        if repair_count >= 1 and not _quality_allows_second_repair(quality_review):
-            return "quality_second_repair_not_allowed"
         return "quality_repairable"
     return "not_accepted"
 
@@ -373,3 +398,7 @@ def _dump_model(value: Any | None) -> dict[str, Any] | None:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     return dict(value)
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(int((perf_counter() - started_at) * 1000), 0)

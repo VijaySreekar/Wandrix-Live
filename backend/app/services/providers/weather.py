@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from app.integrations.open_meteo.client import create_open_meteo_client
 from app.schemas.trip_planning import TripConfiguration, WeatherDetail
@@ -29,6 +29,7 @@ WMO_WEATHER_LABELS = {
     82: "Heavy showers likely during the day.",
     95: "Thunderstorm risk in the forecast.",
 }
+MAX_OPEN_METEO_FORECAST_DAYS = 16
 
 
 def enrich_weather_from_open_meteo(
@@ -46,13 +47,17 @@ def enrich_weather_from_open_meteo(
     if latitude is None or longitude is None:
         return []
 
+    window_params = _weather_window_params(configuration)
+    if window_params is None:
+        return []
+
     query_params = {
         "latitude": latitude,
         "longitude": longitude,
         "timezone": "auto",
         "daily": "weather_code,temperature_2m_max,temperature_2m_min",
     }
-    query_params.update(_weather_window_params(configuration))
+    query_params.update(window_params)
 
     if timeout is None:
         client_context = create_open_meteo_client()
@@ -181,13 +186,25 @@ def _safe_int(values: list, index: int) -> int | None:
     return None
 
 
-def _weather_window_params(configuration: TripConfiguration) -> dict[str, object]:
+def _weather_window_params(configuration: TripConfiguration) -> dict[str, object] | None:
     if configuration.start_date and configuration.end_date:
+        today = _today()
+        max_forecast_date = today + timedelta(days=MAX_OPEN_METEO_FORECAST_DAYS - 1)
+        start_date = max(configuration.start_date, today)
+        end_date = min(configuration.end_date, max_forecast_date)
+
+        if start_date > end_date:
+            return None
+
         return {
-            "start_date": configuration.start_date.isoformat(),
-            "end_date": configuration.end_date.isoformat(),
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
         }
 
     return {
         "forecast_days": 4,
     }
+
+
+def _today() -> date:
+    return date.today()

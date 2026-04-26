@@ -14,7 +14,10 @@ type TravelPlannerBoardActionsProps = {
   pendingBoardAction: PlannerBoardActionIntent | null;
   disabled: boolean;
   onHandled: (actionId: string) => void;
-  onDirectActionSubmit: (action: ConversationBoardAction) => Promise<string>;
+  onDirectActionSubmit: (
+    action: ConversationBoardAction,
+    userMessage: string,
+  ) => Promise<string>;
 };
 
 export function TravelPlannerBoardActions({
@@ -126,18 +129,20 @@ export function TravelPlannerBoardActions({
 
     submittingActionIdRef.current = pendingBoardAction.action_id;
 
+    const userMessage = buildBoardSelectionMessage(pendingBoardAction);
+
     threadRuntime.append({
       role: "user",
       content: [
         {
           type: "text",
-          text: buildBoardSelectionMessage(pendingBoardAction),
+          text: userMessage,
         },
       ],
       startRun: false,
     });
 
-    void onDirectActionSubmit(backendAction)
+    void onDirectActionSubmit(backendAction, userMessage)
       .then((assistantMessage) => {
         threadRuntime.append({
           role: "assistant",

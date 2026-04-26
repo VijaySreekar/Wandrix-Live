@@ -9,7 +9,126 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Provider-Backed Quick Plan Itinerary Stage
+
+Technical Summary:
+- Added a provider-backed Quick Plan itinerary stage after hotels, extending the staged build to include `itinerary`.
+- Added a dedicated itinerary builder that uses selected flights, selected hotel, weather context, Geoapify activity candidates, Ticketmaster events, and Mapbox/heuristic movement estimates with curated Barcelona and Kyoto itinerary spines.
+- Persisted clocked timeline rows for flights, transfers, hotel reset/check-out, meals, activities, and optional evening/event blocks through the existing draft contract.
+- Updated the live board to show itinerary rows during Quick Plan Stage 1 once persisted and render transfer rows as compact dotted travel connectors.
+- Added backend coverage for Barcelona itinerary generation, Kyoto gateway fallback behavior, provider failure resilience, and staged Quick Plan persistence.
+
+Plain-English Summary:
+- Quick Plan now continues beyond flights, weather, and hotel into a real day-by-day itinerary with travel time, meals, activities, hotel returns, and flight-aware first/last days. If a provider fails, the board still gets a useful editable itinerary.
+
+Files / Areas Touched:
+- `backend/app/services/quick_plan_itinerary.py`
+- `backend/app/services/conversation_service.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_quick_plan_itinerary.py`
+- `backend/tests/test_conversation_service.py`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-26 - Quick Plan Board Copy Cleanup
+
+Technical Summary:
+- Removed the internal Quick Plan stage rail from the live board now that flights, weather, and hotel modules render as first-class board cards.
+- Removed duplicate route/status copy from the hero route card and itinerary header.
+- Stopped rendering weather provider caveat and influence-note paragraphs in the board weather card.
+- Changed the hotel summary card to show the provider address when available instead of derived area-fit notes.
+
+Plain-English Summary:
+- The Quick Plan board now looks less like an implementation progress report and more like a clean travel plan surface. Users see the selected route, weather, flights, and stay details without redundant caveats or internal stage labels.
+
+Files / Areas Touched:
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-26 - Conversation History Stability
+
+Technical Summary:
+- Changed direct board actions to send the same visible user-selection text to the backend conversation request instead of a blank placeholder message.
+- Added backend checkpoint history synchronization after service-level conversation responses, so Quick Plan staged responses that are finalized outside the LangGraph node are written back into `raw_messages`.
+- Added focused backend coverage that verifies the Quick Plan Stage 1 response stored in history matches the response returned to the user.
+- Changed Stage 1 weather enrichment to clamp Open-Meteo forecast requests to the provider-supported horizon and fill any remaining trip dates with seasonal planning outlook rows.
+- Extended the staged Quick Plan build with a hotel stage that ranks provider hotel candidates deterministically, saves the top working pick plus alternates, records the selected hotel in stay planning state, and shows the stay card on the live board.
+
+Plain-English Summary:
+- Chat messages from board selections should now survive navigation and refresh with the same user and Wandrix wording originally shown in the conversation. Quick Plan weather should also show usable date context instead of looking unavailable, and the board now continues into a working hotel pick before the itinerary stage.
+
+Files / Areas Touched:
+- `backend/app/services/conversation_service.py`
+- `backend/app/services/providers/weather.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/tests/test_conversation_service.py`
+- `backend/tests/test_weather_provider.py`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/components/assistant/travel-planner-board-actions.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-26 - Quick Plan Stage 1 Live Board
+
+Technical Summary:
+- Added a persisted `quick_plan_build` state for staged Quick Plan progress.
+- Added a Stage 1 Quick Plan path that saves the confirmed brief, runs only bounded flight enrichment, persists the flight result, and bypasses itinerary generation, private reviews, repair, budget, weather, and hotel enrichment.
+- Added honest outbound/return flight placeholders when provider inventory returns no usable rows, so flights-enabled Stage 1 still completes with a visible route shape instead of presenting the board as failed.
+- Added flight-gateway resolution for destinations or origins without practical commercial airport service, including Kyoto-to-Osaka gateway handling and persisted transfer notes on flight cards.
+- Reworded no-inventory Quick Plan flights as selected best-fit route estimates with a visible flight budget, avoiding internal placeholder and schedule-pending language on the board.
+- Changed exact-date Quick Plan Stage 1 flights to use the demo provider flight feed first and persist only the ranked best-fit outbound/return pair before falling back to alternate live or estimated route data.
+- Simplified selected Quick Plan flight cards by hiding redundant schedule-check and direct-route explanatory lines once the route, timing, fare, and direct chip are already visible.
+- Added the next staged Quick Plan step after flights: weather now runs for the selected dates, persists as its own build stage, and appears on the live board before hotels or itinerary generation.
+- Added a date-specific weather outlook fallback when the forecast provider cannot cover the selected dates, so the weather stage completes visibly instead of staying in future stages.
+- Added a default `QUICK_PLAN_STAGE_ONE_ONLY=true` backend flag so the older all-at-once itinerary path stays disabled by default.
+- Changed the live board to remain visible during Quick Plan selection, poll persisted draft updates, animate the brief and flight card, and label future stages as queued.
+- Added backend coverage for Stage 1 success and no-flight failure behavior.
+
+Plain-English Summary:
+- Quick Plan now starts by showing the live board and adding flights first instead of waiting for a full itinerary that may fail. Users see the confirmed trip shape sooner, while the harder itinerary work is intentionally held for a later rebuild.
+
+Files / Areas Touched:
+- `backend/app/core/config.py`
+- `backend/app/services/providers/iata_lookup.py`
+- `backend/app/services/providers/flights.py`
+- `backend/app/services/conversation_service.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/trip-board-flight-card.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `frontend/src/types/trip-conversation.ts`
+- `backend/tests/test_conversation_service.py`
+- `backend/tests/test_flights_provider.py`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Quick Plan Ordering And Acceptance Guard
+
+## 2026-04-26 - Quick Plan Latency And Failure Surface Reduction
+
+Technical Summary:
+- Reduced the default Quick Plan LLM timeout from 15 minutes to 90 seconds so stalled private planning calls fail fast instead of holding the conversation turn open.
+- Changed the Quick Plan repair loop to allow only one full regeneration retry, cutting repeated strategy/provider/day-architecture/scheduling work from the hot path.
+- Replaced the four independent private quality-specialist LLM calls with one combined structured quality review, then synthesized the familiar specialist-style metadata from that single result.
+- Added per-attempt timing metadata to Quick Plan repair observability so generation, completeness review, quality review, and overall loop durations are recorded in the backend state.
+- Updated focused backend tests for the new single-repair and combined-review behavior.
+
+Plain-English Summary:
+- Quick Plan should stop hanging for very long stretches, and it now has fewer private AI steps that can fail before the user sees a usable first draft. We also now record where the time went when a Quick Plan run is slow.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_timeouts.py`
+- `backend/app/graph/planner/quick_plan_repair_orchestrator.py`
+- `backend/app/graph/planner/quick_plan_quality_review.py`
+- `backend/tests/test_quick_plan_quality_review.py`
+- `backend/tests/test_quick_plan_repair_orchestrator.py`
+- `CHANGELOG.md`
 
 Technical Summary:
 - Fixed live-board itinerary grouping so day labels such as `Day 1 · Thu 7 May` sort by their numeric day instead of falling behind plain labels like `Day 4`.

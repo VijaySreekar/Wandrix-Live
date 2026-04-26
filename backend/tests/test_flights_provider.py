@@ -2,6 +2,7 @@ from datetime import date
 
 from app.schemas.trip_planning import FlightDetail, TripConfiguration
 from app.services.providers import flights
+from app.services.providers.iata_lookup import resolve_flight_gateway
 
 
 def test_flights_provider_uses_travelpayouts_before_amadeus(monkeypatch) -> None:
@@ -70,6 +71,79 @@ def test_flights_provider_falls_back_to_amadeus_when_travelpayouts_is_empty(
     result = flights.enrich_flights(configuration)
 
     assert result[0].id == "amadeus_outbound"
+
+
+def test_flight_gateway_resolves_kyoto_to_osaka_with_transfer_note() -> None:
+    gateway = resolve_flight_gateway("Kyoto, Japan")
+
+    assert gateway is not None
+    assert gateway.search_iata == "OSA"
+    assert gateway.uses_ground_transfer is True
+    assert "Osaka/Kansai or Itami" in (gateway.planning_note("destination") or "")
+
+
+def test_travelpayouts_search_uses_gateway_code_and_persists_transfer_note(
+    monkeypatch,
+) -> None:
+    captured_params: list[dict] = []
+    configuration = TripConfiguration(
+        from_location="London",
+        to_location="Kyoto",
+        start_date=date(2027, 3, 23),
+        end_date=date(2027, 3, 29),
+    )
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {
+                        "price": 514,
+                        "airline": "BA",
+                        "flight_number": "7",
+                        "origin": "LON",
+                        "origin_airport": "LHR",
+                        "destination": "OSA",
+                        "destination_airport": "KIX",
+                        "departure_at": "2027-03-23T10:30:00+00:00",
+                        "return_at": "2027-03-29T13:20:00+00:00",
+                        "duration_to": 860,
+                        "duration_back": 900,
+                        "transfers": 1,
+                        "return_transfers": 0,
+                    }
+                ]
+            }
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+        def get(self, _path, *, params):
+            captured_params.append(params)
+            return _Response()
+
+    monkeypatch.setattr(
+        flights,
+        "create_travelpayouts_client",
+        lambda timeout=None: _Client(),
+    )
+
+    result = flights.enrich_flights_from_travelpayouts(
+        configuration,
+        parameter_sets_limit=1,
+    )
+
+    assert captured_params[0]["origin"] == "LON"
+    assert captured_params[0]["destination"] == "OSA"
+    assert result[0].arrival_airport == "KIX"
+    assert any("Kyoto is reached" in note for note in result[0].notes)
 
 
 def test_amadeus_mapping_preserves_segments_layovers_and_fare_detail() -> None:

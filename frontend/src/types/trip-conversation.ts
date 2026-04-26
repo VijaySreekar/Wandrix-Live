@@ -8,6 +8,13 @@ export type ChatPlannerPhase =
 export type PlannerConfirmationStatus = "unconfirmed" | "finalized";
 export type PlannerFinalizedVia = "chat" | "board";
 export type QuickPlanReviewStatus = "complete" | "incomplete" | "failed";
+export type QuickPlanBuildStage =
+  | "brief"
+  | "flights"
+  | "weather"
+  | "hotels"
+  | "itinerary";
+export type QuickPlanBuildStatus = "idle" | "running" | "complete" | "failed";
 export type PlannerPlanningMode = "quick" | "advanced";
 export type PlannerPlanningModeStatus =
   | "not_selected"
@@ -897,6 +904,7 @@ export type TripConversationState = {
   active_goals: string[];
   planner_conflicts: PlannerConflictRecord[];
   quick_plan_finalization?: QuickPlanFinalizationState;
+  quick_plan_build?: QuickPlanBuildState;
   advanced_date_resolution?: AdvancedDateResolutionState;
   flight_planning?: AdvancedFlightPlanningState;
   weather_planning?: AdvancedWeatherPlanningState;
@@ -919,6 +927,14 @@ export type QuickPlanFinalizationState = {
   review_result?: Record<string, unknown>;
   quality_result?: Record<string, unknown>;
   intelligence_summary?: QuickPlanIntelligenceSummary;
+};
+
+export type QuickPlanBuildState = {
+  status: QuickPlanBuildStatus;
+  active_stage?: QuickPlanBuildStage | null;
+  completed_stages: QuickPlanBuildStage[];
+  failed_stage?: QuickPlanBuildStage | null;
+  message?: string | null;
 };
 
 export type QuickPlanIntelligenceSummary = {

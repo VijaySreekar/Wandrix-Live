@@ -1359,6 +1359,19 @@ def _build_quick_plan_waiting_response(
         )
     )
     if attempted_quick_plan:
+        quick_plan_build = provider_activation.get("quick_plan_build") or {}
+        if quick_plan_build.get("active_stage") == "flights":
+            date_line = _build_quick_plan_working_date_line(
+                configuration=configuration,
+                conversation=conversation,
+                llm_update=llm_update,
+                provider_activation=provider_activation,
+            )
+            return (
+                f"{greeting_prefix}I started a Quick Plan for {destination} on the live board. "
+                "I have saved the confirmed brief first and am adding flight options before we move on to stays, weather, and the full itinerary."
+                f"{date_line}"
+            )
         review = provider_activation.get("quick_plan_review") or {}
         quality_review = provider_activation.get("quick_plan_quality_review") or {}
         date_line = _build_quick_plan_working_date_line(

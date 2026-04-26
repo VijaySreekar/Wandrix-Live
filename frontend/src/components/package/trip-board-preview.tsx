@@ -5,7 +5,6 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { TripDetailsBoard } from "@/components/package/trip-details-board";
 import { TripLiveBoard } from "@/components/package/trip-live-board";
-import { QuickPlanLoaderBoard } from "@/components/package/quick-plan-loader";
 import { TripSuggestionBoard } from "@/components/package/trip-suggestion-board";
 import { TripTimingChoiceBoard } from "@/components/package/trip-timing-choice-board";
 import { TravelBoardSpinner } from "@/components/package/travel-board-spinner";
@@ -189,9 +188,14 @@ function buildBoardPreviewView({
 }): BoardPreviewView {
   if (workspace && pendingBoardAction?.type === "select_quick_plan") {
     return {
-      key: `quick-plan-loading:${workspace.trip.trip_id}:${pendingBoardAction.action_id}`,
+      key: `live:${workspace.trip.trip_id}`,
       direction: "forward",
-      content: <QuickPlanLoaderBoard />,
+      content: (
+        <>
+          <BoardHeader />
+          <TripLiveBoard workspace={workspace} onAction={onAction} />
+        </>
+      ),
     };
   }
 

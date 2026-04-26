@@ -11,18 +11,13 @@ import type {
 export function WeatherCard({
   forecasts,
   status,
-  summary,
-  influenceNotes,
 }: {
   forecasts: WeatherDetail[];
   status?: "ready" | "unavailable" | "not_requested" | null;
-  summary?: string | null;
-  influenceNotes?: string[];
 }) {
   const hasForecasts = forecasts.length > 0;
   const weatherCopy =
     forecasts[0]?.summary ||
-    summary ||
     (status === "unavailable"
       ? "Live forecast opens closer to travel. Keep the plan flexible around the stated weather preference for now."
       : "Weather guidance will appear once the trip has dates or a live forecast window.");
@@ -46,9 +41,6 @@ export function WeatherCard({
           <p className="mt-1 text-sm text-foreground/60">{weatherCopy}</p>
         </div>
       </div>
-      {summary && hasForecasts ? (
-        <p className="mt-4 text-xs leading-5 text-foreground/58">{summary}</p>
-      ) : null}
       {hasForecasts ? (
         <div className="mt-5 grid grid-cols-2 gap-3 rounded-lg bg-white/55 px-4 py-3 sm:grid-cols-3">
           {forecasts.map((forecast) => (
@@ -69,15 +61,6 @@ export function WeatherCard({
           ))}
         </div>
       ) : null}
-      {influenceNotes?.length ? (
-        <div className="mt-4 space-y-2">
-          {influenceNotes.slice(0, 2).map((note) => (
-            <p key={note} className="text-xs leading-5 text-foreground/58">
-              {note}
-            </p>
-          ))}
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -85,18 +68,15 @@ export function WeatherCard({
 export function HotelSummary({
   hotel,
   destination,
-  fallbackStayWindow,
 }: {
   hotel: HotelStayDetail;
   destination: string | null;
-  fallbackStayWindow?: string | null;
 }) {
-  const details = splitHotelNotes(hotel.notes);
   const heroImage = hotel.image_url;
   const pricingLabel =
     typeof hotel.nightly_rate_amount === "number"
       ? formatCurrency(hotel.nightly_rate_amount, hotel.nightly_rate_currency)
-      : "Rate will firm up with exact dates";
+      : null;
 
   return (
     <div className="overflow-hidden rounded-xl bg-background">
@@ -134,28 +114,14 @@ export function HotelSummary({
       </div>
       <div className="px-4 py-4">
         <div className="grid gap-3">
-          <div className="flex items-start justify-between gap-3 rounded-lg border border-shell-border/70 bg-panel px-3 py-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
-                Stay window
-              </p>
-	              <p className="mt-2 text-sm leading-7 text-foreground/66">
-	                {formatDateRange(hotel.check_in, hotel.check_out, fallbackStayWindow)}
-	              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
-                Spend
-              </p>
-              <p className="mt-2 text-sm font-semibold text-foreground">
-                {pricingLabel}
-              </p>
-            </div>
-          </div>
-
-          {details.highlights[0] ? (
+          {pricingLabel ? (
+            <p className="w-fit rounded-full border border-shell-border/70 bg-panel px-3 py-1.5 text-xs font-semibold text-foreground/70">
+              {pricingLabel} nightly
+            </p>
+          ) : null}
+          {hotel.address ? (
             <p className="text-sm leading-7 text-foreground/66">
-              {details.highlights[0]}
+              {hotel.address}
             </p>
           ) : null}
         </div>
@@ -275,33 +241,6 @@ function buildActivityVisualStyle(
   } as const;
 }
 
-function formatDateRange(
-  startDate: string | null,
-  endDate: string | null,
-  fallbackLabel?: string | null,
-) {
-  if (!startDate && !endDate && fallbackLabel) {
-    return fallbackLabel;
-  }
-  return `${formatDateShort(startDate)} through ${formatDateShort(endDate)}`;
-}
-
-function formatDateShort(value: string | null) {
-  if (!value) {
-    return "Timing open";
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-  }).format(parsed);
-}
-
 function formatTemperatureBand(high: number | null, low: number | null) {
   if (high == null && low == null) {
     return "Forecast pending";
@@ -338,54 +277,10 @@ function formatPrimaryTemperature(forecast: WeatherDetail) {
   return `${Math.round(forecast.high_c ?? forecast.low_c ?? 0)}°`;
 }
 
-function splitHotelNotes(notes: string[]) {
-  let tripadvisorUrl: string | null = null;
-  let address: string | null = null;
-  const highlights: string[] = [];
-
-  for (const note of notes) {
-    if (isProviderSourceNote(note)) {
-      continue;
-    }
-
-    if (note.startsWith("TripAdvisor: ")) {
-      tripadvisorUrl = note.replace("TripAdvisor: ", "").trim();
-      continue;
-    }
-
-    if (!address && looksLikeAddress(note)) {
-      address = note;
-      continue;
-    }
-
-    highlights.push(note);
-  }
-
-  return {
-    tripadvisorUrl,
-    address,
-    highlights,
-  };
-}
-
 function formatCurrency(amount: number, currency: string | null | undefined) {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: (currency || "GBP").toUpperCase(),
     maximumFractionDigits: 0,
   }).format(amount);
-}
-
-function looksLikeAddress(value: string) {
-  return /[0-9]/.test(value) || value.includes("Street") || value.includes("Avenue") || value.includes("Rua") || value.includes("Carrer") || value.includes("Pla");
-}
-
-function isProviderSourceNote(value: string) {
-  const normalized = value.trim().toLowerCase();
-  return (
-    normalized.startsWith("tripadvisor:")
-    || normalized.startsWith("source:")
-    || normalized.includes("rapidapi")
-    || normalized.includes("cached hotel search result")
-  );
 }

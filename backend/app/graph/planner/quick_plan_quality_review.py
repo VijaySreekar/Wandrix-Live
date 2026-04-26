@@ -1,17 +1,9 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import logging
 
 from app.graph.planner.quick_plan_dossier import QuickPlanDossier
 from app.graph.planner.quick_plan_generation import QuickPlanGenerationAttempt
-from app.graph.planner.quick_plan_geography_review import review_quick_plan_geography
-from app.graph.planner.quick_plan_local_quality_review import (
-    review_quick_plan_local_quality,
-)
-from app.graph.planner.quick_plan_logistics_quality_review import (
-    review_quick_plan_logistics_quality,
-)
-from app.graph.planner.quick_plan_pacing_review import review_quick_plan_pacing
 from app.graph.planner.quick_plan_quality_models import (
     QuickPlanQualityIssue,
     QuickPlanQualityReviewResult,
@@ -19,7 +11,12 @@ from app.graph.planner.quick_plan_quality_models import (
     QuickPlanSpecialistReviewSummary,
 )
 from app.graph.planner.quick_plan_review import QuickPlanReviewResult
+from app.graph.planner.quick_plan_timeouts import QUICK_PLAN_LLM_TIMEOUT_SECONDS
+from app.integrations.llm.client import create_quick_plan_chat_model
 from app.schemas.trip_planning import TripConfiguration
+
+
+logger = logging.getLogger(__name__)
 
 
 def review_quick_plan_quality(
@@ -36,34 +33,13 @@ def review_quick_plan_quality(
     ):
         return None
 
-    specialist_calls = {
-        "geography": review_quick_plan_geography,
-        "pacing": review_quick_plan_pacing,
-        "local_quality": review_quick_plan_local_quality,
-        "logistics_quality": review_quick_plan_logistics_quality,
-    }
-    with ThreadPoolExecutor(max_workers=len(specialist_calls)) as executor:
-        futures = {
-            name: executor.submit(
-                reviewer,
-                dossier=dossier,
-                attempt=attempt,
-                configuration=configuration,
-                completeness_review=completeness_review,
-            )
-            for name, reviewer in specialist_calls.items()
-        }
-        specialist_results = {name: future.result() for name, future in futures.items()}
-    return combine_quick_plan_quality_reviews(specialist_results)
-
-
-def combine_quick_plan_quality_reviews(
-    specialist_results: dict[str, QuickPlanQualityReviewResult | None],
-) -> QuickPlanQualityReviewResult:
-    missing_specialists = [
-        name for name, result in specialist_results.items() if result is None
-    ]
-    if missing_specialists:
+    result = _run_combined_quality_review(
+        dossier=dossier,
+        attempt=attempt,
+        configuration=configuration,
+        completeness_review=completeness_review,
+    )
+    if result is None:
         return QuickPlanQualityReviewResult(
             status="fail",
             show_to_user=False,
@@ -72,116 +48,109 @@ def combine_quick_plan_quality_reviews(
                 QuickPlanQualityIssue(
                     dimension="fact_safety",
                     severity="high",
-                    issue=(
-                        "One or more quality specialists did not return a usable "
-                        "decision."
-                    ),
+                    issue="The combined quality review did not return a usable decision.",
                     repair_instruction="Re-run private quality review before showing the plan.",
                 )
             ],
-            review_notes=[
-                "Missing specialist review output: " + ", ".join(missing_specialists)
-            ],
+            review_notes=["The combined quality review did not return a usable output."],
             repair_instructions=["Re-run quality review before accepting the candidate."],
-        assistant_summary=_clamp_assistant_summary(
-            "I generated a complete Quick Plan, but the private quality review "
-            "could not verify it well enough to show, so I kept the board unchanged."
-        ),
-            specialist_results=_dump_specialist_results(specialist_results),
+            assistant_summary=_clamp_assistant_summary(
+                "I generated a complete Quick Plan, but the private quality review "
+                "could not verify it well enough to show, so I kept the board unchanged."
+            ),
+            specialist_results=_build_specialist_summaries(
+                QuickPlanQualityScorecard(),
+                [],
+                status="fail",
+            ),
         )
 
-    geography = specialist_results["geography"]
-    pacing = specialist_results["pacing"]
-    local_quality = specialist_results["local_quality"]
-    logistics_quality = specialist_results["logistics_quality"]
-    assert geography is not None
-    assert pacing is not None
-    assert local_quality is not None
-    assert logistics_quality is not None
-
-    scorecard = QuickPlanQualityScorecard(
-        geography=geography.scorecard.geography,
-        pacing=pacing.scorecard.pacing,
-        local_specificity=local_quality.scorecard.local_specificity,
-        user_fit=min(
-            score
-            for score in [
-                geography.scorecard.user_fit,
-                pacing.scorecard.user_fit,
-                local_quality.scorecard.user_fit,
-                logistics_quality.scorecard.user_fit,
-            ]
-            if score > 0
-        )
-        if any(
-            score > 0
-            for score in [
-                geography.scorecard.user_fit,
-                pacing.scorecard.user_fit,
-                local_quality.scorecard.user_fit,
-                logistics_quality.scorecard.user_fit,
-            ]
-        )
-        else 0,
-        logistics_realism=logistics_quality.scorecard.logistics_realism,
-        fact_safety=logistics_quality.scorecard.fact_safety,
-    )
-    issues = _merge_issues(specialist_results.values())
-    repair_instructions = _merge_text(
-        instruction
-        for result in specialist_results.values()
-        if result is not None
-        for instruction in result.repair_instructions
-    )
-    review_notes = _merge_text(
-        note
-        for result in specialist_results.values()
-        if result is not None
-        for note in result.review_notes
-    )
-
-    status = _combined_status(
-        specialist_results=[geography, pacing, local_quality, logistics_quality],
-        scorecard=scorecard,
-        issues=issues,
-    )
-    return QuickPlanQualityReviewResult(
-        status=status,
-        show_to_user=status == "pass",
-        scorecard=scorecard,
-        issues=issues,
-        review_notes=review_notes,
-        repair_instructions=repair_instructions,
-        assistant_summary=_clamp_assistant_summary(
-            _assistant_summary(status=status, issues=issues)
-        ),
-        specialist_results=_dump_specialist_results(specialist_results),
+    return result.model_copy(
+        update={
+            "show_to_user": result.status == "pass",
+            "review_notes": _merge_text(result.review_notes),
+            "repair_instructions": _merge_text(result.repair_instructions),
+            "assistant_summary": _clamp_assistant_summary(
+                result.assistant_summary
+                or _assistant_summary(status=result.status, issues=result.issues)
+            ),
+            "specialist_results": _build_specialist_summaries(
+                result.scorecard,
+                result.issues,
+                status=result.status,
+            ),
+        }
     )
 
 
-def _combined_status(
+def _run_combined_quality_review(
     *,
-    specialist_results: list[QuickPlanQualityReviewResult],
-    scorecard: QuickPlanQualityScorecard,
-    issues: list[QuickPlanQualityIssue],
-) -> str:
-    scores = [
-        scorecard.geography,
-        scorecard.pacing,
-        scorecard.local_specificity,
-        scorecard.user_fit,
-        scorecard.logistics_realism,
-        scorecard.fact_safety,
-    ]
-    if (
-        any(result.status == "fail" for result in specialist_results)
-        or any(issue.severity == "high" for issue in issues)
-        or min(scores) <= 3
-    ):
-        return "fail"
-    if any(result.status == "repairable" for result in specialist_results) or min(scores) < 7:
-        return "repairable"
-    return "pass"
+    dossier: QuickPlanDossier,
+    attempt: QuickPlanGenerationAttempt,
+    configuration: TripConfiguration,
+    completeness_review: QuickPlanReviewResult,
+) -> QuickPlanQualityReviewResult | None:
+    prompt = f"""
+You are Wandrix's private Quick Plan quality reviewer.
+
+Judge the candidate across all six quality dimensions together:
+- geography
+- pacing
+- local_specificity
+- user_fit
+- logistics_realism
+- fact_safety
+
+Return:
+- pass only when the candidate is safe and strong enough to show as the editable first draft
+- repairable when the itinerary is structurally usable but needs a better regeneration pass
+- fail when the draft is misleading, unsafe, or not trustworthy enough to show
+
+Rules:
+- Do not rewrite the itinerary.
+- Score every dimension from 0 to 10.
+- Use issues only for real problems; each issue must name the affected dimension.
+- Use severity high for unsafe fact handling, impossible logistics, or severe route/pacing problems.
+- Keep review_notes and repair_instructions concise and actionable.
+- assistant_summary should briefly explain why the draft is or is not being shown.
+
+Trip configuration:
+{configuration.model_dump(mode="json")}
+
+Quick Plan dossier:
+{dossier.model_dump(mode="json")}
+
+Completeness review:
+{completeness_review.model_dump(mode="json")}
+
+Generation attempt:
+{attempt.model_dump(mode="json")}
+""".strip()
+
+    try:
+        model = create_quick_plan_chat_model(
+            temperature=0.0,
+            timeout=QUICK_PLAN_LLM_TIMEOUT_SECONDS,
+            max_retries=1,
+        )
+        return model.with_structured_output(
+            QuickPlanQualityReviewResult,
+            method="json_schema",
+        ).invoke(
+            [
+                (
+                    "system",
+                    "Review Quick Plan quality privately across geography, pacing, local specificity, user fit, logistics realism, and fact safety. Do not rewrite the itinerary.",
+                ),
+                ("human", prompt),
+            ]
+        )
+    except Exception:
+        logger.warning(
+            "Quick Plan combined quality review returned no usable output.",
+            exc_info=True,
+        )
+        return None
 
 
 def _assistant_summary(
@@ -207,23 +176,6 @@ def _clamp_assistant_summary(summary: str) -> str:
     return summary[: max_length - 1].rstrip() + "…"
 
 
-def _merge_issues(
-    results: list[QuickPlanQualityReviewResult | None],
-) -> list[QuickPlanQualityIssue]:
-    seen: set[tuple[str, str]] = set()
-    merged: list[QuickPlanQualityIssue] = []
-    for result in results:
-        if result is None:
-            continue
-        for issue in result.issues:
-            key = (issue.dimension, issue.issue)
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(issue)
-    return merged[:16]
-
-
 def _merge_text(values) -> list[str]:
     merged: list[str] = []
     for value in values:
@@ -233,29 +185,69 @@ def _merge_text(values) -> list[str]:
     return merged[:12]
 
 
-def _dump_specialist_results(
-    results: dict[str, QuickPlanQualityReviewResult | None],
+def _build_specialist_summaries(
+    scorecard: QuickPlanQualityScorecard,
+    issues: list[QuickPlanQualityIssue],
+    *,
+    status: str,
 ) -> list[QuickPlanSpecialistReviewSummary]:
+    grouped_issues = {
+        "geography": [
+            issue for issue in issues if issue.dimension in {"geography"}
+        ],
+        "pacing": [issue for issue in issues if issue.dimension in {"pacing"}],
+        "local_quality": [
+            issue
+            for issue in issues
+            if issue.dimension in {"local_specificity", "user_fit"}
+        ],
+        "logistics_quality": [
+            issue
+            for issue in issues
+            if issue.dimension in {"logistics_realism", "fact_safety"}
+        ],
+    }
+    score_groups = {
+        "geography": [scorecard.geography],
+        "pacing": [scorecard.pacing],
+        "local_quality": [scorecard.local_specificity, scorecard.user_fit],
+        "logistics_quality": [scorecard.logistics_realism, scorecard.fact_safety],
+    }
+
     summaries: list[QuickPlanSpecialistReviewSummary] = []
-    for name, result in results.items():
-        if result is None:
-            summaries.append(
-                QuickPlanSpecialistReviewSummary(
-                    specialist=name,
-                    status=None,
-                    show_to_user=None,
-                    review_notes=[],
-                    issue_count=0,
-                )
-            )
-            continue
+    for specialist in [
+        "geography",
+        "pacing",
+        "local_quality",
+        "logistics_quality",
+    ]:
+        specialist_issues = grouped_issues[specialist]
+        specialist_status = _specialist_status(
+            status=status,
+            scores=score_groups[specialist],
+            issues=specialist_issues,
+        )
         summaries.append(
             QuickPlanSpecialistReviewSummary(
-                specialist=name,
-                status=result.status,
-                show_to_user=result.show_to_user,
-                review_notes=list(result.review_notes[:6]),
-                issue_count=len(result.issues),
+                specialist=specialist,
+                status=specialist_status,
+                show_to_user=specialist_status == "pass",
+                review_notes=[issue.issue for issue in specialist_issues[:6]],
+                issue_count=len(specialist_issues),
             )
         )
     return summaries
+
+
+def _specialist_status(
+    *,
+    status: str,
+    scores: list[int],
+    issues: list[QuickPlanQualityIssue],
+) -> str:
+    min_score = min(scores) if scores else 0
+    if any(issue.severity == "high" for issue in issues) or min_score <= 3:
+        return "fail"
+    if issues or min_score < 7:
+        return "repairable"
+    return "pass" if status == "pass" else "repairable"

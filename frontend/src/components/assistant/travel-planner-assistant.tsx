@@ -41,6 +41,7 @@ import {
   getTripConversationHistory,
   sendTripConversationMessage,
 } from "@/lib/api/conversation";
+import { getTripDraft } from "@/lib/api/trips";
 import {
   normalizeHistoryMessages,
   readCachedThreadMessages,
@@ -440,13 +441,13 @@ export function TravelPlannerAssistant({
       pendingBoardAction={pendingBoardAction}
       requestedTripId={requestedTripId}
       onBoardActionHandled={onBoardActionHandled}
-      onDirectBoardActionSubmit={async (action) => {
+      onDirectBoardActionSubmit={async (action, userMessage) => {
         return await buildAssistantReply({
           activeTripId: tripId,
           isBootstrapping,
           workspace,
           workspaceError,
-          latestText: " ",
+          latestText: userMessage,
           authSnapshot,
           onEnsurePersistedTrip,
           onActivatePersistedTrip,
@@ -489,7 +490,10 @@ function TravelPlannerAssistantRuntime({
   pendingBoardAction: PlannerBoardActionIntent | null;
   requestedTripId: string | null;
   onBoardActionHandled: (actionId: string) => void;
-  onDirectBoardActionSubmit: (action: ConversationBoardAction) => Promise<string>;
+  onDirectBoardActionSubmit: (
+    action: ConversationBoardAction,
+    userMessage: string,
+  ) => Promise<string>;
 }) {
   const hydratedMessages = useMemo(
     () => buildThreadSeedMessages(initialMessages),
@@ -1340,7 +1344,10 @@ function FinalizedChatLockPanel({
 }: {
   tripId: string;
   disabled: boolean;
-  onDirectBoardActionSubmit: (action: ConversationBoardAction) => Promise<string>;
+  onDirectBoardActionSubmit: (
+    action: ConversationBoardAction,
+    userMessage: string,
+  ) => Promise<string>;
 }) {
   const threadRuntime = useThreadRuntime();
   const isRunning = useThread((state) => state.isRunning);
@@ -1365,7 +1372,10 @@ function FinalizedChatLockPanel({
     });
 
     try {
-      const assistantMessage = await onDirectBoardActionSubmit(action);
+      const assistantMessage = await onDirectBoardActionSubmit(
+        action,
+        "Reopen planning for this finalized trip.",
+      );
       threadRuntime.append({
         role: "assistant",
         content: [{ type: "text", text: assistantMessage }],
@@ -1618,16 +1628,30 @@ async function buildAssistantReply({
       return "I could not prepare a real trip yet, so I’m holding here until the workspace is ready.";
     }
 
-    const response = await sendTripConversationMessage(
-      resolvedTripId,
-      {
-        message: latestText,
-        profile_context: profileContext ?? undefined,
-        current_location_context: currentLocationContext ?? undefined,
-        board_action: pendingBoardAction ?? undefined,
-      },
-      authSnapshot.accessToken,
-    );
+    const stopDraftPolling =
+      pendingBoardAction?.type === "select_quick_plan"
+        ? startQuickPlanDraftPolling({
+            tripId: resolvedTripId,
+            accessToken: authSnapshot.accessToken,
+            onDraftUpdated,
+          })
+        : null;
+    let response;
+
+    try {
+      response = await sendTripConversationMessage(
+        resolvedTripId,
+        {
+          message: latestText,
+          profile_context: profileContext ?? undefined,
+          current_location_context: currentLocationContext ?? undefined,
+          board_action: pendingBoardAction ?? undefined,
+        },
+        authSnapshot.accessToken,
+      );
+    } finally {
+      stopDraftPolling?.();
+    }
 
     const shouldSurfacePersistedWorkspace =
       Boolean(workspace?.isEphemeral && persistedWorkspace) &&
@@ -1670,6 +1694,61 @@ async function buildAssistantReply({
       ? error.message
       : "The backend conversation bridge failed unexpectedly.";
   }
+}
+
+function startQuickPlanDraftPolling({
+  tripId,
+  accessToken,
+  onDraftUpdated,
+}: {
+  tripId: string;
+  accessToken: string;
+  onDraftUpdated: (tripDraft: TripDraft) => void;
+}) {
+  let stopped = false;
+  let requestInFlight = false;
+  let lastSignature = "";
+
+  const poll = async () => {
+    if (stopped || requestInFlight) {
+      return;
+    }
+
+    requestInFlight = true;
+    try {
+      const draft = await getTripDraft(tripId, accessToken);
+      const build = draft.conversation.quick_plan_build;
+      const signature = JSON.stringify({
+        last_updated_at: draft.status.last_updated_at,
+        flights: draft.module_outputs.flights.length,
+        weather: draft.module_outputs.weather.length,
+        hotels: draft.module_outputs.hotels.length,
+        build,
+      });
+
+      if (signature !== lastSignature) {
+        lastSignature = signature;
+        onDraftUpdated(draft);
+      }
+
+      if (build?.status === "complete" || build?.status === "failed") {
+        stopped = true;
+        window.clearInterval(interval);
+      }
+    } catch {
+      // Polling is a visual enhancement. The main conversation request remains authoritative.
+    } finally {
+      requestInFlight = false;
+    }
+  };
+
+  const interval = window.setInterval(poll, 900);
+  window.setTimeout(poll, 250);
+
+  return () => {
+    stopped = true;
+    window.clearInterval(interval);
+  };
 }
 
 function buildWelcomeContextLine(profileContext: PlannerProfileContext | null) {

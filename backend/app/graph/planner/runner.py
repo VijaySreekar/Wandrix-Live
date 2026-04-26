@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from app.core.config import get_settings
 from app.graph.planner.board_action_merge import apply_board_action_updates
 from app.graph.planner.brief_intelligence import review_trip_brief_intelligence
 from app.graph.planner.conversation_state import (
@@ -316,6 +317,7 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
     quick_plan_final_review = None
     quick_plan_first_quality_review = None
     quick_plan_final_quality_review = None
+    quick_plan_stage_one_only = get_settings().quick_plan_stage_one_only
     if provider_activation["quick_plan_ready"]:
         quick_plan_dossier = build_quick_plan_dossier(
             current_conversation=current_conversation,
@@ -339,7 +341,42 @@ def process_trip_turn(state: PlanningGraphState) -> PlanningGraphState:
         quick_plan_has_preview = False
         accepted_quick_plan = None
         budget_estimate = existing_budget_estimate
-        if planning_mode == "quick" and should_enrich_modules:
+        if planning_mode == "quick" and should_enrich_modules and quick_plan_stage_one_only:
+            quick_plan_attempt = None
+            accepted_quick_plan = None
+            module_outputs = existing_module_outputs
+            timeline = existing_timeline
+            provider_activation["quick_plan_acceptance"] = {
+                "accepted": False,
+                "final_visible": False,
+                "review_status": None,
+                "completeness_status": None,
+                "quality_status": None,
+                "repair_attempted": False,
+                "accepted_modules": [],
+                "assumptions": quick_plan_dossier.assumptions
+                if quick_plan_dossier is not None
+                else [],
+                "final_completeness_review": None,
+                "final_quality_review": None,
+                "repair_metadata": {
+                    "stage_one_only": True,
+                    "stopped_reason": "stage_one_flights_only",
+                },
+                "intelligence_metadata": {},
+                "intelligence_metadata_present": False,
+            }
+            provider_activation["quick_plan_build"] = {
+                "status": "running",
+                "active_stage": "flights",
+                "completed_stages": ["brief"],
+                "failed_stage": None,
+                "message": "Brief saved. Finding flight options for the first Quick Plan board.",
+            }
+            effective_llm_update.last_turn_summary = _clamp_last_turn_summary(
+                "Quick Plan started with the confirmed brief. Flight options are being added to the live board first."
+            )
+        elif planning_mode == "quick" and should_enrich_modules:
             trip_title = _resolve_trip_title(
                 current_title=trip_draft.get("title"),
                 llm_title=effective_input_update.title,

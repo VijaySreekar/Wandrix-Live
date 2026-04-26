@@ -28,6 +28,8 @@ PlannerIntent = Literal["none", "confirm_plan", "reopen_plan"]
 PlannerConfirmationStatus = Literal["unconfirmed", "finalized"]
 PlannerFinalizedVia = Literal["chat", "board"]
 QuickPlanReviewStatus = Literal["complete", "incomplete", "failed"]
+QuickPlanBuildStage = Literal["brief", "flights", "weather", "hotels", "itinerary"]
+QuickPlanBuildStatus = Literal["idle", "running", "complete", "failed"]
 PlannerPlanningModeStatus = Literal[
     "not_selected",
     "selected",
@@ -1075,6 +1077,14 @@ class QuickPlanFinalizationState(BaseModel):
     intelligence_summary: dict[str, Any] = Field(default_factory=dict)
 
 
+class QuickPlanBuildState(BaseModel):
+    status: QuickPlanBuildStatus = "idle"
+    active_stage: QuickPlanBuildStage | None = None
+    completed_stages: list[QuickPlanBuildStage] = Field(default_factory=list)
+    failed_stage: QuickPlanBuildStage | None = None
+    message: str | None = Field(default=None, max_length=240)
+
+
 class TripConversationState(BaseModel):
     phase: ChatPlannerPhase = "opening"
     planning_mode: PlannerPlanningMode | None = None
@@ -1095,6 +1105,7 @@ class TripConversationState(BaseModel):
     quick_plan_finalization: QuickPlanFinalizationState = Field(
         default_factory=QuickPlanFinalizationState
     )
+    quick_plan_build: QuickPlanBuildState = Field(default_factory=QuickPlanBuildState)
     advanced_date_resolution: AdvancedDateResolutionState = Field(
         default_factory=AdvancedDateResolutionState
     )

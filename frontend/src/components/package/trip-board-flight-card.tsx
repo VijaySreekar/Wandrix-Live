@@ -2,7 +2,7 @@
 
 import { Plane } from "lucide-react";
 
-import type { FlightDetail } from "@/types/trip-draft";
+import type { BudgetPosture, FlightDetail } from "@/types/trip-draft";
 import { cn } from "@/lib/utils";
 
 export type FlightCardMode = "selected" | "candidate";
@@ -11,12 +11,15 @@ export function FlightCard({
   flight,
   returnFlight,
   mode = "candidate",
+  budgetContext,
 }: {
   flight: FlightDetail | null | undefined;
   returnFlight?: FlightDetail | null;
   mode?: FlightCardMode;
+  budgetContext?: FlightBudgetContext;
 }) {
-  const title = mode === "selected" ? "Selected flights" : "Flight options";
+  const isBestFitEstimate = flight?.inventory_source === "placeholder";
+  const title = mode === "selected" ? "Selected flight route" : "Flight options";
   const emptyMessage =
     mode === "selected"
       ? "Selected flight details will appear here once the flight step is complete."
@@ -30,17 +33,22 @@ export function FlightCard({
         </p>
         {flight ? (
           <span className="rounded-full bg-white/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/72">
-            {mode === "selected" ? "Working pick" : "Candidate"}
+            {isBestFitEstimate ? "Best fit" : mode === "selected" ? "Working pick" : "Candidate"}
           </span>
         ) : null}
       </div>
 
       {flight ? (
         <div className="mt-4 space-y-4">
-          <FlightRoutePanel flight={flight} label="Outbound" />
+          <FlightRoutePanel flight={flight} label="Outbound" budgetContext={budgetContext} />
           {returnFlight ? (
             <div className="border-t border-white/18 pt-4">
-              <FlightRoutePanel flight={returnFlight} label="Return" compact />
+              <FlightRoutePanel
+                flight={returnFlight}
+                label="Return"
+                compact
+                budgetContext={budgetContext}
+              />
             </div>
           ) : null}
         </div>
@@ -55,13 +63,15 @@ function FlightRoutePanel({
   flight,
   label,
   compact = false,
+  budgetContext,
 }: {
   flight: FlightDetail;
   label: string;
   compact?: boolean;
+  budgetContext?: FlightBudgetContext;
 }) {
-  const facts = buildFlightFacts(flight);
-  const needsScheduleCheck = flight.inventory_source === "cached" || !flight.arrival_time;
+  const facts = buildFlightFacts(flight, budgetContext);
+  const routeNotes = buildFlightRouteNotes(flight);
 
   return (
     <div>
@@ -106,10 +116,17 @@ function FlightRoutePanel({
         </div>
       ) : null}
 
-      {needsScheduleCheck ? (
-        <p className="mt-2 text-xs leading-5 text-white/64">
-          Live schedule check still needed before booking.
-        </p>
+      {routeNotes.length ? (
+        <div className="mt-3 space-y-1.5">
+          {routeNotes.map((note) => (
+            <p
+              key={note}
+              className="rounded-lg bg-white/10 px-3 py-2 text-xs leading-5 text-white/76"
+            >
+              {note}
+            </p>
+          ))}
+        </div>
       ) : null}
     </div>
   );
@@ -125,7 +142,7 @@ function FlightRouteSummary({ flight }: { flight: FlightDetail }) {
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/62" />
       </div>
       <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/66">
-        {flight.duration_text || "Time pending"}
+        {formatFlightRouteDuration(flight)}
       </p>
     </div>
   );
@@ -157,11 +174,49 @@ function AirportCode({
   );
 }
 
-function buildFlightFacts(flight: FlightDetail) {
+type FlightBudgetContext = {
+  adults?: number | null;
+  children?: number | null;
+  budgetPosture?: BudgetPosture | null;
+  currency?: string | null;
+};
+
+function buildFlightFacts(flight: FlightDetail, budgetContext?: FlightBudgetContext) {
   return [
-    formatFare(flight),
+    formatFare(flight, budgetContext),
     formatFlightStopLabel(flight.stop_count),
   ].filter(Boolean) as string[];
+}
+
+function formatFlightRouteDuration(flight: FlightDetail) {
+  if (
+    flight.inventory_source === "placeholder" ||
+    flight.duration_text?.toLowerCase() === "schedule pending"
+  ) {
+    return "Best-fit route";
+  }
+  return flight.duration_text || "Time pending";
+}
+
+function buildFlightRouteNotes(flight: FlightDetail) {
+  const notes = flight.notes ?? [];
+  return notes
+    .filter((note) => {
+      const normalized = note.toLowerCase();
+      return (
+        !normalized.startsWith("estimated fare:") &&
+        !normalized.includes("planning placeholder") &&
+        !normalized.includes("schedule") &&
+        !normalized.includes("before booking") &&
+        !normalized.startsWith("direct ") &&
+        !normalized.includes("direct route") &&
+        !normalized.includes("direct outbound route") &&
+        !normalized.includes("direct return route") &&
+        !normalized.includes("stop(s)") &&
+        !normalized.includes("connection detail")
+      );
+    })
+    .slice(0, 2);
 }
 
 function formatRouteText(flight: FlightDetail) {
@@ -195,7 +250,7 @@ function buildDetailedAirportPath(flight: FlightDetail) {
   return Array.from(new Set(airports));
 }
 
-function formatFare(flight: FlightDetail) {
+function formatFare(flight: FlightDetail, budgetContext?: FlightBudgetContext) {
   if (typeof flight.fare_amount === "number" && flight.fare_currency) {
     return new Intl.NumberFormat("en-GB", {
       style: "currency",
@@ -204,7 +259,7 @@ function formatFare(flight: FlightDetail) {
     }).format(flight.fare_amount);
   }
 
-  return cleanPriceText(flight.price_text);
+  return cleanPriceText(flight.price_text) ?? estimateFallbackFlightBudget(flight, budgetContext);
 }
 
 function cleanPriceText(value: string | null | undefined) {
@@ -219,6 +274,72 @@ function cleanPriceText(value: string | null | undefined) {
     }
   }
   return value;
+}
+
+function estimateFallbackFlightBudget(
+  flight: FlightDetail,
+  budgetContext?: FlightBudgetContext,
+) {
+  if (flight.inventory_source !== "placeholder" || flight.direction !== "outbound") {
+    return null;
+  }
+  const adults = Math.max(budgetContext?.adults ?? 1, 1);
+  const children = Math.max(budgetContext?.children ?? 0, 0);
+  const travelers = adults + children;
+  const [lowPerPerson, highPerPerson] = estimateFallbackPerPersonBand(
+    flight.departure_airport,
+    flight.arrival_airport,
+    budgetContext?.budgetPosture ?? "mid_range",
+  );
+  const currency = budgetContext?.currency ?? "GBP";
+  const low = lowPerPerson * travelers;
+  const high = highPerPerson * travelers;
+  return `Flight budget ${currency} ${formatCompactAmount(low)}-${formatCompactAmount(high)} total`;
+}
+
+function estimateFallbackPerPersonBand(
+  origin: string,
+  destination: string,
+  posture: BudgetPosture,
+) {
+  const originRegion = estimateRegion(origin);
+  const destinationRegion = estimateRegion(destination);
+  let base: [number, number] = [220, 520];
+  if (originRegion === "europe" && destinationRegion === "europe") {
+    base = [120, 280];
+  } else if (originRegion !== destinationRegion && [originRegion, destinationRegion].includes("asia")) {
+    base = [650, 1050];
+  } else if (originRegion !== destinationRegion) {
+    base = [480, 900];
+  }
+
+  if (posture === "premium") {
+    return [Math.round(base[0] * 1.35), Math.round(base[1] * 1.55)] as const;
+  }
+  if (posture === "budget") {
+    return [Math.round(base[0] * 0.78), Math.round(base[1] * 0.9)] as const;
+  }
+  return base;
+}
+
+function estimateRegion(code: string) {
+  const normalized = code.toUpperCase();
+  if (["LON", "LGW", "LHR", "STN", "LTN", "LCY", "MAN", "BHX", "EDI", "GLA", "PAR", "ROM", "MIL", "MAD", "BCN", "LIS", "OPO", "AMS", "BER", "PRG", "BUD", "ZRH", "NAP", "PSA"].includes(normalized)) {
+    return "europe";
+  }
+  if (["OSA", "KIX", "ITM", "TYO", "HND", "NRT", "DXB"].includes(normalized)) {
+    return "asia";
+  }
+  if (["NYC", "JFK", "EWR", "LGA", "SFO", "LAX", "YYC", "CUN"].includes(normalized)) {
+    return "north_america";
+  }
+  return "other";
+}
+
+function formatCompactAmount(value: number) {
+  return new Intl.NumberFormat("en-GB", {
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 function formatFlightTime(value: string | Date | null | undefined) {

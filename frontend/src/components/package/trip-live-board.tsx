@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
-  ArrowRight,
   BedDouble,
   CalendarRange,
   Car,
@@ -147,28 +147,57 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
   const isFinalized = tripDraft.status.confirmation_status === "finalized";
   const quickPlanBrochureEligible =
     conversation.quick_plan_finalization?.brochure_eligible === true;
+  const quickPlanBuild = conversation.quick_plan_build ?? {
+    status: "idle",
+    active_stage: null,
+    completed_stages: [],
+    failed_stage: null,
+    message: null,
+  };
+  const isQuickPlanStageOne =
+    conversation.planning_mode === "quick" &&
+    quickPlanBuild.status !== "idle" &&
+    !quickPlanBrochureEligible;
+  const showStageOneWeather =
+    isQuickPlanStageOne &&
+    (quickPlanBuild.active_stage === "weather" ||
+      quickPlanBuild.completed_stages?.includes("weather") ||
+      weather.length > 0);
+  const showStageOneHotel =
+    isQuickPlanStageOne &&
+    (quickPlanBuild.active_stage === "hotels" ||
+      quickPlanBuild.completed_stages?.includes("hotels") ||
+      Boolean(stay));
   const canConfirmPlan =
     conversation.planning_mode === "quick" &&
     quickPlanBrochureEligible &&
     !isFinalized;
+  const reduceMotion = useReducedMotion();
+  const stageTransition = reduceMotion
+    ? { duration: 0.01 }
+    : { duration: 0.42, ease: [0.16, 1, 0.3, 1] as const };
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 xl:px-8">
       <div className="space-y-12">
-        <BoardHero
-          destination={configuration.to_location}
-          fromLocation={configuration.from_location}
-          startDate={configuration.start_date}
-          endDate={configuration.end_date}
-          travelWindow={configuration.travel_window}
-          tripLength={configuration.trip_length}
-          adults={configuration.travelers.adults}
-          childCount={configuration.travelers.children}
-          summary={
-            conversation.last_turn_summary ||
-            "This is the first working draft of the trip. Keep refining it in chat and the board will tighten around the same plan."
-          }
-        />
+        <motion.div
+          layout
+          initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.99 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={stageTransition}
+        >
+          <BoardHero
+            destination={configuration.to_location}
+            fromLocation={configuration.from_location}
+            startDate={configuration.start_date}
+            endDate={configuration.end_date}
+            travelWindow={configuration.travel_window}
+            tripLength={configuration.trip_length}
+            adults={configuration.travelers.adults}
+            childCount={configuration.travelers.children}
+            quickPlanBuildStatus={isQuickPlanStageOne ? quickPlanBuild.status : null}
+          />
+        </motion.div>
         <PlanConfirmationPanel
           isFinalized={isFinalized}
           canConfirmPlan={canConfirmPlan}
@@ -195,14 +224,6 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
               <h3 className="text-2xl font-semibold tracking-tight text-foreground">
                 Itinerary
               </h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-foreground/55">
-                {visibleTimeline.length > 0
-                  ? `${timelineSections.length} day${timelineSections.length === 1 ? "" : "s"} · ${visibleTimeline.length} item${visibleTimeline.length === 1 ? "" : "s"} planned`
-                  : "Keep refining in chat — the timeline fills in here automatically."}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <RouteChip from={configuration.from_location} to={configuration.to_location} />
             </div>
           </div>
 
@@ -211,7 +232,9 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
 
             {/* Timeline column */}
             <section>
-              {timelineSections.length > 0 ? (
+              {isQuickPlanStageOne && timelineSections.length === 0 ? (
+                <StageOneComingSoonCard />
+              ) : timelineSections.length > 0 ? (
                 <div className="space-y-4">
                   {timelineSections.map((section, index) => (
                     <TimelineDaySection
@@ -229,7 +252,7 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
 
             {/* Sidebar column */}
             <div className="space-y-5 xl:sticky xl:top-6">
-              {plannerConflicts.length ? (
+              {!isQuickPlanStageOne && plannerConflicts.length ? (
                 <InfoCard
                   icon={AlertTriangle}
                   title="Planning tensions"
@@ -238,12 +261,20 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
                   <LiveBoardConflictList conflicts={plannerConflicts} />
                 </InfoCard>
               ) : null}
-              <FlightCard
-                flight={outboundFlight}
-                returnFlight={returnFlight}
-                mode={hasSelectedFlights ? "selected" : "candidate"}
-              />
-              {flightPlanningSummary ? (
+              <motion.div layout transition={stageTransition}>
+                <FlightCard
+                  flight={outboundFlight}
+                  returnFlight={returnFlight}
+                  mode={hasSelectedFlights || isQuickPlanStageOne ? "selected" : "candidate"}
+                  budgetContext={{
+                    adults: configuration.travelers.adults,
+                    children: configuration.travelers.children,
+                    budgetPosture: configuration.budget_posture,
+                    currency: configuration.budget_currency ?? "GBP",
+                  }}
+                />
+              </motion.div>
+              {!isQuickPlanStageOne && flightPlanningSummary ? (
                 <InfoCard
                   icon={Plane}
                   title="Flight planning"
@@ -270,13 +301,13 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
                   ) : null}
                 </InfoCard>
               ) : null}
-              <WeatherCard
-                forecasts={weather}
-                status={weatherPlanning?.results_status}
-                summary={weatherPlanning?.workspace_summary}
-                influenceNotes={weatherPlanning?.activity_influence_notes}
-              />
-              {budgetEstimate ? (
+              {!isQuickPlanStageOne || showStageOneWeather ? (
+                <WeatherCard
+                  forecasts={weather}
+                  status={weatherPlanning?.results_status}
+                />
+              ) : null}
+              {!isQuickPlanStageOne && budgetEstimate ? (
                 <InfoCard
                   icon={Sparkles}
                   title="Estimated budget"
@@ -285,58 +316,120 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
                   <BudgetEstimateSummary estimate={budgetEstimate} />
                 </InfoCard>
               ) : null}
-              <InfoCard
-                icon={BedDouble}
-                title="Stay details"
-                subtitle={stay ? "Current stay direction" : "Hotel still open"}
-              >
-                {stay ? (
-                  <HotelSummary
-                    hotel={stay}
-                    destination={configuration.to_location}
-                    fallbackStayWindow={formatCompactDateRange(
-                      configuration.start_date,
-                      configuration.end_date,
-                      configuration.travel_window,
-                      configuration.trip_length,
+              {isQuickPlanStageOne ? (
+                <>
+                  {showStageOneHotel ? (
+                    <InfoCard
+                      icon={BedDouble}
+                      title="Stay details"
+                      subtitle={stay ? null : "Selecting hotel"}
+                    >
+                      {stay ? (
+                        <HotelSummary
+                          hotel={stay}
+                          destination={configuration.to_location}
+                        />
+                      ) : (
+                        <EmptyPanel message="Hotel ranking is running after the weather stage." />
+                      )}
+                    </InfoCard>
+                  ) : null}
+                  <FutureStagesCard />
+                </>
+              ) : (
+                <>
+                  <InfoCard
+                    icon={BedDouble}
+                    title="Stay details"
+                    subtitle={stay ? "Current stay direction" : "Hotel still open"}
+                  >
+                    {stay ? (
+                      <HotelSummary
+                        hotel={stay}
+                        destination={configuration.to_location}
+                      />
+                    ) : (
+                      <EmptyPanel message="Hotel recommendations will settle here once Wandrix has enough destination and pacing context." />
                     )}
-                  />
-                ) : (
-                  <EmptyPanel message="Hotel recommendations will settle here once Wandrix has enough destination and pacing context." />
-                )}
-              </InfoCard>
+                  </InfoCard>
 
-              <InfoCard
-                icon={MapPinned}
-                title="Highlights"
-	                subtitle={
-	                  leadActivityCandidate
-	                    ? activityPlanning.schedule_summary || "Current standout recommendation"
-	                    : leadTimelineHighlight
-	                      ? "Pulled from the current draft itinerary"
-	                      : "Destination highlights still forming"
-	                }
-              >
-                {leadActivityCandidate ? (
-                  <LiveBoardActivityHighlight
-                    candidate={leadActivityCandidate}
-                    workspaceSummary={activityPlanning.workspace_summary}
-                    tripStyleSummary={tripStyleSummary}
-                  />
-                ) : leadTimelineHighlight ? (
-                  <LiveBoardTimelineHighlight
-                    item={leadTimelineHighlight}
-                    tripStyleSummary={tripStyleSummary}
-                  />
-                ) : (
-                  <EmptyPanel message="Local highlights will appear here as soon as activities are strong enough to elevate." />
-                )}
-              </InfoCard>
+                  <InfoCard
+                    icon={MapPinned}
+                    title="Highlights"
+                    subtitle={
+                      leadActivityCandidate
+                        ? activityPlanning.schedule_summary || "Current standout recommendation"
+                        : leadTimelineHighlight
+                          ? "Pulled from the current draft itinerary"
+                          : "Destination highlights still forming"
+                    }
+                  >
+                    {leadActivityCandidate ? (
+                      <LiveBoardActivityHighlight
+                        candidate={leadActivityCandidate}
+                        workspaceSummary={activityPlanning.workspace_summary}
+                        tripStyleSummary={tripStyleSummary}
+                      />
+                    ) : leadTimelineHighlight ? (
+                      <LiveBoardTimelineHighlight
+                        item={leadTimelineHighlight}
+                        tripStyleSummary={tripStyleSummary}
+                      />
+                    ) : (
+                      <EmptyPanel message="Local highlights will appear here as soon as activities are strong enough to elevate." />
+                    )}
+                  </InfoCard>
+                </>
+              )}
             </div>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function StageOneComingSoonCard() {
+  return (
+    <section className="rounded-2xl border border-dashed border-shell-border/80 bg-[color:color-mix(in_srgb,var(--background)_76%,var(--panel))] px-6 py-8">
+      <div className="max-w-xl">
+        <p className="font-label text-[10px] font-bold uppercase tracking-[0.18em] text-foreground/42">
+          Itinerary queued
+        </p>
+        <h4 className="mt-3 text-xl font-semibold tracking-tight text-foreground">
+          The route comes first; the day-by-day plan comes next.
+        </h4>
+        <p className="mt-3 text-sm leading-7 text-foreground/60">
+          Stage 1 saves the confirmed brief, flight shape, weather context, and
+          working hotel. Meals, returns to the hotel, transfers, activities, and
+          departure rhythm will be generated after the itinerary contract is rebuilt.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function FutureStagesCard() {
+  return (
+    <InfoCard
+      icon={Clock}
+      title="Next stages"
+      subtitle="Highlights and the full itinerary are intentionally paused."
+    >
+      <div className="space-y-3">
+        {["Daily itinerary"].map((label) => (
+          <div
+            key={label}
+            className="rounded-lg border border-shell-border/70 bg-background/70 px-3 py-3"
+          >
+            <p className="text-sm font-semibold text-foreground">{label}</p>
+            <p className="mt-1 text-xs leading-5 text-foreground/50">
+              Coming after the flight, weather, and hotel board baseline is stable.
+            </p>
+          </div>
+        ))}
+      </div>
+    </InfoCard>
   );
 }
 
@@ -679,7 +772,7 @@ function BoardHero({
   tripLength,
   adults,
   childCount,
-  summary,
+  quickPlanBuildStatus,
 }: {
   destination: string | null;
   fromLocation: string | null;
@@ -689,7 +782,7 @@ function BoardHero({
   tripLength: string | null;
   adults: number | null;
   childCount: number | null;
-  summary: string;
+  quickPlanBuildStatus?: string | null;
 }) {
   return (
     <section className="overflow-hidden rounded-xl border border-shell-border/70 bg-[color:color-mix(in_srgb,var(--background)_88%,var(--panel))]">
@@ -704,7 +797,9 @@ function BoardHero({
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,29,72,0.05),rgba(0,29,72,0.44))]" />
           <div className="absolute left-5 top-5 rounded-full bg-[rgba(255,255,255,0.8)] px-3 py-1.5 backdrop-blur-md">
             <p className="font-label text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--accent)]">
-              Live destination
+              {quickPlanBuildStatus && quickPlanBuildStatus !== "complete"
+                ? "Quick Plan building"
+                : "Live destination"}
             </p>
           </div>
         </div>
@@ -731,9 +826,6 @@ function BoardHero({
                   </p>
                   <p className="mt-2.5 text-base font-semibold leading-tight text-foreground">
                     {formatRouteSummary(fromLocation, destination)}
-                  </p>
-                  <p className="mt-3 text-sm leading-relaxed text-foreground/60">
-                    {summary}
                   </p>
                 </div>
               </div>
@@ -785,29 +877,6 @@ function HeroInlineDetail({
           {value}
         </p>
       </div>
-    </div>
-  );
-}
-
-function RouteChip({
-  from,
-  to,
-}: {
-  from: string | null;
-  to: string | null;
-}) {
-  if (!from && !to) return null;
-  return (
-    <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--accent)]/20 bg-[color:var(--accent)]/6 px-3.5 py-1.5">
-      {from ? (
-        <span className="text-xs font-semibold text-[color:var(--accent)]">{from}</span>
-      ) : null}
-      {from && to ? (
-        <ArrowRight className="h-3 w-3 shrink-0 text-[color:var(--accent)]/60" />
-      ) : null}
-      {to ? (
-        <span className="text-xs font-semibold text-[color:var(--accent)]">{to}</span>
-      ) : null}
     </div>
   );
 }
@@ -915,6 +984,7 @@ function TimelineEventRow({
   item,
   itemIndex,
   dayIndex,
+  isLastInDay,
 }: {
   item: TimelineItem;
   itemIndex: number;
@@ -929,6 +999,64 @@ function TimelineEventRow({
     item.timing_source === "planner_estimate" && item.timing_note
       ? item.timing_note
       : null;
+
+  if (item.type === "transfer") {
+    return (
+      <div className="group flex items-stretch gap-0 bg-[color:var(--planner-board-soft)]/26 transition-colors hover:bg-[color:var(--planner-board-soft)]/55">
+        <div className="flex w-20 shrink-0 flex-col items-end px-4 py-3">
+          {displayTime.start ? (
+            <>
+              <span className="text-[11px] font-bold tabular-nums text-foreground/56">
+                {displayTime.start}
+              </span>
+              {displayTime.end ? (
+                <span className="mt-0.5 text-[10px] tabular-nums text-foreground/35">
+                  {displayTime.end}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span className="text-[10px] text-foreground/35">Travel</span>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col items-center px-0 py-2">
+          <div className="h-2 flex-1 border-l border-dotted border-[color:var(--accent)]/35" />
+          <div
+            className="flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--accent)]/18 bg-background"
+            style={{ color: text }}
+          >
+            <TimelineItemIcon itemType={item.type} color={text} />
+          </div>
+          <div
+            className={
+              "h-2 flex-1 border-l border-dotted border-[color:var(--accent)]/35 " +
+              (isLastInDay ? "opacity-0" : "")
+            }
+          />
+        </div>
+        <div className="min-w-0 flex-1 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold leading-snug text-foreground/68">
+              {item.title}
+            </p>
+            <span className="rounded-full bg-background px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-foreground/42">
+              {formatTimelineDuration(item) || label}
+            </span>
+          </div>
+          {item.location_label ? (
+            <p className="mt-1 text-[11px] text-foreground/42">
+              {item.location_label}
+            </p>
+          ) : null}
+          {timingNote ? (
+            <p className="mt-1 text-[11px] leading-relaxed text-foreground/42">
+              {timingNote}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="group flex items-start gap-0 transition-colors hover:bg-[color:var(--planner-board-soft)]/60">
@@ -1067,7 +1195,7 @@ function InfoCard({
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
-  subtitle: string;
+  subtitle?: string | null;
   children: React.ReactNode;
 }) {
   return (
@@ -1078,8 +1206,12 @@ function InfoCard({
           {title}
         </p>
       </div>
-      <p className="mt-3.5 text-sm leading-relaxed text-foreground/56">{subtitle}</p>
-      <div className="mt-5">{children}</div>
+      {subtitle ? (
+        <p className="mt-3.5 text-sm leading-relaxed text-foreground/56">
+          {subtitle}
+        </p>
+      ) : null}
+      <div className={subtitle ? "mt-5" : "mt-4"}>{children}</div>
     </section>
   );
 }
@@ -1421,6 +1553,27 @@ function formatTimelineTimingChip(item: TimelineItem) {
     return "confirmed";
   }
   return null;
+}
+
+function formatTimelineDuration(item: TimelineItem) {
+  if (!item.start_at || !item.end_at) {
+    return null;
+  }
+  const start = new Date(item.start_at);
+  const end = new Date(item.end_at);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return null;
+  }
+  const minutes = Math.max(
+    Math.round((end.getTime() - start.getTime()) / 60000),
+    1,
+  );
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const remainder = minutes % 60;
+    return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+  }
+  return `${minutes}m`;
 }
 
 function formatBudgetEstimateRange(
