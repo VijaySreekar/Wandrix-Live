@@ -9,6 +9,26 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Add Production Pipeline Configuration
+
+Technical Summary:
+- Added GitHub Actions CI for frontend lint/build checks, backend compile/test checks, Docker Compose validation, and Docker image build verification.
+- Added Dependabot configuration for npm, pip, GitHub Actions, and Dockerfile dependency updates.
+- Added Vercel project configuration for the frontend app.
+- Added a Render Blueprint for the backend Docker service with health checks, CI-gated auto-deploys, and pre-deploy Alembic migrations.
+- Updated the README with CI/CD and provider deployment setup notes.
+
+Plain-English Summary:
+- The live repo now has a deployment pipeline foundation: code changes are checked before deploys, dependencies are monitored, and Vercel/Render have committed configuration to build from.
+
+Files / Areas Touched:
+- `.github/workflows/ci.yml`
+- `.github/dependabot.yml`
+- `frontend/vercel.json`
+- `render.yaml`
+- `README.md`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Add GitHub Setup And Docker Run Path
 
 Technical Summary:

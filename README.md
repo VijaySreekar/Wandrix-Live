@@ -141,6 +141,25 @@ domains, point the app domain to Vercel and the API domain to Render, then set:
 For production Docker deploys, build the frontend image with the final public
 URLs because `NEXT_PUBLIC_*` values are compiled into the Next.js bundle.
 
+## CI/CD
+
+GitHub Actions runs on pull requests and pushes to `main`:
+
+- frontend lint and production build
+- backend compile checks and focused backend tests
+- Docker Compose configuration validation
+- backend and frontend Docker image build checks
+
+Dependabot is configured for frontend npm packages, backend Python packages,
+GitHub Actions, and both Dockerfiles.
+
+Provider deployment configuration:
+
+- Vercel should use `frontend/` as the project root directory.
+- Render can create the backend service from `render.yaml`.
+- Render backend auto-deploy is configured to wait for GitHub checks to pass.
+- Render runs `alembic upgrade head` as a pre-deploy command before starting the new backend instance.
+
 ## Useful Commands
 
 Frontend:

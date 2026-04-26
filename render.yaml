@@ -1,0 +1,97 @@
+services:
+  - type: web
+    name: wandrix-live-api
+    runtime: docker
+    repo: https://github.com/VijaySreekar/Wandrix-Live
+    branch: main
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    preDeployCommand: alembic upgrade head
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: CODEX_LB_BASE_URL
+        sync: false
+      - key: CODEX_LB_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.4-mini
+      - key: QUICK_PLAN_MODEL
+        value: gpt-5.5
+      - key: QUICK_PLAN_REASONING_EFFORT
+        value: medium
+      - key: QUICK_PLAN_STAGE_ONE_ONLY
+        value: "true"
+      - key: LANGSMITH_TRACING
+        value: "false"
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_PROJECT
+        value: wandrix-live
+      - key: AMADEUS_ENV
+        value: test
+      - key: AMADEUS_CLIENT_ID
+        sync: false
+      - key: AMADEUS_CLIENT_SECRET
+        sync: false
+      - key: WEATHER_PROVIDER
+        value: open-meteo
+      - key: OPEN_METEO_BASE_URL
+        value: https://api.open-meteo.com/v1
+      - key: MAP_PROVIDER
+        value: mapbox
+      - key: MAPBOX_BASE_URL
+        value: https://api.mapbox.com
+      - key: MAPBOX_ACCESS_TOKEN
+        sync: false
+      - key: ACTIVITIES_PROVIDER
+        value: ai
+      - key: POI_PROVIDER
+        value: geoapify
+      - key: GEOAPIFY_BASE_URL
+        value: https://api.geoapify.com/v2
+      - key: GEOAPIFY_API_KEY
+        sync: false
+      - key: HOTEL_PROVIDER
+        value: xotelo
+      - key: RAPIDAPI_KEY
+        sync: false
+      - key: RAPIDAPI_XOTELO_BASE_URL
+        value: https://xotelo-hotel-prices.p.rapidapi.com
+      - key: RAPIDAPI_AGODA_BASE_URL
+        value: https://agoda-com.p.rapidapi.com
+      - key: RAPIDAPI_HOTELS_COM_BASE_URL
+        value: https://hotels-com6.p.rapidapi.com
+      - key: RAPIDAPI_TRAVEL_ADVISOR_BASE_URL
+        value: https://travel-advisor.p.rapidapi.com
+      - key: EVENTS_PROVIDER
+        value: ticketmaster
+      - key: TICKETMASTER_BASE_URL
+        value: https://app.ticketmaster.com/discovery/v2
+      - key: TICKETMASTER_CONSUMER_KEY
+        sync: false
+      - key: TICKETMASTER_CONSUMER_SECRET
+        sync: false
+      - key: TRAVEL_CONTENT_PROVIDER
+        value: wikimedia
+      - key: WIKIMEDIA_TRAVEL_BASE_URL
+        value: https://api.wikimedia.org/wiki/Travel
+      - key: TRAVELPAYOUTS_BASE_URL
+        value: https://api.travelpayouts.com
+      - key: TRAVELPAYOUTS_API_TOKEN
+        sync: false
