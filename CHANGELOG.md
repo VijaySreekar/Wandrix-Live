@@ -9,6 +9,25 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Add GitHub Setup And Docker Run Path
+
+Technical Summary:
+- Rewrote the public README with setup, environment, local development, Docker, deployment, command, route, and API guidance.
+- Added Dockerfiles for the FastAPI backend and Next.js frontend.
+- Added a root Docker Compose file that runs the frontend and backend against the configured external database.
+- Added a root Docker ignore file to keep secrets, local caches, build outputs, and local agent material out of Docker build contexts.
+
+Plain-English Summary:
+- The repository is easier for reviewers to run: they can install it manually or use Docker, and the README now explains the deployment-ready environment split without exposing internal working notes.
+
+Files / Areas Touched:
+- `README.md`
+- `.dockerignore`
+- `docker-compose.yml`
+- `backend/Dockerfile`
+- `frontend/Dockerfile`
+- `CHANGELOG.md`
+
 ## 2026-04-26 - Organize Project Docs And Ignore Agent Notes
 
 Technical Summary:
