@@ -7,6 +7,7 @@ import {
   BedDouble,
   CalendarRange,
   Car,
+  CheckCircle2,
   Clock,
   CloudSun,
   Compass,
@@ -31,19 +32,24 @@ import {
   DialogTrigger,
 } from "@/components/animate-ui/components/radix/dialog";
 import {
-  FlightCard,
   HotelSummary,
   WeatherCard,
   getLiveDestinationImage,
 } from "@/components/package/trip-board-cards";
+import { FlightCard } from "@/components/package/trip-board-flight-card";
 import type { PlannerWorkspaceState } from "@/types/planner-workspace";
 import type { PlannerBoardActionIntent } from "@/types/planner-board";
 import type {
   AdvancedActivityCandidateCard,
   AdvancedFlightOptionCard,
   PlannerConflictRecord,
+  QuickPlanIntelligenceSummary,
 } from "@/types/trip-conversation";
-import type { FlightDetail, TimelineItem } from "@/types/trip-draft";
+import type {
+  FlightDetail,
+  TimelineItem,
+  TripBudgetEstimate,
+} from "@/types/trip-draft";
 
 type TripLiveBoardProps = {
   workspace: PlannerWorkspaceState;
@@ -63,6 +69,7 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
     flightPlanning?.selection_status === "completed"
       ? toFlightDetail(flightPlanning.selected_return_flight)
       : null;
+  const hasSelectedFlights = flightPlanning?.selection_status === "completed";
   const outboundFlight =
     selectedOutboundFlight ??
     moduleOutputs.flights.find((flight) => flight.direction === "outbound");
@@ -104,19 +111,45 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
     ) ??
     activityPlanning.visible_candidates[0] ??
     null;
-  const weather = moduleOutputs.weather.slice(0, 3);
+  const tripDayCount = getTripDayCount(configuration.start_date, configuration.end_date);
+  const weather = moduleOutputs.weather.slice(0, Math.min(Math.max(tripDayCount, 3), 7));
+  const budgetEstimate =
+    conversation.planning_mode === "quick" ? tripDraft.budget_estimate ?? null : null;
   const weatherPlanning = conversation.weather_planning ?? null;
   const plannerConflicts = (conversation.planner_conflicts ?? []).filter(
     (conflict) => (conflict.status ?? "open") !== "resolved",
   );
+  const visibleTimeline = useMemo(
+    () =>
+      buildVisibleTimeline(tripDraft.timeline, {
+        showQuickPlanLogistics: conversation.planning_mode === "quick",
+        showProviderFlights: hasSelectedFlights,
+      }),
+    [tripDraft.timeline, conversation.planning_mode, hasSelectedFlights],
+  );
+  const quickPlanIntelligenceSummary =
+    conversation.planning_mode === "quick" &&
+    conversation.quick_plan_finalization?.accepted === true
+      ? conversation.quick_plan_finalization.intelligence_summary
+      : null;
+  const dayArchitectureHighlights = useMemo(
+    () => quickPlanIntelligenceSummary?.day_architecture_highlights ?? [],
+    [quickPlanIntelligenceSummary],
+  );
   const timelineSections = useMemo(
-    () => buildTimelineSections(tripDraft.timeline),
-    [tripDraft.timeline],
+    () => buildTimelineSections(visibleTimeline, dayArchitectureHighlights),
+    [visibleTimeline, dayArchitectureHighlights],
+  );
+  const leadTimelineHighlight = useMemo(
+    () => findLeadTimelineHighlight(visibleTimeline),
+    [visibleTimeline],
   );
   const isFinalized = tripDraft.status.confirmation_status === "finalized";
+  const quickPlanBrochureEligible =
+    conversation.quick_plan_finalization?.brochure_eligible === true;
   const canConfirmPlan =
     conversation.planning_mode === "quick" &&
-    tripDraft.timeline.length > 0 &&
+    quickPlanBrochureEligible &&
     !isFinalized;
 
   return (
@@ -127,6 +160,8 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
           fromLocation={configuration.from_location}
           startDate={configuration.start_date}
           endDate={configuration.end_date}
+          travelWindow={configuration.travel_window}
+          tripLength={configuration.trip_length}
           adults={configuration.travelers.adults}
           childCount={configuration.travelers.children}
           summary={
@@ -151,6 +186,7 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
             })
           }
         />
+        <QuickPlanExplainabilityPanel summary={quickPlanIntelligenceSummary} />
 
         <div className="space-y-6">
           {/* Itinerary header row */}
@@ -160,8 +196,8 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
                 Itinerary
               </h3>
               <p className="mt-1.5 text-sm leading-relaxed text-foreground/55">
-                {tripDraft.timeline.length > 0
-                  ? `${timelineSections.length} day${timelineSections.length === 1 ? "" : "s"} · ${tripDraft.timeline.length} event${tripDraft.timeline.length === 1 ? "" : "s"} planned`
+                {visibleTimeline.length > 0
+                  ? `${timelineSections.length} day${timelineSections.length === 1 ? "" : "s"} · ${visibleTimeline.length} item${visibleTimeline.length === 1 ? "" : "s"} planned`
                   : "Keep refining in chat — the timeline fills in here automatically."}
               </p>
             </div>
@@ -202,7 +238,11 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
                   <LiveBoardConflictList conflicts={plannerConflicts} />
                 </InfoCard>
               ) : null}
-              <FlightCard flight={outboundFlight} returnFlight={returnFlight} />
+              <FlightCard
+                flight={outboundFlight}
+                returnFlight={returnFlight}
+                mode={hasSelectedFlights ? "selected" : "candidate"}
+              />
               {flightPlanningSummary ? (
                 <InfoCard
                   icon={Plane}
@@ -236,13 +276,31 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
                 summary={weatherPlanning?.workspace_summary}
                 influenceNotes={weatherPlanning?.activity_influence_notes}
               />
+              {budgetEstimate ? (
+                <InfoCard
+                  icon={Sparkles}
+                  title="Estimated budget"
+                  subtitle="Directional trip spend, separate from your stated budget"
+                >
+                  <BudgetEstimateSummary estimate={budgetEstimate} />
+                </InfoCard>
+              ) : null}
               <InfoCard
                 icon={BedDouble}
                 title="Stay details"
                 subtitle={stay ? "Current stay direction" : "Hotel still open"}
               >
                 {stay ? (
-                  <HotelSummary hotel={stay} destination={configuration.to_location} />
+                  <HotelSummary
+                    hotel={stay}
+                    destination={configuration.to_location}
+                    fallbackStayWindow={formatCompactDateRange(
+                      configuration.start_date,
+                      configuration.end_date,
+                      configuration.travel_window,
+                      configuration.trip_length,
+                    )}
+                  />
                 ) : (
                   <EmptyPanel message="Hotel recommendations will settle here once Wandrix has enough destination and pacing context." />
                 )}
@@ -251,16 +309,23 @@ export function TripLiveBoard({ workspace, onAction }: TripLiveBoardProps) {
               <InfoCard
                 icon={MapPinned}
                 title="Highlights"
-                subtitle={
-                  leadActivityCandidate
-                    ? activityPlanning.schedule_summary || "Current standout recommendation"
-                    : "Destination highlights still forming"
-                }
+	                subtitle={
+	                  leadActivityCandidate
+	                    ? activityPlanning.schedule_summary || "Current standout recommendation"
+	                    : leadTimelineHighlight
+	                      ? "Pulled from the current draft itinerary"
+	                      : "Destination highlights still forming"
+	                }
               >
                 {leadActivityCandidate ? (
                   <LiveBoardActivityHighlight
                     candidate={leadActivityCandidate}
                     workspaceSummary={activityPlanning.workspace_summary}
+                    tripStyleSummary={tripStyleSummary}
+                  />
+                ) : leadTimelineHighlight ? (
+                  <LiveBoardTimelineHighlight
+                    item={leadTimelineHighlight}
                     tripStyleSummary={tripStyleSummary}
                   />
                 ) : (
@@ -292,13 +357,112 @@ function toFlightDetail(
     arrival_time: option.arrival_time ?? null,
     duration_text: option.duration_text ?? null,
     price_text: option.price_text ?? null,
+    fare_amount: option.fare_amount ?? null,
+    fare_currency: option.fare_currency ?? null,
     stop_count: option.stop_count ?? null,
+    stop_details_available: option.stop_details_available ?? null,
     layover_summary: option.layover_summary ?? null,
     legs: option.legs ?? [],
     timing_quality: option.timing_quality ?? null,
     inventory_notice: option.inventory_notice ?? null,
+    inventory_source: option.inventory_source ?? null,
     notes: [option.summary, ...option.tradeoffs].filter(Boolean),
   };
+}
+
+function buildVisibleTimeline(
+  timeline: TimelineItem[],
+  {
+    showQuickPlanLogistics,
+    showProviderFlights,
+  }: {
+    showQuickPlanLogistics: boolean;
+    showProviderFlights: boolean;
+}) {
+  return timeline
+    .filter(
+      (item) =>
+        showQuickPlanLogistics ||
+        !(item.source_module === "hotels" && item.type === "hotel"),
+    )
+    .filter((item) => !(item.source_module === "weather" || item.type === "weather"))
+    .filter(
+      (item) =>
+        showQuickPlanLogistics ||
+        showProviderFlights ||
+        !(item.source_module === "flights" && item.type === "flight"),
+    )
+    .map(normalizeTimelineItemForBoard);
+}
+
+function normalizeTimelineItemForBoard(item: TimelineItem): TimelineItem {
+  const details = sanitizeTimelineDetails(item.details);
+  if (item.type === "flight" && item.source_module !== "flights") {
+    return {
+      ...item,
+      type: "transfer",
+      details:
+        details.length > 0
+          ? details
+          : ["Flight option still needs selection before exact timings are final."],
+    };
+  }
+
+  return {
+    ...item,
+    details,
+  };
+}
+
+function findLeadTimelineHighlight(timeline: TimelineItem[]) {
+  return (
+    timeline.find((item) => item.type === "event" && Boolean(item.start_at)) ??
+    timeline.find((item) => item.type === "activity") ??
+    timeline.find((item) => item.type === "meal") ??
+    null
+  );
+}
+
+function BudgetEstimateSummary({ estimate }: { estimate: TripBudgetEstimate }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-[color:var(--accent)]/16 bg-[color:color-mix(in_srgb,var(--accent)_7%,var(--background))] px-4 py-4">
+        <p className="font-label text-[10px] font-bold uppercase tracking-[0.16em] text-foreground/45">
+          Estimated total
+        </p>
+        <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
+          {formatBudgetEstimateRange(
+            estimate.total_low_amount,
+            estimate.total_high_amount,
+            estimate.currency,
+          )}
+        </p>
+      </div>
+      <div className="grid gap-2">
+        {estimate.categories.map((category) => (
+          <div
+            key={category.category}
+            className="flex items-center justify-between gap-3 rounded-lg border border-shell-border/70 bg-background px-3 py-2.5"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">{category.label}</p>
+              <p className="mt-0.5 text-[11px] text-foreground/46">
+                {formatBudgetEstimateSource(category.source)}
+              </p>
+            </div>
+            <p className="shrink-0 text-sm font-semibold text-foreground/72">
+              {formatBudgetEstimateRange(
+                category.low_amount,
+                category.high_amount,
+                category.currency,
+              )}
+            </p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] leading-5 text-foreground/48">{estimate.caveat}</p>
+    </div>
+  );
 }
 
 function PlanConfirmationPanel({
@@ -319,17 +483,22 @@ function PlanConfirmationPanel({
   }
 
   return (
-    <section className="rounded-xl border border-shell-border/80 bg-background">
+    <section className="rounded-2xl border border-[color:var(--accent)]/16 bg-[color:color-mix(in_srgb,var(--accent)_7%,var(--background))] shadow-[0_1px_8px_rgba(0,0,0,0.03)]">
       <div className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color:var(--accent)]/10 text-[color:var(--accent)]">
+            <CheckCircle2 className="h-4.5 w-4.5" />
+          </div>
+          <div className="min-w-0 space-y-1">
           <p className="text-sm font-semibold text-foreground">
-            {isFinalized ? "Trip plan finalized" : "Ready to lock this quick plan?"}
+            {isFinalized ? "Trip plan finalized" : "Ready to save this quick plan?"}
           </p>
           <p className="text-sm leading-6 text-foreground/62">
             {isFinalized
-              ? `This version is saved as the brochure-ready trip in Saved Trips${finalizedAt ? ` since ${formatBoardDate(finalizedAt)}` : ""}. Reopen planning if you want to make changes.`
-              : "Confirming this will finalize the current trip plan, save the brochure-ready version in Saved Trips, and keep it ready for download there."}
+              ? `This version is saved as the brochure-ready trip${finalizedAt ? ` since ${formatBoardDate(finalizedAt)}` : ""}. Reopen planning here in chat if you want to make changes.`
+              : "Confirming this will lock the current draft, save the brochure-ready version, and open the saved trip view for a calmer review."}
           </p>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isFinalized ? (
@@ -339,13 +508,18 @@ function PlanConfirmationPanel({
           ) : (
             <Dialog>
               <DialogTrigger asChild>
-                <Button type="button">Confirm plan</Button>
+                <Button
+                  type="button"
+                  className="bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent)]/90"
+                >
+                  Confirm and view
+                </Button>
               </DialogTrigger>
               <DialogContent className="max-w-md">
                 <DialogHeader>
-                  <DialogTitle>Finalize this quick plan?</DialogTitle>
+                  <DialogTitle>Save this quick plan?</DialogTitle>
                   <DialogDescription>
-                    This will finalize the current trip plan, generate the brochure-ready version, and save it in Saved Trips where you can open it and download the brochure later.
+                    This will finalize the current trip plan, generate the brochure-ready version, and open the saved trip view. You can return to this chat history and reopen planning here later.
                   </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
@@ -369,11 +543,140 @@ function PlanConfirmationPanel({
   );
 }
 
+function QuickPlanExplainabilityPanel({
+  summary,
+}: {
+  summary: QuickPlanIntelligenceSummary | null | undefined;
+}) {
+  if (!summary) {
+    return null;
+  }
+
+  const planFitChips = [
+    ...(summary.plan_fit?.user_intent ?? []),
+    ...(summary.plan_fit?.pacing_rules ?? []).slice(0, 2),
+  ].slice(0, 5);
+  const acceptedModules = summary.accepted_module_scope ?? [];
+  const excludedModules = summary.excluded_modules ?? [];
+  const dayHighlights = summary.day_architecture_highlights ?? [];
+  const providerNotes = summary.provider_confidence_notes ?? [];
+  const assumptionNotes = summary.assumption_notes ?? [];
+  const timingConfidence = summary.timing_confidence;
+  const reviewOutcome = summary.review_outcome;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[color:var(--accent)]/14 bg-[color:color-mix(in_srgb,var(--accent)_5%,var(--background))] shadow-[0_1px_8px_rgba(0,0,0,0.03)]">
+      <div className="grid gap-0 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="border-b border-[color:var(--accent)]/10 px-5 py-5 lg:border-b-0 lg:border-r">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--accent)]/10 text-[color:var(--accent)]">
+              <Sparkles className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <p className="font-label text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--accent)]/75">
+                Why this plan works
+              </p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-foreground">
+                {summary.plan_rationale ||
+                  "This Quick Plan passed private completeness and quality review before it reached the board."}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {planFitChips.map((chip) => (
+              <span
+                key={chip}
+                className="rounded-full border border-[color:var(--accent)]/14 bg-background px-3 py-1 text-[11px] font-semibold text-foreground/62"
+              >
+                {chip}
+              </span>
+            ))}
+            {acceptedModules.map((module) => (
+              <span
+                key={module}
+                className="rounded-full bg-[color:var(--accent)] px-3 py-1 text-[11px] font-bold text-white"
+              >
+                {formatModuleLabel(module)}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 px-5 py-5 md:grid-cols-2">
+          <QuickPlanInsightBlock
+            title="Logistics confidence"
+            rows={[
+              ...providerNotes.slice(0, 3),
+              formatTimingConfidence(timingConfidence),
+            ].filter(Boolean)}
+          />
+          <QuickPlanInsightBlock
+            title="Assumptions"
+            rows={[
+              ...assumptionNotes.slice(0, 3),
+              ...excludedModules
+                .slice(0, 3)
+                .map((item) => `${formatModuleLabel(item.module)}: ${item.reason}`),
+            ]}
+            emptyText="No major assumptions are exposed for this accepted plan."
+          />
+          <QuickPlanInsightBlock
+            title="Day architecture"
+            rows={dayHighlights
+              .slice(0, 3)
+              .map((day) =>
+                [day.day_label, day.theme, day.geography_focus]
+                  .filter(Boolean)
+                  .join(" · "),
+              )}
+            emptyText="Day themes are not available on this older draft."
+          />
+          <QuickPlanInsightBlock
+            title="Review outcome"
+            rows={[
+              `Completeness: ${formatReviewStatus(reviewOutcome?.completeness_status)}`,
+              `Quality: ${formatReviewStatus(reviewOutcome?.quality_status)}`,
+            ]}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function QuickPlanInsightBlock({
+  title,
+  rows,
+  emptyText = "No notes available.",
+}: {
+  title: string;
+  rows: string[];
+  emptyText?: string;
+}) {
+  const visibleRows = rows.filter(Boolean);
+  return (
+    <div className="rounded-xl border border-shell-border/70 bg-background px-4 py-3.5">
+      <p className="font-label text-[10px] font-bold uppercase tracking-[0.16em] text-foreground/42">
+        {title}
+      </p>
+      <div className="mt-2 space-y-1.5">
+        {(visibleRows.length ? visibleRows : [emptyText]).map((row) => (
+          <p key={row} className="text-xs leading-5 text-foreground/60">
+            {row}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BoardHero({
   destination,
   fromLocation,
   startDate,
   endDate,
+  travelWindow,
+  tripLength,
   adults,
   childCount,
   summary,
@@ -382,6 +685,8 @@ function BoardHero({
   fromLocation: string | null;
   startDate: string | null;
   endDate: string | null;
+  travelWindow: string | null;
+  tripLength: string | null;
   adults: number | null;
   childCount: number | null;
   summary: string;
@@ -407,7 +712,7 @@ function BoardHero({
         <div className="flex flex-col justify-between gap-6 px-6 py-6 md:px-7 md:py-7">
           <div>
             <p className="font-label text-[10px] uppercase tracking-[0.2em] text-foreground/48">
-              Upcoming trip - {formatTripLength(startDate, endDate)}
+              Upcoming trip - {formatTripLength(startDate, endDate, tripLength)}
             </p>
             <h2 className="mt-4 text-[2rem] font-semibold tracking-tight text-foreground md:text-[2.35rem]">
               {destination || "Your next destination"}
@@ -438,12 +743,12 @@ function BoardHero({
               <HeroInlineDetail
                 icon={CalendarRange}
                 label="Travel window"
-                value={formatCompactDateRange(
-                  startDate,
-                  endDate,
-                  null,
-                  null,
-                )}
+	                value={formatCompactDateRange(
+	                  startDate,
+	                  endDate,
+	                  travelWindow,
+	                  tripLength,
+	                )}
               />
               <HeroInlineDetail
                 icon={UsersRound}
@@ -585,7 +890,7 @@ function TimelineDaySection({
             </span>
           )}
           <span className="text-xs text-foreground/40">
-            {section.items.length} event{section.items.length === 1 ? "" : "s"}
+            {section.items.length} item{section.items.length === 1 ? "" : "s"}
           </span>
         </div>
       </div>
@@ -596,6 +901,8 @@ function TimelineDaySection({
           <TimelineEventRow
             key={item.id}
             item={item}
+            itemIndex={itemIndex}
+            dayIndex={dayIndex}
             isLastInDay={itemIndex === section.items.length - 1}
           />
         ))}
@@ -606,31 +913,42 @@ function TimelineDaySection({
 
 function TimelineEventRow({
   item,
+  itemIndex,
+  dayIndex,
 }: {
   item: TimelineItem;
+  itemIndex: number;
+  dayIndex: number;
   isLastInDay: boolean;
 }) {
   const { bg, text, label } = getItemTypeStyle(item.type);
+  const details = sanitizeTimelineDetails(item.details);
+  const displayTime = getTimelineDisplayTime(item, itemIndex, dayIndex);
+  const timingChip = formatTimelineTimingChip(item);
+  const timingNote =
+    item.timing_source === "planner_estimate" && item.timing_note
+      ? item.timing_note
+      : null;
 
   return (
     <div className="group flex items-start gap-0 transition-colors hover:bg-[color:var(--planner-board-soft)]/60">
       {/* Time column */}
       <div className="flex w-20 shrink-0 flex-col items-end px-4 py-4 pt-[1.125rem]">
-        {item.start_at ? (
+        {displayTime.start ? (
           <>
             <span className="text-xs font-bold tabular-nums text-[color:var(--accent)]">
-              {formatTime(item.start_at)}
+              {displayTime.start}
             </span>
-            {item.end_at ? (
+            {displayTime.end ? (
               <span className="mt-0.5 text-[10px] tabular-nums text-foreground/40">
-                {formatTime(item.end_at)}
+                {displayTime.end}
               </span>
             ) : null}
           </>
         ) : (
           <span className="flex items-center gap-1 text-[10px] text-foreground/35">
             <Clock className="h-2.5 w-2.5" />
-            TBD
+            Needs timing
           </span>
         )}
       </div>
@@ -657,6 +975,11 @@ function TimelineEventRow({
           >
             {label}
           </span>
+          {timingChip ? (
+            <span className="mt-0.5 shrink-0 rounded-full bg-[color:var(--planner-board-soft)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-foreground/45">
+              {timingChip}
+            </span>
+          ) : null}
         </div>
 
         {item.type === "event" && item.image_url ? (
@@ -679,9 +1002,15 @@ function TimelineEventRow({
           </div>
         ) : null}
 
-        {item.details[0] ? (
+        {details[0] ? (
           <p className="mt-1.5 text-xs leading-relaxed text-foreground/55">
-            {item.details[0]}
+            {details[0]}
+          </p>
+        ) : null}
+
+        {timingNote ? (
+          <p className="mt-1.5 text-[11px] leading-relaxed text-foreground/42">
+            {timingNote}
           </p>
         ) : null}
 
@@ -700,9 +1029,9 @@ function TimelineEventRow({
           </div>
         ) : null}
 
-        {item.details.length > 1 ? (
+        {details.length > 1 ? (
           <ul className="mt-2 space-y-1">
-            {item.details.slice(1, 3).map((detail) => (
+            {details.slice(1, 3).map((detail) => (
               <li
                 key={detail}
                 className="flex items-start gap-1.5 text-xs leading-relaxed text-foreground/45"
@@ -806,7 +1135,7 @@ function LiveBoardActivityHighlight({
         hour: "numeric",
         minute: "2-digit",
       })
-    : candidate.time_label || "Flexible timing";
+    : candidate.time_label || "Needs timing";
 
   return (
     <div className="overflow-hidden rounded-xl bg-background">
@@ -864,6 +1193,52 @@ function LiveBoardActivityHighlight({
   );
 }
 
+function LiveBoardTimelineHighlight({
+  item,
+  tripStyleSummary,
+}: {
+  item: TimelineItem;
+  tripStyleSummary?: string | null;
+}) {
+  const details = sanitizeTimelineDetails(item.details);
+  const placementLabel =
+    item.start_at ? formatBoardDate(item.start_at) : item.day_label || "Needs timing";
+
+  return (
+    <div className="overflow-hidden rounded-xl bg-background">
+      <div className="border-b border-shell-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent)_16%,white),color-mix(in_srgb,var(--accent2)_10%,white))] px-4 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-lg font-semibold text-foreground">{item.title}</p>
+            <p className="mt-1 text-sm text-foreground/58">
+              {[getItemTypeStyle(item.type).label, placementLabel].filter(Boolean).join(" • ")}
+            </p>
+          </div>
+          <span className="rounded-md border border-shell-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground/62">
+            Draft pick
+          </span>
+        </div>
+      </div>
+      <div className="grid gap-3 px-4 py-4">
+        {item.location_label ? (
+          <div className="flex items-center gap-2 text-sm text-foreground/58">
+            <MapPin className="h-4 w-4 shrink-0 text-[color:var(--accent)]" />
+            <span>{item.location_label}</span>
+          </div>
+        ) : null}
+        {item.summary || details[0] ? (
+          <p className="text-sm leading-7 text-foreground/66">{item.summary || details[0]}</p>
+        ) : null}
+        {tripStyleSummary ? (
+          <p className="rounded-lg border border-shell-border/70 bg-panel px-3 py-3 text-sm leading-6 text-foreground/60">
+            {tripStyleSummary}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 type TimelineItemType = TimelineItem["type"];
 
 function getItemTypeStyle(type: TimelineItemType): {
@@ -881,9 +1256,11 @@ function getItemTypeStyle(type: TimelineItemType): {
     case "weather":
       return { bg: "rgba(14,165,233,0.1)", text: "#0ea5e9", label: "Weather" };
     case "transfer":
-      return { bg: "rgba(99,102,241,0.1)", text: "#6366f1", label: "Transfer" };
+      return { bg: "rgba(99,102,241,0.1)", text: "#6366f1", label: "Travel" };
     case "activity":
       return { bg: "rgba(236,72,153,0.1)", text: "#ec4899", label: "Activity" };
+    case "note":
+      return { bg: "rgba(100,116,139,0.1)", text: "#64748b", label: "Note" };
     default:
       return { bg: "rgba(100,116,139,0.1)", text: "#64748b", label: "Event" };
   }
@@ -914,7 +1291,221 @@ function TimelineItemIcon({
   return <Icon className="h-4 w-4" style={{ color: color ?? "var(--accent)" }} />;
 }
 
-function buildTimelineSections(timeline: TimelineItem[]) {
+function sanitizeTimelineDetails(details: string[]) {
+  return details
+    .filter((detail) => !isProviderSourceDetail(detail))
+    .map(cleanTimelineDetail)
+    .filter(Boolean);
+}
+
+function isProviderSourceDetail(detail: string) {
+  const normalized = detail.trim().toLowerCase();
+  return (
+    normalized.startsWith("tripadvisor:")
+    || normalized.startsWith("source:")
+    || normalized.includes("rapidapi")
+    || normalized.includes("cached hotel search result")
+    || normalized.includes("cached inventory snapshot")
+  );
+}
+
+function cleanTimelineDetail(detail: string) {
+  const trimmed = detail.trim();
+  const prefixes = ["Cached fare snapshot:", "Live fare snapshot:"];
+  for (const prefix of prefixes) {
+    if (trimmed.startsWith(prefix)) {
+      return `Estimated fare: ${trimmed.slice(prefix.length).trim()}.`;
+    }
+  }
+  return trimmed;
+}
+
+function shouldShowTimelineEndTime(item: TimelineItem) {
+  if (!item.start_at || !item.end_at || item.type === "hotel") {
+    return false;
+  }
+
+  const start = new Date(item.start_at);
+  const end = new Date(item.end_at);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return true;
+  }
+
+  return start.toDateString() === end.toDateString();
+}
+
+function getTimelineDisplayTime(
+  item: TimelineItem,
+  itemIndex: number,
+  dayIndex: number,
+) {
+  if (item.start_at) {
+    return {
+      start: formatTime(item.start_at),
+      end:
+        item.end_at && shouldShowTimelineEndTime(item)
+          ? formatTime(item.end_at)
+          : null,
+    };
+  }
+
+  if (item.timing_source !== "planner_estimate") {
+    return { start: null, end: null };
+  }
+
+  const fallback = getFallbackTimelineClock(item, itemIndex, dayIndex);
+  return fallback
+    ? {
+        start: fallback.start,
+        end: fallback.end,
+      }
+    : { start: null, end: null };
+}
+
+function getFallbackTimelineClock(
+  item: TimelineItem,
+  itemIndex: number,
+  dayIndex: number,
+) {
+  const slots =
+    item.type === "meal"
+      ? [
+          ["08:30", "09:30"],
+          ["12:30", "13:30"],
+          ["19:30", "21:00"],
+        ]
+      : item.type === "transfer"
+        ? [
+            ["09:15", "09:45"],
+            ["13:45", "14:15"],
+            ["18:00", "18:30"],
+            ["21:00", "21:25"],
+          ]
+        : item.type === "hotel"
+          ? [["15:30", "16:15"]]
+          : item.type === "event"
+            ? [
+                ["09:30", "12:30"],
+                ["14:00", "17:00"],
+                ["19:00", "21:00"],
+              ]
+            : item.type === "note"
+              ? [
+                  ["09:00", "09:30"],
+                  ["16:30", "17:00"],
+                  ["20:30", "21:00"],
+                ]
+              : dayIndex === 0
+                ? [
+                    ["17:00", "19:00"],
+                    ["19:30", "21:00"],
+                  ]
+                : [
+                    ["09:30", "12:30"],
+                    ["13:30", "16:00"],
+                    ["16:30", "18:30"],
+                    ["19:30", "21:00"],
+                  ];
+
+  return {
+    start: slots[Math.min(itemIndex, slots.length - 1)][0],
+    end: slots[Math.min(itemIndex, slots.length - 1)][1],
+  };
+}
+
+function formatTimelineTimingChip(item: TimelineItem) {
+  if (item.timing_source === "planner_estimate") {
+    return "estimated";
+  }
+  if (item.timing_source === "user_confirmed") {
+    return "confirmed";
+  }
+  return null;
+}
+
+function formatBudgetEstimateRange(
+  lowAmount: number | null,
+  highAmount: number | null,
+  currency: string | null,
+) {
+  if (lowAmount === null || highAmount === null || !currency) {
+    return "Not priced";
+  }
+
+  if (Math.round(lowAmount) === Math.round(highAmount)) {
+    return formatBudgetEstimateAmount(lowAmount, currency);
+  }
+
+  return `${formatBudgetEstimateAmount(lowAmount, currency)} - ${formatBudgetEstimateAmount(
+    highAmount,
+    currency,
+  )}`;
+}
+
+function formatBudgetEstimateAmount(amount: number, currency: string) {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function formatBudgetEstimateSource(source: TripBudgetEstimate["categories"][number]["source"]) {
+  if (source === "provider_price") {
+    return "Provider price";
+  }
+  if (source === "planner_estimate") {
+    return "Planner estimate";
+  }
+  return "Unavailable";
+}
+
+function formatModuleLabel(module: string) {
+  if (module === "hotels") {
+    return "Stays";
+  }
+  return module.charAt(0).toUpperCase() + module.slice(1);
+}
+
+function formatReviewStatus(status: string | null | undefined) {
+  if (!status) {
+    return "Not available";
+  }
+  return status.replace(/_/g, " ");
+}
+
+function formatTimingConfidence(
+  timingConfidence: QuickPlanIntelligenceSummary["timing_confidence"] | undefined,
+) {
+  if (!timingConfidence) {
+    return "";
+  }
+  const providerExactCount = timingConfidence.provider_exact_count ?? 0;
+  const plannerEstimateCount = timingConfidence.planner_estimate_count ?? 0;
+  if (providerExactCount && plannerEstimateCount) {
+    return `${providerExactCount} provider-timed rows, ${plannerEstimateCount} planner-estimated rows.`;
+  }
+  if (providerExactCount) {
+    return `${providerExactCount} rows use exact provider timing.`;
+  }
+  if (plannerEstimateCount) {
+    return `${plannerEstimateCount} rows use planner-estimated timing.`;
+  }
+  return "";
+}
+
+function buildTimelineSections(
+  timeline: TimelineItem[],
+  dayArchitectureHighlights: NonNullable<
+    QuickPlanIntelligenceSummary["day_architecture_highlights"]
+  > = [],
+) {
+  const dayHighlightByLabel = new Map(
+    dayArchitectureHighlights
+      .filter((day) => day.day_label)
+      .map((day) => [day.day_label as string, day]),
+  );
+  const orderedTimeline = [...timeline].sort(compareTimelineItems);
   const sections = new Map<
     string,
     {
@@ -925,7 +1516,7 @@ function buildTimelineSections(timeline: TimelineItem[]) {
     }
   >();
 
-  timeline.forEach((item, index) => {
+  orderedTimeline.forEach((item, index) => {
     const dayLabel = item.day_label || `Day ${index + 1}`;
     const existingSection = sections.get(dayLabel);
 
@@ -937,17 +1528,66 @@ function buildTimelineSections(timeline: TimelineItem[]) {
     sections.set(dayLabel, {
       id: `${dayLabel}-${index}`,
       dayLabel,
-      summary: item.summary || item.location_label || item.title,
+      summary:
+        dayHighlightByLabel.get(dayLabel)?.theme ||
+        item.summary ||
+        item.location_label ||
+        item.title,
       items: [item],
     });
   });
 
-  return Array.from(sections.values());
+  return Array.from(sections.values()).sort((first, second) =>
+    compareDayLabels(first.dayLabel, second.dayLabel),
+  );
 }
 
-function formatTripLength(startDate: string | null, endDate: string | null) {
+function compareTimelineItems(first: TimelineItem, second: TimelineItem) {
+  return (
+    compareDayLabels(first.day_label, second.day_label)
+    || compareTimelineTime(first.start_at, second.start_at)
+    || first.title.localeCompare(second.title)
+  );
+}
+
+function compareDayLabels(first: string | null, second: string | null) {
+  return getDayLabelIndex(first) - getDayLabelIndex(second);
+}
+
+function getDayLabelIndex(dayLabel: string | null) {
+  if (!dayLabel) {
+    return 999;
+  }
+
+  const match = dayLabel.match(/\bday\s*(\d+)\b/i);
+  if (!match) {
+    return 999;
+  }
+
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : 999;
+}
+
+function compareTimelineTime(first: string | null, second: string | null) {
+  return parseTimelineTime(first) - parseTimelineTime(second);
+}
+
+function parseTimelineTime(value: string | null) {
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed;
+}
+
+function formatTripLength(
+  startDate: string | null,
+  endDate: string | null,
+  tripLength?: string | null,
+) {
   if (!startDate || !endDate) {
-    return "open timing";
+    return tripLength || "open timing";
   }
 
   const start = new Date(startDate);
@@ -962,6 +1602,23 @@ function formatTripLength(startDate: string | null, endDate: string | null) {
   );
 
   return `${differenceInDays} days`;
+}
+
+function getTripDayCount(startDate: string | null, endDate: string | null) {
+  if (!startDate || !endDate) {
+    return 3;
+  }
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return 3;
+  }
+
+  return Math.max(
+    1,
+    Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1,
+  );
 }
 
 function formatRouteSummary(
@@ -996,7 +1653,7 @@ function formatCompactDateRange(
   tripLength: string | null,
 ) {
   if (!startDate && !endDate) {
-    return [travelWindow, tripLength].filter(Boolean).join(" - ") || "TBD";
+    return [travelWindow, tripLength].filter(Boolean).join(" - ") || "Timing open";
   }
 
   if (!startDate || !endDate) {
@@ -1024,7 +1681,7 @@ function formatCompactDateRange(
 
 function formatDateShort(value: string | null) {
   if (!value) {
-    return "TBD";
+    return "Timing open";
   }
 
   const parsed = new Date(value);
@@ -1041,7 +1698,7 @@ function formatDateShort(value: string | null) {
 function formatTime(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    return value || "TBD";
+    return value || "Needs timing";
   }
 
   return new Intl.DateTimeFormat("en-GB", {

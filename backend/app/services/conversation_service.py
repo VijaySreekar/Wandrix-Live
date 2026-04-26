@@ -21,6 +21,8 @@ from app.schemas.conversation import (
 from app.schemas.trip_draft import TripDraft, TripPlanningPhase
 from app.services.brochure_service import create_brochure_snapshot_for_trip
 
+LAST_TURN_SUMMARY_MAX_LENGTH = 400
+
 
 def respond_to_opening_turn(
     *,
@@ -66,18 +68,18 @@ def send_trip_message(
             detail="Trip draft was not found.",
         )
 
-    previous_draft = TripDraft.model_validate(
-        {
-            "trip_id": trip.id,
-            "thread_id": draft.thread_id,
-            "title": draft.title,
-            "configuration": draft.configuration,
-            "timeline": draft.timeline,
-            "module_outputs": draft.module_outputs,
-            "status": draft.status,
-            "conversation": draft.conversation,
-        }
+    previous_draft_payload = _build_trip_draft_payload(
+        trip_id=trip.id,
+        thread_id=draft.thread_id,
+        title=draft.title,
+        configuration=draft.configuration,
+        timeline=draft.timeline,
+        module_outputs=draft.module_outputs,
+        budget_estimate=draft.budget_estimate,
+        status=draft.status,
+        conversation=draft.conversation,
     )
+    previous_draft = TripDraft.model_validate(previous_draft_payload)
 
     graph_payload = {
         "browser_session_id": trip.browser_session_id,
@@ -100,8 +102,9 @@ def send_trip_message(
             "configuration": draft.configuration,
             "timeline": draft.timeline,
             "module_outputs": draft.module_outputs,
+            "budget_estimate": draft.budget_estimate,
             "status": draft.status,
-            "conversation": draft.conversation,
+            "conversation": previous_draft_payload["conversation"],
         },
         "metadata": {"user_id": user_id},
     }
@@ -130,21 +133,22 @@ def send_trip_message(
         configuration=updated_draft.get("configuration") or draft.configuration,
         timeline=updated_draft.get("timeline") or draft.timeline,
         module_outputs=updated_draft.get("module_outputs") or draft.module_outputs,
+        budget_estimate=updated_draft.get("budget_estimate"),
         status=updated_draft.get("status") or draft.status,
         conversation=updated_draft.get("conversation") or draft.conversation,
     )
-    next_draft = TripDraft.model_validate(
-        {
-            "trip_id": trip.id,
-            "thread_id": trip.thread_id,
-            "title": persisted_draft.title,
-            "configuration": persisted_draft.configuration,
-            "timeline": persisted_draft.timeline,
-            "module_outputs": persisted_draft.module_outputs,
-            "status": persisted_draft.status,
-            "conversation": persisted_draft.conversation,
-        }
+    next_draft_payload = _build_trip_draft_payload(
+        trip_id=trip.id,
+        thread_id=trip.thread_id,
+        title=persisted_draft.title,
+        configuration=persisted_draft.configuration,
+        timeline=persisted_draft.timeline,
+        module_outputs=persisted_draft.module_outputs,
+        budget_estimate=persisted_draft.budget_estimate,
+        status=persisted_draft.status,
+        conversation=persisted_draft.conversation,
     )
+    next_draft = TripDraft.model_validate(next_draft_payload)
 
     if _should_create_brochure_snapshot(previous_draft, next_draft):
         create_brochure_snapshot_for_trip(db, trip=trip, draft=next_draft)
@@ -172,22 +176,55 @@ def send_trip_message(
         draft_phase=phase,
         message=assistant_response,
         trip_draft=TripDraft.model_validate(
-            {
-                "trip_id": trip.id,
-                "thread_id": trip.thread_id,
-                "title": persisted_draft.title,
-                "configuration": persisted_draft.configuration,
-                "timeline": persisted_draft.timeline,
-                "module_outputs": persisted_draft.module_outputs,
-                "status": persisted_draft.status,
-                "conversation": persisted_draft.conversation,
-            }
+            next_draft_payload
         ),
     )
 
 
+def _build_trip_draft_payload(
+    *,
+    trip_id: str,
+    thread_id: str,
+    title: str,
+    configuration,
+    timeline,
+    module_outputs,
+    budget_estimate,
+    status,
+    conversation,
+) -> dict:
+    return {
+        "trip_id": trip_id,
+        "thread_id": thread_id,
+        "title": title,
+        "configuration": configuration,
+        "timeline": timeline,
+        "module_outputs": module_outputs,
+        "budget_estimate": budget_estimate,
+        "status": status,
+        "conversation": _sanitize_conversation_payload(conversation),
+    }
+
+
+def _sanitize_conversation_payload(conversation):
+    if not isinstance(conversation, dict):
+        return conversation
+    sanitized = dict(conversation)
+    summary = sanitized.get("last_turn_summary")
+    if isinstance(summary, str) and len(summary) > LAST_TURN_SUMMARY_MAX_LENGTH:
+        sanitized["last_turn_summary"] = (
+            summary[: LAST_TURN_SUMMARY_MAX_LENGTH - 1].rstrip() + "…"
+        )
+    return sanitized
+
+
 def _should_create_brochure_snapshot(previous_draft: TripDraft, next_draft: TripDraft) -> bool:
     if next_draft.status.confirmation_status != "finalized":
+        return False
+    if (
+        next_draft.conversation.planning_mode == "quick"
+        and not next_draft.conversation.quick_plan_finalization.brochure_eligible
+    ):
         return False
 
     if previous_draft.status.confirmation_status != "finalized":

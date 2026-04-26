@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { TripDetailsBoard } from "@/components/package/trip-details-board";
 import { TripLiveBoard } from "@/components/package/trip-live-board";
+import { QuickPlanLoaderBoard } from "@/components/package/quick-plan-loader";
 import { TripSuggestionBoard } from "@/components/package/trip-suggestion-board";
 import { TripTimingChoiceBoard } from "@/components/package/trip-timing-choice-board";
 import { TravelBoardSpinner } from "@/components/package/travel-board-spinner";
@@ -18,6 +19,7 @@ type TripBoardPreviewProps = {
   isBootstrapping: boolean;
   isSwitchingTrips: boolean;
   requestedTripId: string | null;
+  pendingBoardAction: PlannerBoardActionIntent | null;
   onAction: (action: PlannerBoardActionIntent) => void;
 };
 
@@ -92,6 +94,7 @@ export function TripBoardPreview({
   isBootstrapping,
   isSwitchingTrips,
   requestedTripId,
+  pendingBoardAction,
   onAction,
 }: TripBoardPreviewProps) {
   const reduceMotion = useReducedMotion();
@@ -106,6 +109,7 @@ export function TripBoardPreview({
     showInitialBoardShell,
     isBootstrapping,
     isSwitchingTrips,
+    pendingBoardAction,
     onAction,
   });
 
@@ -170,6 +174,7 @@ function buildBoardPreviewView({
   showInitialBoardShell,
   isBootstrapping,
   isSwitchingTrips,
+  pendingBoardAction,
   onAction,
 }: {
   authSnapshot: BrowserAuthSnapshot | null;
@@ -179,8 +184,17 @@ function buildBoardPreviewView({
   showInitialBoardShell: boolean;
   isBootstrapping: boolean;
   isSwitchingTrips: boolean;
+  pendingBoardAction: PlannerBoardActionIntent | null;
   onAction: (action: PlannerBoardActionIntent) => void;
 }): BoardPreviewView {
+  if (workspace && pendingBoardAction?.type === "select_quick_plan") {
+    return {
+      key: `quick-plan-loading:${workspace.trip.trip_id}:${pendingBoardAction.action_id}`,
+      direction: "forward",
+      content: <QuickPlanLoaderBoard />,
+    };
+  }
+
   if (
     workspace &&
     suggestionBoard?.mode === "timing_choice"

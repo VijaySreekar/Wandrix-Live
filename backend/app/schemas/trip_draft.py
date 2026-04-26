@@ -19,6 +19,7 @@ from app.schemas.trip_planning import (
     TimelineItem,
     TimelineItemStatus,
     TimelineItemType,
+    TripBudgetEstimate,
     TripConfiguration,
     TripModuleOutputs,
     TripModuleSelection,
@@ -48,6 +49,7 @@ class TripDraft(BaseModel):
     configuration: TripConfiguration = Field(default_factory=TripConfiguration)
     timeline: list[TimelineItem] = Field(default_factory=list)
     module_outputs: TripModuleOutputs = Field(default_factory=TripModuleOutputs)
+    budget_estimate: TripBudgetEstimate | None = None
     status: TripDraftStatus = Field(default_factory=TripDraftStatus)
     conversation: TripConversationState = Field(default_factory=TripConversationState)
 
@@ -57,5 +59,6 @@ class TripDraftUpsertRequest(BaseModel):
     configuration: TripConfiguration = Field(default_factory=TripConfiguration)
     timeline: list[TimelineItem] = Field(default_factory=list)
     module_outputs: TripModuleOutputs = Field(default_factory=TripModuleOutputs)
+    budget_estimate: TripBudgetEstimate | None = None
     status: TripDraftStatus = Field(default_factory=TripDraftStatus)
     conversation: TripConversationState = Field(default_factory=TripConversationState)

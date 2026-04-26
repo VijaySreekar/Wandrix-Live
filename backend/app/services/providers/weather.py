@@ -34,6 +34,8 @@ WMO_WEATHER_LABELS = {
 def enrich_weather_from_open_meteo(
     configuration: TripConfiguration,
     coordinates: Coordinates | None = None,
+    *,
+    timeout: float | None = None,
 ) -> list[WeatherDetail]:
     if not _can_search_weather(configuration):
         return []
@@ -52,7 +54,12 @@ def enrich_weather_from_open_meteo(
     }
     query_params.update(_weather_window_params(configuration))
 
-    with create_open_meteo_client() as client:
+    if timeout is None:
+        client_context = create_open_meteo_client()
+    else:
+        client_context = create_open_meteo_client(timeout=timeout)
+
+    with client_context as client:
         response = client.get("/forecast", params=query_params)
         response.raise_for_status()
         payload = response.json()

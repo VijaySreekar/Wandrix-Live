@@ -64,6 +64,15 @@ def build_assistant_response(
             )
         )
 
+    if confirmation_transition == "quick_plan_blocked":
+        return _sanitize_assistant_text(
+            _build_quick_plan_finalization_blocked_response(
+                configuration=configuration,
+                greeting_name=greeting_name,
+                provider_activation=provider_activation or {},
+            )
+        )
+
     if locked_without_reopen and confirmation_status == "finalized":
         return _sanitize_assistant_text(
             _build_finalized_lock_response(
@@ -92,7 +101,10 @@ def build_assistant_response(
         return _sanitize_assistant_text(
             _build_quick_plan_response(
                 configuration=configuration,
+                conversation=conversation,
+                llm_update=llm_update,
                 greeting_name=greeting_name,
+                provider_activation=provider_activation or {},
             )
         )
 
@@ -522,12 +534,23 @@ def _build_planning_mode_choice_response(
 def _build_quick_plan_response(
     *,
     configuration: TripConfiguration,
+    conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
     greeting_name: str | None,
+    provider_activation: dict,
 ) -> str:
     greeting_prefix = f"Great, {greeting_name}. " if greeting_name else "Great. "
     destination = configuration.to_location or "the trip"
+    date_line = _build_quick_plan_working_date_line(
+        configuration=configuration,
+        conversation=conversation,
+        llm_update=llm_update,
+        provider_activation=provider_activation,
+    )
     return (
         f"{greeting_prefix}I have started a Quick Plan for {destination} and built a first draft itinerary. "
+        "I picked the strongest available flight and stay anchors where provider results were available, then scheduled the days around them. "
+        f"{date_line} "
         "Treat this as a working version, not a locked final plan. "
         "You can now keep refining the flights, pacing, hotels, activities, or budget directly in chat. "
         "If you want to confirm this plan, say so here and I'll lock it down. "
@@ -1152,6 +1175,16 @@ def _format_date_window(start_date, end_date) -> str:
     return f"{start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}"
 
 
+def _format_working_window(configuration: TripConfiguration) -> str | None:
+    if configuration.start_date and configuration.end_date:
+        return _format_date_window(configuration.start_date, configuration.end_date)
+    if configuration.start_date:
+        return configuration.start_date.strftime("%d %b %Y")
+    if configuration.travel_window:
+        return configuration.travel_window
+    return None
+
+
 def _build_advanced_stay_response(
     *,
     configuration: TripConfiguration,
@@ -1318,6 +1351,44 @@ def _build_quick_plan_waiting_response(
 ) -> str:
     greeting_prefix = f"Got it, {greeting_name}. " if greeting_name else "Got it. "
     destination = configuration.to_location or "this trip"
+    attempted_quick_plan = bool(
+        provider_activation.get("quick_plan_ready")
+        and (
+            (action and action.type == "select_quick_plan")
+            or llm_update.requested_planning_mode == "quick"
+        )
+    )
+    if attempted_quick_plan:
+        review = provider_activation.get("quick_plan_review") or {}
+        quality_review = provider_activation.get("quick_plan_quality_review") or {}
+        date_line = _build_quick_plan_working_date_line(
+            configuration=configuration,
+            conversation=conversation,
+            llm_update=llm_update,
+            provider_activation=provider_activation,
+        )
+        if quality_review.get("status") in {"repairable", "fail"} and quality_review.get(
+            "assistant_summary"
+        ):
+            return f"{greeting_prefix}{quality_review['assistant_summary']}{date_line}"
+        if quality_review.get("status") in {"repairable", "fail"}:
+            return (
+                f"{greeting_prefix}I generated a Quick Plan candidate for {destination}, "
+                "but I did not show it because the private quality review found it did not meet the trip quality bar. "
+                "I kept the current board unchanged rather than showing a weak draft."
+                f"{date_line}"
+            )
+        if review.get("status") in {"incomplete", "failed"} and review.get(
+            "assistant_summary"
+        ):
+            return f"{greeting_prefix}{review['assistant_summary']}{date_line}"
+        return (
+            f"{greeting_prefix}I tried to build the Quick Plan for {destination}, "
+            "but that run did not return a usable day-by-day itinerary, so I have kept the board editable instead of pretending it is ready to save. "
+            "The brief is still intact; the next retry should produce the draft itinerary, and exact dates will make flights and stays stronger."
+            f"{date_line}"
+        )
+
     blockers = provider_activation.get("blocked_modules", {})
     blocker_text = next(
         (
@@ -1342,6 +1413,59 @@ def _build_quick_plan_waiting_response(
         action=action,
         llm_update=llm_update,
         force_quick_provider_note=True,
+    )
+
+
+def _build_quick_plan_working_date_line(
+    *,
+    configuration: TripConfiguration,
+    conversation: TripConversationState,
+    llm_update: TripTurnUpdate,
+    provider_activation: dict,
+) -> str:
+    working_window = _format_working_window(configuration)
+    if not working_window:
+        return ""
+
+    date_decision = provider_activation.get("quick_plan_working_dates") or {}
+    rationale = str(date_decision.get("rationale") or "").strip()
+    if rationale:
+        return (
+            f" I chose {working_window} as the editable working date window because {rationale.rstrip('.')}. "
+            "If that window feels off, tell me and I will rebuild around different dates."
+        )
+
+    date_source = conversation.memory.field_memory.get("start_date")
+    start_date_was_derived = any(
+        source.field == "start_date" and source.source == "assistant_derived"
+        for source in llm_update.field_sources
+    )
+    if start_date_was_derived or (date_source and date_source.source == "assistant_derived"):
+        return (
+            f" I chose {working_window} as the editable working date window so flights, stays, weather, and the day-by-day rhythm can be grounded. "
+            "If that window feels off, tell me and I will rebuild around different dates."
+        )
+    return f" I used {working_window} as the working date window."
+
+
+def _build_quick_plan_finalization_blocked_response(
+    *,
+    configuration: TripConfiguration,
+    greeting_name: str | None,
+    provider_activation: dict,
+) -> str:
+    greeting_prefix = f"Not yet, {greeting_name}. " if greeting_name else "Not yet. "
+    destination = configuration.to_location or "this trip"
+    finalization = provider_activation.get("quick_plan_finalization") or {}
+    reasons = [
+        str(reason).rstrip(".")
+        for reason in finalization.get("blocked_reasons") or []
+        if str(reason).strip()
+    ]
+    reason_text = reasons[0] if reasons else "the current Quick Plan is not brochure-eligible"
+    return (
+        f"{greeting_prefix}I did not save a brochure snapshot for {destination} because {reason_text}. "
+        "I kept the board unconfirmed and unchanged so a partial or unreviewed Quick Plan is not presented as final."
     )
 
 

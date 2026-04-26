@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { FlightCard } from "@/components/package/trip-board-cards";
+import { FlightCard } from "@/components/package/trip-board-flight-card";
 import { TripSuggestionBoard } from "@/components/package/trip-suggestion-board";
 import type {
   AdvancedFlightOptionCard,

@@ -2,7 +2,9 @@ import type {
   ActivityDetail,
   FlightDetail,
   HotelStayDetail,
+  PlanningModuleKey,
   TimelineItem,
+  TripBudgetEstimate,
   WeatherDetail,
 } from "@/types/trip-draft";
 
@@ -83,6 +85,17 @@ export type BrochureSnapshotPayload = {
   budget_text: string;
   style_tags: string[];
   module_tags: string[];
+  planning_mode?: "quick" | "advanced" | null;
+  quick_plan_module_scope?: PlanningModuleKey[];
+  quick_plan_assumptions?: Record<string, unknown>[];
+  quick_plan_review_status?: string | null;
+  quick_plan_quality_status?: string | null;
+  quick_plan_intelligence_summary?: Record<string, unknown>;
+  quick_plan_excluded_modules?: Array<{
+    module?: PlanningModuleKey | string;
+    reason?: string;
+  }>;
+  quick_plan_provider_confidence_notes?: string[];
   executive_summary: string;
   hero_image: BrochureHeroImage;
   metrics: BrochureMetric[];
@@ -101,6 +114,7 @@ export type BrochureSnapshotPayload = {
   weather: WeatherDetail[];
   highlights: ActivityDetail[];
   planning_notes: string[];
+  budget_estimate?: TripBudgetEstimate | null;
   budget_summary: BrochureBudgetSummary;
   travel_summary: BrochureTravelSummary;
   resources: BrochureResourceLink[];

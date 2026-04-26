@@ -7,6 +7,7 @@ from app.schemas.trip_planning import (
     ActivityStyle,
     BudgetPosture,
     FlightLegDetail,
+    PlanningModuleKey,
     TripModuleSelection,
 )
 
@@ -26,6 +27,7 @@ PlannerPlanningMode = Literal["quick", "advanced"]
 PlannerIntent = Literal["none", "confirm_plan", "reopen_plan"]
 PlannerConfirmationStatus = Literal["unconfirmed", "finalized"]
 PlannerFinalizedVia = Literal["chat", "board"]
+QuickPlanReviewStatus = Literal["complete", "incomplete", "failed"]
 PlannerPlanningModeStatus = Literal[
     "not_selected",
     "selected",
@@ -408,11 +410,15 @@ class AdvancedFlightOptionCard(BaseModel):
     arrival_time: datetime | None = None
     duration_text: str | None = Field(default=None, max_length=80)
     price_text: str | None = Field(default=None, max_length=80)
+    fare_amount: float | None = Field(default=None, ge=0)
+    fare_currency: str | None = Field(default=None, min_length=3, max_length=3)
     stop_count: int | None = Field(default=None, ge=0, le=8)
+    stop_details_available: bool | None = None
     layover_summary: str | None = Field(default=None, max_length=200)
     legs: list[FlightLegDetail] = Field(default_factory=list, max_length=8)
     timing_quality: str | None = Field(default=None, max_length=120)
     inventory_notice: str | None = Field(default=None, max_length=200)
+    inventory_source: Literal["live", "cached", "placeholder"] | None = None
     summary: str = Field(..., min_length=1, max_length=240)
     tradeoffs: list[str] = Field(default_factory=list, max_length=4)
     source_kind: PlannerFlightOptionSource = "provider"
@@ -1056,6 +1062,19 @@ class TripConversationMemory(BaseModel):
     turn_summaries: list[ConversationTurnSummary] = Field(default_factory=list)
 
 
+class QuickPlanFinalizationState(BaseModel):
+    accepted: bool = False
+    review_status: QuickPlanReviewStatus | None = None
+    quality_status: str | None = None
+    brochure_eligible: bool = False
+    accepted_modules: list[PlanningModuleKey] = Field(default_factory=list)
+    assumptions: list[dict[str, Any]] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list, max_length=8)
+    review_result: dict[str, Any] = Field(default_factory=dict)
+    quality_result: dict[str, Any] = Field(default_factory=dict)
+    intelligence_summary: dict[str, Any] = Field(default_factory=dict)
+
+
 class TripConversationState(BaseModel):
     phase: ChatPlannerPhase = "opening"
     planning_mode: PlannerPlanningMode | None = None
@@ -1072,6 +1091,9 @@ class TripConversationState(BaseModel):
     planner_conflicts: list[PlannerConflictRecord] = Field(
         default_factory=list,
         max_length=8,
+    )
+    quick_plan_finalization: QuickPlanFinalizationState = Field(
+        default_factory=QuickPlanFinalizationState
     )
     advanced_date_resolution: AdvancedDateResolutionState = Field(
         default_factory=AdvancedDateResolutionState

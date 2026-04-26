@@ -24,6 +24,8 @@ class Settings:
     codex_lb_base_url: str
     codex_lb_api_key: str
     openai_model: str
+    quick_plan_model: str
+    quick_plan_reasoning_effort: str
     langsmith_tracing: bool
     langsmith_api_key: str | None
     langsmith_project: str
@@ -85,6 +87,11 @@ def get_settings() -> Settings:
         ),
         codex_lb_api_key=os.getenv("CODEX_LB_API_KEY", ""),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+        quick_plan_model=os.getenv("QUICK_PLAN_MODEL", "gpt-5.5"),
+        quick_plan_reasoning_effort=os.getenv(
+            "QUICK_PLAN_REASONING_EFFORT",
+            "medium",
+        ),
         langsmith_tracing=os.getenv("LANGSMITH_TRACING", "false").lower() == "true",
         langsmith_api_key=os.getenv("LANGSMITH_API_KEY") or None,
         langsmith_project=os.getenv("LANGSMITH_PROJECT", "wandrix"),

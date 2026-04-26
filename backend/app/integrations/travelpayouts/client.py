@@ -2,7 +2,7 @@ from app.core.config import get_settings
 from app.integrations.shared import build_sync_client
 
 
-def create_travelpayouts_client():
+def create_travelpayouts_client(*, timeout: float | None = None):
     settings = get_settings()
     headers = {
         "Accept": "application/json",
@@ -14,4 +14,5 @@ def create_travelpayouts_client():
     return build_sync_client(
         base_url=settings.travelpayouts_base_url,
         headers=headers,
+        timeout=timeout or 30.0,
     )

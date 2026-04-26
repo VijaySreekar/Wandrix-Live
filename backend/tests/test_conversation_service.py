@@ -1,9 +1,14 @@
+from types import SimpleNamespace
+
 from psycopg import OperationalError
 
+from app.schemas.conversation import TripConversationMessageRequest
+from app.services import conversation_service
 from app.services.conversation_service import (
     _get_graph_state_with_retry,
     _invoke_graph_with_retry,
     _should_create_brochure_snapshot,
+    send_trip_message,
 )
 from app.schemas.trip_draft import TripDraft
 
@@ -83,3 +88,206 @@ def test_brochure_snapshot_triggers_on_transition_to_finalized() -> None:
     )
 
     assert _should_create_brochure_snapshot(previous, next_draft) is True
+
+
+def test_quick_plan_snapshot_does_not_trigger_without_brochure_eligibility() -> None:
+    previous = TripDraft(
+        trip_id="trip_1",
+        thread_id="thread_1",
+        title="Kyoto planner",
+    )
+    next_draft = TripDraft.model_validate(
+        {
+            "trip_id": "trip_1",
+            "thread_id": "thread_1",
+            "title": "Kyoto planner",
+            "status": {
+                "confirmation_status": "finalized",
+                "finalized_at": "2027-03-01T12:00:00Z",
+                "finalized_via": "board",
+                "brochure_ready": True,
+            },
+            "conversation": {
+                "planning_mode": "quick",
+                "confirmation_status": "finalized",
+                "quick_plan_finalization": {
+                    "accepted": True,
+                    "review_status": "complete",
+                    "quality_status": "repairable",
+                    "brochure_eligible": False,
+                },
+            },
+        }
+    )
+
+    assert _should_create_brochure_snapshot(previous, next_draft) is False
+
+
+def test_send_trip_message_persists_budget_estimate_before_brochure_snapshot(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+    trip = SimpleNamespace(
+        id="trip_1",
+        thread_id="thread_1",
+        browser_session_id="browser_1",
+        title="Paris planner",
+    )
+    draft = SimpleNamespace(
+        thread_id="thread_1",
+        title="Paris planner",
+        configuration={"to_location": "Paris"},
+        timeline=[],
+        module_outputs={},
+        budget_estimate=None,
+        status={"confirmation_status": "unconfirmed"},
+        conversation={"planning_mode": "quick"},
+    )
+    budget_estimate = {
+        "total_low_amount": 700,
+        "total_high_amount": 920,
+        "currency": "GBP",
+        "categories": [],
+        "caveat": "Directional estimate only.",
+    }
+
+    class _Graph:
+        def invoke(self, payload, config=None):
+            return {
+                "assistant_response": "Locked in.",
+                "trip_draft": {
+                    "title": "Paris planner",
+                    "configuration": draft.configuration,
+                    "timeline": [],
+                    "module_outputs": {},
+                    "budget_estimate": budget_estimate,
+                    "status": {
+                        "confirmation_status": "finalized",
+                        "finalized_at": "2027-05-01T12:00:00Z",
+                        "finalized_via": "board",
+                        "brochure_ready": True,
+                    },
+                    "conversation": {
+                        "planning_mode": "quick",
+                        "confirmation_status": "finalized",
+                        "quick_plan_finalization": {
+                            "accepted": True,
+                            "review_status": "complete",
+                            "quality_status": "pass",
+                            "brochure_eligible": True,
+                        },
+                    },
+                },
+            }
+
+    def _upsert_trip_draft(_db, **kwargs):
+        captured["persisted_budget_estimate"] = kwargs["budget_estimate"]
+        return SimpleNamespace(
+            thread_id=kwargs["thread_id"],
+            title=kwargs["title"],
+            configuration=kwargs["configuration"],
+            timeline=kwargs["timeline"],
+            module_outputs=kwargs["module_outputs"],
+            budget_estimate=kwargs["budget_estimate"],
+            status=kwargs["status"],
+            conversation=kwargs["conversation"],
+        )
+
+    def _create_snapshot(_db, *, trip, draft):
+        captured["snapshot_budget_estimate"] = draft.budget_estimate.model_dump(
+            mode="json"
+        )
+
+    monkeypatch.setattr(conversation_service, "get_trip_for_user", lambda *_: trip)
+    monkeypatch.setattr(conversation_service, "get_trip_draft_record", lambda *_: draft)
+    monkeypatch.setattr(conversation_service, "upsert_trip_draft_record", _upsert_trip_draft)
+    monkeypatch.setattr(
+        conversation_service,
+        "create_brochure_snapshot_for_trip",
+        _create_snapshot,
+    )
+
+    response = send_trip_message(
+        _Graph(),
+        db=SimpleNamespace(),
+        trip_id="trip_1",
+        user_id="user_1",
+        payload=TripConversationMessageRequest(message="Confirm it."),
+    )
+
+    assert captured["persisted_budget_estimate"] == budget_estimate
+    assert captured["snapshot_budget_estimate"] == budget_estimate
+    assert response.trip_draft.budget_estimate is not None
+
+
+def test_send_trip_message_sanitizes_existing_overlong_last_turn_summary(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+    trip = SimpleNamespace(
+        id="trip_1",
+        thread_id="thread_1",
+        browser_session_id="browser_1",
+        title="Kyoto planner",
+    )
+    draft = SimpleNamespace(
+        thread_id="thread_1",
+        title="Kyoto planner",
+        configuration={"to_location": "Kyoto"},
+        timeline=[],
+        module_outputs={},
+        budget_estimate=None,
+        status={"confirmation_status": "unconfirmed"},
+        conversation={
+            "planning_mode": "quick",
+            "last_turn_summary": " ".join(["Overlong previous summary."] * 30),
+        },
+    )
+
+    class _Graph:
+        def invoke(self, payload, config=None):
+            captured["payload_summary"] = payload["trip_draft"]["conversation"][
+                "last_turn_summary"
+            ]
+            return {
+                "assistant_response": "Still working.",
+                "trip_draft": {
+                    "title": "Kyoto planner",
+                    "configuration": draft.configuration,
+                    "timeline": [],
+                    "module_outputs": {},
+                    "budget_estimate": None,
+                    "status": draft.status,
+                    "conversation": payload["trip_draft"]["conversation"],
+                },
+            }
+
+    def _upsert_trip_draft(_db, **kwargs):
+        captured["persisted_summary"] = kwargs["conversation"]["last_turn_summary"]
+        return SimpleNamespace(
+            thread_id=kwargs["thread_id"],
+            title=kwargs["title"],
+            configuration=kwargs["configuration"],
+            timeline=kwargs["timeline"],
+            module_outputs=kwargs["module_outputs"],
+            budget_estimate=kwargs["budget_estimate"],
+            status=kwargs["status"],
+            conversation=kwargs["conversation"],
+        )
+
+    monkeypatch.setattr(conversation_service, "get_trip_for_user", lambda *_: trip)
+    monkeypatch.setattr(conversation_service, "get_trip_draft_record", lambda *_: draft)
+    monkeypatch.setattr(conversation_service, "upsert_trip_draft_record", _upsert_trip_draft)
+
+    response = send_trip_message(
+        _Graph(),
+        db=SimpleNamespace(),
+        trip_id="trip_1",
+        user_id="user_1",
+        payload=TripConversationMessageRequest(message="Retry."),
+    )
+
+    assert len(captured["payload_summary"]) <= 400
+    assert len(captured["persisted_summary"]) <= 400
+    assert response.trip_draft.conversation.last_turn_summary is not None
+    assert len(response.trip_draft.conversation.last_turn_summary) <= 400

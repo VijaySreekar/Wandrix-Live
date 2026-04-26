@@ -8,6 +8,7 @@ import type {
 } from "@/types/conversation";
 import { getJson } from "@/lib/api/client";
 
+const TRIP_CONVERSATION_TIMEOUT_MS = 15 * 60 * 1000;
 
 export function getOpeningTurnResponse(
   payload: OpeningTurnRequest,
@@ -31,7 +32,7 @@ export function sendTripConversationMessage(
   return postJson<TripConversationMessageResponse, TripConversationMessageRequest>(
     `/api/v1/trips/${tripId}/conversation`,
     payload,
-    { accessToken, signal, timeoutMs: 45000 },
+    { accessToken, signal, timeoutMs: TRIP_CONVERSATION_TIMEOUT_MS },
   );
 }
 

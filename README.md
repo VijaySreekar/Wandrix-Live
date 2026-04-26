@@ -32,6 +32,8 @@ This repo uses a single root `.env` file for local setup.
 
 Set these before wiring real AI logic:
 
+Quick Plan uses `QUICK_PLAN_MODEL=gpt-5.5` and `QUICK_PLAN_REASONING_EFFORT=medium` by default; normal planner chat remains on `OPENAI_MODEL`.
+
 - `NEXT_PUBLIC_API_BASE_URL`
 - `FRONTEND_ORIGIN`
 - `NEXT_PUBLIC_SUPABASE_URL`
@@ -42,6 +44,8 @@ Set these before wiring real AI logic:
 - `CODEX_LB_BASE_URL`
 - `CODEX_LB_API_KEY`
 - `OPENAI_MODEL`
+- `QUICK_PLAN_MODEL`
+- `QUICK_PLAN_REASONING_EFFORT`
 - `LANGSMITH_TRACING`
 - `LANGSMITH_API_KEY`
 - `LANGSMITH_PROJECT`

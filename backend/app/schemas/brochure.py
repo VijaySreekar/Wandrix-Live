@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -7,7 +7,9 @@ from app.schemas.trip_planning import (
     ActivityDetail,
     FlightDetail,
     HotelStayDetail,
+    PlanningModuleKey,
     TimelineItem,
+    TripBudgetEstimate,
     WeatherDetail,
 )
 
@@ -90,6 +92,14 @@ class BrochureSnapshotPayload(BaseModel):
     budget_text: str = Field(..., min_length=1, max_length=120)
     style_tags: list[str] = Field(default_factory=list)
     module_tags: list[str] = Field(default_factory=list)
+    planning_mode: Literal["quick", "advanced"] | None = None
+    quick_plan_module_scope: list[PlanningModuleKey] = Field(default_factory=list)
+    quick_plan_assumptions: list[dict] = Field(default_factory=list)
+    quick_plan_review_status: str | None = None
+    quick_plan_quality_status: str | None = None
+    quick_plan_intelligence_summary: dict[str, Any] = Field(default_factory=dict)
+    quick_plan_excluded_modules: list[dict[str, Any]] = Field(default_factory=list)
+    quick_plan_provider_confidence_notes: list[str] = Field(default_factory=list)
     executive_summary: str = Field(..., min_length=1, max_length=500)
     hero_image: BrochureHeroImage
     metrics: list[BrochureMetric] = Field(default_factory=list)
@@ -110,6 +120,7 @@ class BrochureSnapshotPayload(BaseModel):
     weather: list[WeatherDetail] = Field(default_factory=list)
     highlights: list[ActivityDetail] = Field(default_factory=list)
     planning_notes: list[str] = Field(default_factory=list)
+    budget_estimate: TripBudgetEstimate | None = None
     budget_summary: BrochureBudgetSummary
     travel_summary: BrochureTravelSummary
     resources: list[BrochureResourceLink] = Field(default_factory=list)

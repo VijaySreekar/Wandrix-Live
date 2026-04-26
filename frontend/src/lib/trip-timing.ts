@@ -17,7 +17,7 @@ export function formatTripWindowDisplay(
   const parts = buildTripTimingParts(timing, options);
 
   if (parts.length === 0) {
-    return options?.emptyLabel ?? "TBD";
+    return options?.emptyLabel ?? "Timing open";
   }
 
   return parts.join(" / ");

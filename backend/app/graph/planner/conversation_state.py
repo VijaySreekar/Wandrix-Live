@@ -83,6 +83,7 @@ from app.schemas.trip_conversation import (
     TripConversationMemory,
     TripConversationState,
     TripFieldKey,
+    QuickPlanFinalizationState,
 )
 from app.schemas.trip_draft import TripDraftStatus
 from app.schemas.trip_planning import ActivityDetail, FlightDetail, TripConfiguration, TripModuleOutputs
@@ -327,6 +328,10 @@ def build_conversation_state(
         board_action=board_action or {},
         now=now,
     )
+    conversation.quick_plan_finalization = _sync_quick_plan_finalization_state(
+        current=current.quick_plan_finalization,
+        provider_activation=provider_activation,
+    )
     conversation.advanced_review_planning = merge_advanced_review_planning_state(
         configuration=next_configuration,
         stay_planning=conversation.stay_planning,
@@ -361,6 +366,18 @@ def build_conversation_state(
         )
 
     return conversation
+
+
+def _sync_quick_plan_finalization_state(
+    *,
+    current: QuickPlanFinalizationState,
+    provider_activation: dict | None,
+) -> QuickPlanFinalizationState:
+    if not provider_activation or not provider_activation.get("quick_plan_finalization"):
+        return current
+    return QuickPlanFinalizationState.model_validate(
+        provider_activation["quick_plan_finalization"]
+    )
 
 
 def build_status(
@@ -6625,11 +6642,15 @@ def _build_provider_flight_option_cards(
                 arrival_time=flight.arrival_time,
                 duration_text=flight.duration_text,
                 price_text=flight.price_text,
+                fare_amount=flight.fare_amount,
+                fare_currency=flight.fare_currency,
                 stop_count=flight.stop_count,
+                stop_details_available=flight.stop_details_available,
                 layover_summary=flight.layover_summary,
                 legs=flight.legs,
                 timing_quality=flight.timing_quality,
                 inventory_notice=flight.inventory_notice,
+                inventory_source=flight.inventory_source,
                 summary=_build_provider_flight_summary(flight),
                 tradeoffs=_build_provider_flight_tradeoffs(flight),
                 source_kind="provider",
@@ -6670,8 +6691,9 @@ def _build_provider_flight_summary(flight: FlightDetail) -> str:
     time_label = _format_flight_card_time(flight.departure_time)
     direction = "Outbound" if flight.direction == "outbound" else "Return"
     stop_label = _flight_stop_label(flight.stop_count)
+    price_label = _clean_flight_price_text(flight.price_text)
     rich_detail = ", ".join(
-        detail for detail in [stop_label, flight.duration_text, flight.price_text] if detail
+        detail for detail in [stop_label, flight.duration_text, price_label] if detail
     )
     if time_label:
         suffix = f" with {rich_detail}" if rich_detail else ""
@@ -6697,11 +6719,21 @@ def _build_provider_flight_tradeoffs(flight: FlightDetail) -> list[str]:
             tradeoffs.append("Late arrival may make the first night lighter.")
         elif arrival_hour <= 12:
             tradeoffs.append("Earlier arrival leaves more usable first-day room.")
-    if flight.price_text and len(tradeoffs) < 4:
-        tradeoffs.append(flight.price_text + ".")
+    price_label = _clean_flight_price_text(flight.price_text)
+    if price_label and len(tradeoffs) < 4:
+        tradeoffs.append(price_label + ".")
     if not tradeoffs:
-        tradeoffs.append("Inventory detail is partial, so this remains a planning-grade option.")
+        tradeoffs.append("Flight detail is partial, so this remains a planning-grade option.")
     return tradeoffs[:4]
+
+
+def _clean_flight_price_text(price_text: str | None) -> str | None:
+    if not price_text:
+        return None
+    for prefix in ["Cached fare snapshot:", "Live fare snapshot:"]:
+        if price_text.startswith(prefix):
+            return price_text.replace(prefix, "", 1).strip()
+    return price_text
 
 
 def _build_placeholder_flight_options(
@@ -6720,19 +6752,19 @@ def _build_placeholder_flight_options(
             "smoothest_route",
             "Smooth routing placeholder",
             "A lower-friction working route shape while exact flight inventory is weak.",
-            ["Planning-grade option while exact inventory is unavailable."],
+            ["Planning-grade option while exact schedules are unavailable."],
         ),
         (
             "best_timing",
             "Timing-first placeholder",
             "A working flight shape that protects usable arrival and departure-day time.",
-            ["Planning-grade option while exact inventory is unavailable."],
+            ["Planning-grade option while exact schedules are unavailable."],
         ),
         (
             "best_value",
             "Value placeholder",
             "A flexible value-led assumption while fares need a stronger refresh.",
-            ["Planning-grade option while exact inventory is unavailable."],
+            ["Planning-grade option while exact schedules are unavailable."],
         ),
     ]
     return [
@@ -6747,11 +6779,15 @@ def _build_placeholder_flight_options(
             arrival_time=None,
             duration_text=None,
             price_text=None,
+            fare_amount=None,
+            fare_currency=None,
             stop_count=None,
+            stop_details_available=None,
             layover_summary=None,
             legs=[],
             timing_quality=None,
-            inventory_notice="Planning-grade option while exact inventory is unavailable.",
+            inventory_notice="Planning-grade option while exact schedules are unavailable.",
+            inventory_source="placeholder",
             summary=summary,
             tradeoffs=tradeoffs,
             source_kind="placeholder",

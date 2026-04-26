@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useEffect,
   useMemo,
@@ -10,7 +11,10 @@ import {
 } from "react";
 import {
   ArrowUp,
+  BookOpen,
   Bot,
+  LockKeyhole,
+  RotateCcw,
   Sparkles,
   UserRound,
 } from "lucide-react";
@@ -70,6 +74,7 @@ type TravelPlannerAssistantProps = {
   pendingBoardAction: PlannerBoardActionIntent | null;
   onBoardActionHandled: (actionId: string) => void;
   onDraftUpdated: (tripDraft: TripDraft) => void;
+  onTripFinalized: (tripId: string) => void;
 };
 
 function buildThreadSeedMessages(messages: PersistedThreadMessage[]) {
@@ -188,6 +193,7 @@ export function TravelPlannerAssistant({
   pendingBoardAction,
   onBoardActionHandled,
   onDraftUpdated,
+  onTripFinalized,
 }: TravelPlannerAssistantProps) {
   const [profileContext, setProfileContext] = useState<PlannerProfileContext | null>(
     null,
@@ -204,6 +210,10 @@ export function TravelPlannerAssistant({
   const tripId = activeTripId ?? workspace?.trip.trip_id ?? null;
   const hasActiveWorkspace = Boolean(
     tripId && workspace && workspace.trip.trip_id === tripId,
+  );
+  const isTripFinalized = Boolean(
+    hasActiveWorkspace &&
+      workspace?.tripDraft.status.confirmation_status === "finalized",
   );
   const immediateCachedMessages = useMemo(
     () => (tripId ? readCachedThreadMessages(tripId) : []),
@@ -272,7 +282,6 @@ export function TravelPlannerAssistant({
               tripId,
               messages: [],
             });
-            writeCachedThreadMessages(tripId, []);
           }
         }
       } catch {
@@ -390,6 +399,7 @@ export function TravelPlannerAssistant({
           profileContext,
           pendingBoardAction: null,
           onDraftUpdated,
+          onTripFinalized,
         });
 
         if (abortSignal.aborted) {
@@ -407,6 +417,7 @@ export function TravelPlannerAssistant({
       onActivatePersistedTrip,
       onEnsurePersistedTrip,
       onDraftUpdated,
+      onTripFinalized,
       profileContext,
       tripId,
       workspace,
@@ -425,6 +436,7 @@ export function TravelPlannerAssistant({
       isBootstrapping={isBootstrapping}
       hasWorkspace={hasActiveWorkspace}
       hasError={Boolean(workspaceError)}
+      isTripFinalized={isTripFinalized}
       pendingBoardAction={pendingBoardAction}
       requestedTripId={requestedTripId}
       onBoardActionHandled={onBoardActionHandled}
@@ -441,6 +453,7 @@ export function TravelPlannerAssistant({
           profileContext,
           pendingBoardAction: action,
           onDraftUpdated,
+          onTripFinalized,
         });
       }}
     />
@@ -457,6 +470,7 @@ function TravelPlannerAssistantRuntime({
   isBootstrapping,
   hasWorkspace,
   hasError,
+  isTripFinalized,
   pendingBoardAction,
   requestedTripId,
   onBoardActionHandled,
@@ -471,6 +485,7 @@ function TravelPlannerAssistantRuntime({
   isBootstrapping: boolean;
   hasWorkspace: boolean;
   hasError: boolean;
+  isTripFinalized: boolean;
   pendingBoardAction: PlannerBoardActionIntent | null;
   requestedTripId: string | null;
   onBoardActionHandled: (actionId: string) => void;
@@ -483,6 +498,13 @@ function TravelPlannerAssistantRuntime({
   const showInitialWorkspaceShell =
     isBootstrapping && !tripId && !hasWorkspace && !hasError;
   const hasHydratedMessages = hydratedMessages.length > 0;
+  const allowPendingReopen = pendingBoardAction?.type === "reopen_plan";
+  const interactionLocked =
+    isBootstrapping ||
+    isSwitchingTrips ||
+    !hasWorkspace ||
+    hasError ||
+    isTripFinalized;
 
   const runtime = useLocalRuntime(adapter, {
     initialMessages: hydratedMessages,
@@ -500,7 +522,7 @@ function TravelPlannerAssistantRuntime({
       <ChatViewportAutoScroll />
       <TravelPlannerBoardActions
         pendingBoardAction={pendingBoardAction}
-        disabled={isBootstrapping || isSwitchingTrips || !hasWorkspace || hasError}
+        disabled={interactionLocked && !allowPendingReopen}
         onHandled={onBoardActionHandled}
         onDirectActionSubmit={onDirectBoardActionSubmit}
       />
@@ -528,9 +550,11 @@ function TravelPlannerAssistantRuntime({
           </ThreadPrimitive.Viewport>
 
           <Composer
-            disabled={isBootstrapping || isSwitchingTrips || !hasWorkspace || hasError}
+            disabled={interactionLocked}
             disabledPlaceholder={
-              showInitialWorkspaceShell
+              isTripFinalized
+                ? "This trip is finalized. Reopen planning to make changes."
+                : showInitialWorkspaceShell
                 ? "Preparing your travel planning workspace..."
                 : isBootstrapping
                   ? "Attaching the planner workspace..."
@@ -541,6 +565,13 @@ function TravelPlannerAssistantRuntime({
                     : "Resolve the workspace issue before sending."
             }
           />
+          {isTripFinalized && tripId ? (
+            <FinalizedChatLockPanel
+              tripId={tripId}
+              disabled={isSwitchingTrips || isBootstrapping}
+              onDirectBoardActionSubmit={onDirectBoardActionSubmit}
+            />
+          ) : null}
         </ThreadPrimitive.Root>
         {isSwitchingTrips ? (
           <TripSwitchOverlay requestedTripId={requestedTripId} />
@@ -664,6 +695,11 @@ function PersistedThreadStateSync({ tripId }: { tripId: string | null }) {
   const messages = useThread((state) => state.messages);
   const persistTimeoutRef = useRef<number | null>(null);
   const lastPersistedSnapshotRef = useRef<string | null>(null);
+  const pendingPersistRef = useRef<{
+    tripId: string;
+    messages: PersistedThreadMessage[];
+    snapshot: string;
+  } | null>(null);
 
   useEffect(() => {
     if (persistTimeoutRef.current !== null) {
@@ -672,6 +708,7 @@ function PersistedThreadStateSync({ tripId }: { tripId: string | null }) {
     }
 
     lastPersistedSnapshotRef.current = null;
+    pendingPersistRef.current = null;
   }, [tripId]);
 
   useEffect(() => {
@@ -691,15 +728,27 @@ function PersistedThreadStateSync({ tripId }: { tripId: string | null }) {
       window.clearTimeout(persistTimeoutRef.current);
     }
 
+    pendingPersistRef.current = {
+      tripId,
+      messages: persistedMessages,
+      snapshot: serializedMessages,
+    };
     persistTimeoutRef.current = window.setTimeout(() => {
       writeCachedThreadMessages(tripId, persistedMessages);
       lastPersistedSnapshotRef.current = serializedMessages;
+      pendingPersistRef.current = null;
       persistTimeoutRef.current = null;
     }, 220);
 
     return () => {
       if (persistTimeoutRef.current !== null) {
         window.clearTimeout(persistTimeoutRef.current);
+        const pending = pendingPersistRef.current;
+        if (pending) {
+          writeCachedThreadMessages(pending.tripId, pending.messages);
+          lastPersistedSnapshotRef.current = pending.snapshot;
+          pendingPersistRef.current = null;
+        }
         persistTimeoutRef.current = null;
       }
     };
@@ -1284,6 +1333,103 @@ function renderInlineBold(text: string): ReactNode[] {
   });
 }
 
+function FinalizedChatLockPanel({
+  tripId,
+  disabled,
+  onDirectBoardActionSubmit,
+}: {
+  tripId: string;
+  disabled: boolean;
+  onDirectBoardActionSubmit: (action: ConversationBoardAction) => Promise<string>;
+}) {
+  const threadRuntime = useThreadRuntime();
+  const isRunning = useThread((state) => state.isRunning);
+  const [isReopening, setIsReopening] = useState(false);
+  const actionDisabled = disabled || isRunning || isReopening;
+
+  async function handleReopen() {
+    if (actionDisabled) {
+      return;
+    }
+
+    const action: ConversationBoardAction = {
+      action_id: crypto.randomUUID(),
+      type: "reopen_plan",
+    };
+
+    setIsReopening(true);
+    threadRuntime.append({
+      role: "user",
+      content: [{ type: "text", text: "Reopen planning for this finalized trip." }],
+      startRun: false,
+    });
+
+    try {
+      const assistantMessage = await onDirectBoardActionSubmit(action);
+      threadRuntime.append({
+        role: "assistant",
+        content: [{ type: "text", text: assistantMessage }],
+        startRun: false,
+      });
+    } catch (error) {
+      threadRuntime.append({
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              error instanceof Error
+                ? error.message
+                : "I could not reopen planning right now.",
+          },
+        ],
+        startRun: false,
+      });
+    } finally {
+      setIsReopening(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-[color:var(--chat-rail-border)] bg-[color:var(--chat-pane-bg)] px-4 py-3 sm:px-8">
+      <div className="mx-auto flex w-full max-w-[52rem] flex-col gap-3 rounded-2xl border border-[color:var(--chat-rail-border-strong)] bg-[color:var(--chat-rail-control-bg)] px-4 py-4 shadow-[var(--chat-shadow-card)] sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--accent)]/10 text-[color:var(--accent)]">
+            <LockKeyhole className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">
+              This trip is finalized
+            </p>
+            <p className="mt-1 text-sm leading-6 text-foreground/58">
+              The chat history stays available here. Reopen planning from chat if
+              you want to change dates, stays, flights, or pacing.
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href={`/brochure/${tripId}`}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[color:var(--chat-rail-border-strong)] bg-background px-3 text-sm font-semibold text-foreground/70 transition hover:text-foreground"
+          >
+            <BookOpen className="h-4 w-4" />
+            View saved trip
+          </Link>
+          <button
+            type="button"
+            disabled={actionDisabled}
+            onClick={handleReopen}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[color:var(--accent)] px-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-wait disabled:opacity-65"
+          >
+            <RotateCcw className="h-4 w-4" />
+            {isReopening ? "Reopening..." : "Reopen planning"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Composer({
   disabled,
   disabledPlaceholder,
@@ -1389,6 +1535,7 @@ async function buildAssistantReply({
   profileContext,
   pendingBoardAction,
   onDraftUpdated,
+  onTripFinalized,
 }: {
   activeTripId: string | null;
   isBootstrapping: boolean;
@@ -1406,6 +1553,7 @@ async function buildAssistantReply({
   profileContext: PlannerProfileContext | null;
   pendingBoardAction: ConversationBoardAction | null;
   onDraftUpdated: (tripDraft: TripDraft) => void;
+  onTripFinalized: (tripId: string) => void;
 }) {
   const hasAttachedWorkspace =
     Boolean(activeTripId) &&
@@ -1505,6 +1653,15 @@ async function buildAssistantReply({
 
     if (!workspace?.isEphemeral || shouldSurfacePersistedWorkspace) {
       onDraftUpdated(response.trip_draft);
+    }
+
+    if (
+      response.trip_draft.status.confirmation_status === "finalized" &&
+      workspace?.tripDraft.status.confirmation_status !== "finalized"
+    ) {
+      window.setTimeout(() => {
+        onTripFinalized(response.trip_id);
+      }, 250);
     }
 
     return response.message;

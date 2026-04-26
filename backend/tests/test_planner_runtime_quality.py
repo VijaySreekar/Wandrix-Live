@@ -1,10 +1,29 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 from app.graph.nodes import bootstrap
 from app.graph.planner import conversation_state
 from app.graph.planner import runner
 from app.graph.planner.conversation_state import build_conversation_state
+from app.graph.planner.quick_plan_generation import QuickPlanGenerationAttempt
+from app.graph.planner.quick_plan_day_architecture import (
+    QuickPlanDayArchitecture,
+    QuickPlanDayPlan,
+)
+from app.graph.planner.quick_plan_provider_brief import QuickPlanProviderBrief
+from app.graph.planner.quick_plan_dates import QuickPlanWorkingDateDecision
+from app.graph.planner.quick_plan_quality_models import (
+    QuickPlanQualityIssue,
+    QuickPlanQualityReviewResult,
+    QuickPlanQualityScorecard,
+    QuickPlanSpecialistReviewSummary,
+)
+from app.graph.planner.quick_plan_repair_orchestrator import QuickPlanRepairLoopResult
+from app.graph.planner.quick_plan_review import QuickPlanReviewResult
+from app.graph.planner.quick_plan_strategy import QuickPlanStrategyBrief
 from app.graph.planner.turn_models import (
     ConversationOptionCandidate,
     DestinationSuggestionCandidate,
@@ -23,6 +42,15 @@ from app.schemas.trip_planning import (
     TripConfiguration,
     TripModuleOutputs,
 )
+
+
+@pytest.fixture(autouse=True)
+def _default_quick_plan_quality_pass(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_quality",
+        lambda **_: _passing_quick_plan_quality_review(),
+    )
 
 
 def _sample_hotel_outputs() -> TripModuleOutputs:
@@ -220,9 +248,295 @@ def test_process_trip_turn_blocks_flights_until_origin_is_reliable(monkeypatch) 
     assert result["trip_draft"]["conversation"]["planning_mode"] == "quick"
     assert observability["provider_activation"]["quick_plan_ready"] is False
     assert observability["provider_activation"]["blocked_modules"]["flights"] == [
-        "departure point is not reliable enough yet"
+        "origin is required when flights are included"
     ]
     assert "not triggering live planning yet" in result["assistant_response"].lower()
+
+
+def test_process_trip_turn_uses_confirmed_brief_origin_without_duplicate_prompt(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            requested_planning_mode="quick",
+            confirmed_trip_brief=True,
+            assistant_response="",
+        ),
+    )
+    captured: dict = {}
+
+    def _fake_generation(**kwargs):
+        captured["allowed_modules"] = kwargs["dossier"].readiness.allowed_modules
+        return QuickPlanGenerationAttempt(status="empty")
+
+    monkeypatch.setattr(runner, "run_quick_plan_generation", _fake_generation)
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_repair",
+        lambda **_: QuickPlanGenerationAttempt(status="empty"),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Use Quick Plan and generate the first draft itinerary now.",
+            "trip_draft": {
+                "title": "Kyoto plan",
+                "configuration": {
+                    "from_location": "London",
+                    "to_location": "Kyoto",
+                    "start_date": "2026-05-08",
+                    "end_date": "2026-05-12",
+                    "travelers": {"adults": 2},
+                    "activity_styles": ["food", "culture", "relaxed"],
+                    "custom_style": "calm",
+                    "budget_posture": "mid_range",
+                    "budget_currency": "GBP",
+                    "selected_modules": {
+                        "flights": True,
+                        "hotels": True,
+                        "activities": True,
+                        "weather": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+
+    assert captured["allowed_modules"] == ["flights", "hotels", "activities", "weather"]
+    assert observability["provider_activation"]["quick_plan_ready"] is True
+    assert observability["provider_activation"]["origin_ready"] is True
+    assert (
+        observability["provider_activation"]["field_readiness"]["origin"]["source"]
+        == "confirmed_brief"
+    )
+    assert observability["provider_activation"]["blocked_modules"] == {}
+    assert "where should i search flights from" not in result["assistant_response"].lower()
+
+
+def test_quick_plan_selection_confirms_complete_visible_brief_without_origin_prompt(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+    captured: dict = {}
+
+    def _fake_repair_loop(**kwargs):
+        captured["allowed_modules"] = kwargs["dossier"].readiness.allowed_modules
+        return QuickPlanRepairLoopResult(
+            attempt=QuickPlanGenerationAttempt(status="empty"),
+            final_completeness_review=QuickPlanReviewResult(
+                status="failed",
+                show_to_user=False,
+                missing_outputs=["day_coverage"],
+                assistant_summary="No itinerary rows were generated.",
+            ),
+            repair_metadata={"repair_attempted": False, "final_visible": False},
+        )
+
+    monkeypatch.setattr(runner, "run_quick_plan_repair_loop", _fake_repair_loop)
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Use Quick Plan and generate the first draft itinerary now.",
+            "trip_draft": {
+                "title": "Kyoto plan",
+                "configuration": {
+                    "from_location": "London",
+                    "to_location": "Kyoto",
+                    "travel_window": "this month",
+                    "trip_length": "5-day",
+                    "travelers": {"adults": 2},
+                    "activity_styles": ["food", "culture", "relaxed"],
+                    "custom_style": "calm",
+                    "budget_posture": "mid_range",
+                    "budget_currency": "GBP",
+                    "selected_modules": {
+                        "flights": True,
+                        "hotels": True,
+                        "activities": True,
+                        "weather": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "suggestion_board": {
+                        "mode": "planning_mode_choice",
+                    },
+                },
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+
+    assert captured["allowed_modules"] == ["flights", "hotels", "activities", "weather"]
+    assert result["trip_draft"]["conversation"]["planning_mode"] == "quick"
+    assert observability["provider_activation"]["brief_confirmed"] is True
+    assert observability["provider_activation"]["quick_plan_ready"] is True
+    assert observability["provider_activation"]["origin_ready"] is True
+    assert observability["provider_activation"]["blocked_modules"] == {}
+    assert "where should i search flights from" not in result["assistant_response"].lower()
+
+
+def test_quick_plan_board_action_confirms_complete_visible_brief_without_origin_prompt(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+    captured: dict = {}
+
+    def _fake_repair_loop(**kwargs):
+        captured["allowed_modules"] = kwargs["dossier"].readiness.allowed_modules
+        return QuickPlanRepairLoopResult(
+            attempt=QuickPlanGenerationAttempt(status="empty"),
+            final_completeness_review=QuickPlanReviewResult(
+                status="failed",
+                show_to_user=False,
+                missing_outputs=["day_coverage"],
+                assistant_summary="No itinerary rows were generated.",
+            ),
+            repair_metadata={"repair_attempted": False, "final_visible": False},
+        )
+
+    monkeypatch.setattr(runner, "run_quick_plan_repair_loop", _fake_repair_loop)
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_quick",
+                "type": "select_quick_plan",
+            },
+            "trip_draft": {
+                "title": "Kyoto plan",
+                "configuration": {
+                    "from_location": "London",
+                    "to_location": "Kyoto",
+                    "travel_window": "this month",
+                    "trip_length": "5-day",
+                    "travelers": {"adults": 2},
+                    "activity_styles": ["food", "culture", "relaxed"],
+                    "custom_style": "calm",
+                    "budget_posture": "mid_range",
+                    "budget_currency": "GBP",
+                    "selected_modules": {
+                        "flights": True,
+                        "hotels": True,
+                        "activities": True,
+                        "weather": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "suggestion_board": {
+                        "mode": "planning_mode_choice",
+                    },
+                },
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+
+    assert captured["allowed_modules"] == ["flights", "hotels", "activities", "weather"]
+    assert result["trip_draft"]["conversation"]["planning_mode"] == "quick"
+    assert observability["provider_activation"]["brief_confirmed"] is True
+    assert observability["provider_activation"]["quick_plan_ready"] is True
+    assert observability["provider_activation"]["origin_ready"] is True
+    assert observability["provider_activation"]["blocked_modules"] == {}
+    assert "where should i search flights from" not in result["assistant_response"].lower()
+
+
+def test_quick_plan_retry_confirms_complete_brief_after_previous_quick_block(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+    captured: dict = {}
+
+    def _fake_repair_loop(**kwargs):
+        captured["allowed_modules"] = kwargs["dossier"].readiness.allowed_modules
+        return QuickPlanRepairLoopResult(
+            attempt=QuickPlanGenerationAttempt(status="empty"),
+            final_completeness_review=QuickPlanReviewResult(
+                status="failed",
+                show_to_user=False,
+                missing_outputs=["day_coverage"],
+                assistant_summary="No itinerary rows were generated.",
+            ),
+            repair_metadata={"repair_attempted": False, "final_visible": False},
+        )
+
+    monkeypatch.setattr(runner, "run_quick_plan_repair_loop", _fake_repair_loop)
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Use Quick Plan again with the current London to Kyoto brief.",
+            "trip_draft": {
+                "title": "Kyoto plan",
+                "configuration": {
+                    "from_location": "London",
+                    "to_location": "Kyoto",
+                    "start_date": "2026-05-07",
+                    "end_date": "2026-05-11",
+                    "travel_window": "this month",
+                    "trip_length": "5-day",
+                    "travelers": {"adults": 2},
+                    "activity_styles": ["food", "culture", "relaxed"],
+                    "custom_style": "calm",
+                    "budget_posture": "mid_range",
+                    "budget_currency": "GBP",
+                    "selected_modules": {
+                        "flights": True,
+                        "hotels": True,
+                        "activities": True,
+                        "weather": True,
+                    },
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "quick",
+                    "planning_mode_status": "selected",
+                },
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+
+    assert captured["allowed_modules"] == ["flights", "hotels", "activities", "weather"]
+    assert observability["provider_activation"]["brief_confirmed"] is True
+    assert observability["provider_activation"]["quick_plan_ready"] is True
+    assert observability["provider_activation"]["blocked_modules"] == {}
+    assert "where should i search flights from" not in result["assistant_response"].lower()
 
 
 def test_select_quick_plan_before_confirmed_brief_keeps_route_gate(
@@ -342,13 +656,16 @@ def test_provider_blocker_adds_confidence_clarification_for_profile_origin(
     conflicts = result["trip_draft"]["conversation"]["planner_conflicts"]
 
     assert observability["provider_activation"]["quick_plan_ready"] is False
+    assert observability["provider_activation"]["blocked_modules"]["flights"] == [
+        "flight origin needs confirmation before flights are included"
+    ]
     assert observability["provider_activation"]["reliability_blockers"][0]["category"] == "origin"
     assert observability["provider_activation"]["reliability_blockers"][0]["source"] == "profile_default"
     assert open_questions[0]["field"] == "from_location"
-    assert open_questions[0]["question"] == "Where should I search flights from?"
+    assert open_questions[0]["question"] == "Should I use London as the flight origin?"
     assert conflicts[0]["category"] == "provider_confidence"
     assert conflicts[0]["revision_target"] == "review"
-    assert "Where should I search flights from?" in result["assistant_response"]
+    assert "Should I use London as the flight origin?" in result["assistant_response"]
 
 
 def test_process_trip_turn_allows_ready_nonflight_modules_to_start_quick_plan(
@@ -386,20 +703,11 @@ def test_process_trip_turn_allows_ready_nonflight_modules_to_start_quick_plan(
         ),
     )
 
-    def _fake_build_module_outputs(
-        configuration,
-        previous_configuration,
-        existing_module_outputs,
-        allowed_modules=None,
-    ):
-        captured["allowed_modules"] = sorted(allowed_modules or [])
-        return TripModuleOutputs()
-
-    monkeypatch.setattr(runner, "build_module_outputs", _fake_build_module_outputs)
-    monkeypatch.setattr(
-        runner,
-        "generate_quick_plan_draft",
-        lambda **_: QuickPlanDraft(
+    def _fake_run_quick_plan_generation(**kwargs):
+        captured["allowed_modules"] = sorted(
+            kwargs["dossier"].readiness.allowed_modules
+        )
+        draft = QuickPlanDraft(
             board_summary="Barcelona now has a food-first quick draft built around a compact autumn weekend.",
             timeline_preview=[
                 ProposedTimelineItem(
@@ -409,6 +717,54 @@ def test_process_trip_turn_allows_ready_nonflight_modules_to_start_quick_plan(
                     summary="A compact first-evening route after arrival.",
                 )
             ],
+        )
+        return QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=draft,
+            strategy_brief=QuickPlanStrategyBrief(
+                trip_thesis="Food-first compact weekend.",
+                user_intent=["food", "culture"],
+            ),
+            provider_brief=QuickPlanProviderBrief(
+                activity_clusters=["El Born tapas"],
+            ),
+            day_architecture=QuickPlanDayArchitecture(
+                route_logic="Keep the weekend compact.",
+                days=[
+                    QuickPlanDayPlan(
+                        day_index=1,
+                        day_label="Day 1",
+                        theme="Food arrival",
+                        geography_focus="El Born",
+                        pacing_target="light",
+                        food_culture_intent="Tapas and orientation.",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        )
+
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        _fake_run_quick_plan_generation,
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_generation",
+        lambda **_: QuickPlanReviewResult(
+            status="complete",
+            show_to_user=True,
+            assistant_summary="Quick Plan passed review.",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_repair",
+        lambda **_: (_ for _ in ()).throw(
+            AssertionError("Repair should not run when first candidate is complete.")
         ),
     )
 
@@ -429,9 +785,1365 @@ def test_process_trip_turn_allows_ready_nonflight_modules_to_start_quick_plan(
 
     assert captured["allowed_modules"] == ["activities"]
     assert observability["provider_activation"]["quick_plan_ready"] is True
+    assert observability["provider_activation"]["quick_plan_review"]["status"] == "complete"
+    assert (
+        observability["provider_activation"]["quick_plan_strategy"]["trip_thesis"]
+        == "Food-first compact weekend."
+    )
+    assert observability["provider_activation"]["quick_plan_provider_brief"][
+        "activity_clusters"
+    ] == ["El Born tapas"]
+    assert observability["provider_activation"]["quick_plan_day_architecture"][
+        "route_logic"
+    ] == "Keep the weekend compact."
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempted"] is False
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempt_count"] == 0
+    assert observability["provider_activation"]["quick_plan_acceptance"]["accepted"] is True
+    assert observability["provider_activation"]["quick_plan_acceptance"]["completeness_status"] == "complete"
+    assert observability["provider_activation"]["quick_plan_acceptance"]["quality_status"] == "pass"
+    assert (
+        observability["provider_activation"]["quick_plan_acceptance"][
+            "intelligence_metadata_present"
+        ]
+        is True
+    )
     assert observability["provider_activation"]["allowed_modules"] == ["activities"]
     assert "started a quick plan" in result["assistant_response"].lower()
     assert len(result["trip_draft"]["timeline"]) == 1
+    intelligence_summary = result["trip_draft"]["conversation"][
+        "quick_plan_finalization"
+    ]["intelligence_summary"]
+    assert intelligence_summary["plan_rationale"] == "Food-first compact weekend."
+    assert intelligence_summary["accepted_module_scope"] == ["activities"]
+    assert intelligence_summary["excluded_modules"][0]["reason"] == "Excluded by request"
+    assert intelligence_summary["review_outcome"]["quality_status"] == "pass"
+
+
+def test_process_trip_turn_does_not_claim_quick_plan_when_draft_is_empty(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Kyoto",
+            from_location="Coventry",
+            travel_window="summer",
+            trip_length="5 days",
+            adults=2,
+            budget_posture="mid_range",
+            budget_currency="GBP",
+            activity_styles=["food", "culture"],
+            custom_style="calm",
+            confirmed_fields=[
+                "to_location",
+                "from_location",
+                "travel_window",
+                "trip_length",
+                "adults",
+                "budget_posture",
+                "budget_currency",
+                "activity_styles",
+                "custom_style",
+                "selected_modules",
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="from_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="travel_window", confidence="high"),
+                TripFieldConfidenceUpdate(field="trip_length", confidence="high"),
+                TripFieldConfidenceUpdate(field="adults", confidence="high"),
+                TripFieldConfidenceUpdate(field="selected_modules", confidence="high"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="from_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="travel_window", source="user_explicit"),
+                TripFieldSourceUpdate(field="trip_length", source="user_explicit"),
+                TripFieldSourceUpdate(field="adults", source="user_explicit"),
+                TripFieldSourceUpdate(field="selected_modules", source="user_explicit"),
+            ],
+            selected_modules={
+                "flights": True,
+                "weather": True,
+                "activities": True,
+                "hotels": True,
+            },
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+
+    def _fake_apply_quick_plan_working_dates(**kwargs):
+        configuration = kwargs["configuration"].model_copy(deep=True)
+        llm_update = kwargs["llm_update"].model_copy(deep=True)
+        configuration.start_date = datetime(2026, 7, 10, tzinfo=timezone.utc).date()
+        configuration.end_date = datetime(2026, 7, 14, tzinfo=timezone.utc).date()
+        llm_update.start_date = configuration.start_date
+        llm_update.end_date = configuration.end_date
+        llm_update.field_sources.append(
+            TripFieldSourceUpdate(field="start_date", source="assistant_derived")
+        )
+        llm_update.field_sources.append(
+            TripFieldSourceUpdate(field="end_date", source="assistant_derived")
+        )
+        llm_update.field_confidences.append(
+            TripFieldConfidenceUpdate(field="start_date", confidence="medium")
+        )
+        llm_update.field_confidences.append(
+            TripFieldConfidenceUpdate(field="end_date", confidence="medium")
+        )
+        llm_update.inferred_fields.extend(["start_date", "end_date"])
+        return (
+            configuration,
+            llm_update,
+            QuickPlanWorkingDateDecision(
+                start_date=configuration.start_date,
+                end_date=configuration.end_date,
+                confidence="medium",
+                rationale="A summer working window keeps the rough timing usable for provider checks and daily pacing.",
+            ),
+        )
+
+    monkeypatch.setattr(
+        runner,
+        "apply_quick_plan_working_dates",
+        _fake_apply_quick_plan_working_dates,
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="empty",
+            module_outputs=_sample_hotel_outputs(),
+            timeline_module_outputs=_sample_hotel_outputs(),
+            draft=QuickPlanDraft(),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_repair",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="empty",
+            module_outputs=_sample_hotel_outputs(),
+            timeline_module_outputs=_sample_hotel_outputs(),
+            draft=QuickPlanDraft(),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Use Quick Plan and generate the first draft itinerary now.",
+            "trip_draft": {
+                "title": "Trip planner",
+                "configuration": {},
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    response = result["assistant_response"].lower()
+    observability = result["metadata"]["planner_observability"]
+
+    assert "built a first draft itinerary" not in response
+    assert "did not return a usable day-by-day itinerary" in response
+    assert "10 jul to 14 jul 2026" in response
+    assert "summer working window" in response
+    assert "confirm this plan" not in response
+    assert observability["provider_activation"]["quick_plan_working_dates"]["rationale"].startswith(
+        "A summer working window"
+    )
+    assert observability["provider_activation"]["quick_plan_review"]["status"] == "failed"
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempted"] is True
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempt_count"] == 1
+    assert observability["provider_activation"]["quick_plan_repair"]["final_visible"] is False
+    assert observability["provider_activation"]["quick_plan_acceptance"]["accepted"] is False
+
+
+def test_incomplete_quick_plan_review_keeps_previous_board_state(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "review_trip_brief_intelligence",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_destination_discovery_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_profile_origin_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Barcelona",
+            start_date="2026-10-02",
+            end_date="2026-10-04",
+            adults=2,
+            selected_modules={
+                "flights": False,
+                "weather": False,
+                "activities": True,
+                "hotels": False,
+            },
+            confirmed_fields=[
+                "to_location",
+                "start_date",
+                "end_date",
+                "adults",
+                "selected_modules",
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="start_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="end_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="adults", confidence="high"),
+                TripFieldConfidenceUpdate(field="selected_modules", confidence="high"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="start_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="end_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="adults", source="user_explicit"),
+                TripFieldSourceUpdate(field="selected_modules", source="user_explicit"),
+            ],
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(
+                activities=[
+                    ActivityDetail(
+                        id="generated_activity",
+                        title="Generated private candidate",
+                    )
+                ]
+            ),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=QuickPlanDraft(
+                board_summary="Generated candidate summary should stay private.",
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="Generated private candidate",
+                        day_label="Day 1",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_generation",
+        lambda **_: QuickPlanReviewResult(
+            status="incomplete",
+            show_to_user=False,
+            missing_outputs=["day_coverage"],
+            review_notes=["Candidate does not cover all days."],
+            assistant_summary=(
+                "I generated a Quick Plan candidate, but the private review found missing day coverage, so I kept the current board unchanged."
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_repair",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(
+                activities=[
+                    ActivityDetail(
+                        id="repair_generated_activity",
+                        title="Repair candidate still private",
+                    )
+                ]
+            ),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=QuickPlanDraft(
+                board_summary="Repair candidate summary should stay private.",
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="Repair candidate still private",
+                        day_label="Day 1",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Build the activities-only Quick Plan.",
+            "trip_draft": {
+                "title": "Barcelona trip",
+                "configuration": {
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    }
+                },
+                "timeline": [
+                    {
+                        "id": "existing_activity",
+                        "type": "activity",
+                        "title": "Existing board activity",
+                        "day_label": "Day 1",
+                    }
+                ],
+                "module_outputs": {
+                    "activities": [
+                        {
+                            "id": "existing_activity",
+                            "title": "Existing board activity",
+                        }
+                    ]
+                },
+                "status": {},
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+    response = result["assistant_response"].lower()
+
+    assert result["trip_draft"]["timeline"][0]["title"] == "Existing board activity"
+    assert result["trip_draft"]["module_outputs"]["activities"][0]["id"] == "existing_activity"
+    assert result["trip_draft"]["budget_estimate"] is None
+    assert "generated_activity" not in str(result["trip_draft"])
+    assert "started a quick plan" not in response
+    assert "private review found missing day coverage" in response
+    assert observability["provider_activation"]["quick_plan_review"]["status"] == "incomplete"
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempted"] is True
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempt_count"] == 1
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_status"] == "incomplete"
+    assert observability["provider_activation"]["quick_plan_repair"]["final_visible"] is False
+    assert observability["provider_activation"]["quick_plan_acceptance"]["accepted"] is False
+
+
+def test_blocking_quality_failure_keeps_previous_board_state_and_blocks_success_copy(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "review_trip_brief_intelligence",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_destination_discovery_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_profile_origin_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Barcelona",
+            start_date="2026-10-02",
+            end_date="2026-10-04",
+            adults=2,
+            selected_modules={
+                "flights": False,
+                "weather": False,
+                "activities": True,
+                "hotels": False,
+            },
+            confirmed_fields=[
+                "to_location",
+                "start_date",
+                "end_date",
+                "adults",
+                "selected_modules",
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="start_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="end_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="adults", confidence="high"),
+                TripFieldConfidenceUpdate(field="selected_modules", confidence="high"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="start_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="end_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="adults", source="user_explicit"),
+                TripFieldSourceUpdate(field="selected_modules", source="user_explicit"),
+            ],
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(
+                activities=[
+                    ActivityDetail(
+                        id="generic_generated_activity",
+                        title="Generic private candidate",
+                    )
+                ]
+            ),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=QuickPlanDraft(
+                board_summary="Generic private candidate should stay private.",
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="Generic private candidate",
+                        day_label="Day 1",
+                        start_at="2026-10-02T10:00:00Z",
+                        end_at="2026-10-02T12:00:00Z",
+                        timing_source="planner_estimate",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_generation",
+        lambda **_: QuickPlanReviewResult(
+            status="complete",
+            show_to_user=True,
+            assistant_summary="Completeness passed.",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_quality",
+        lambda **_: QuickPlanQualityReviewResult(
+            status="fail",
+            show_to_user=False,
+            scorecard=QuickPlanQualityScorecard(
+                geography=8,
+                pacing=8,
+                local_specificity=4,
+                user_fit=6,
+                logistics_realism=2,
+                fact_safety=8,
+            ),
+            issues=[
+                QuickPlanQualityIssue(
+                    dimension="logistics_realism",
+                    severity="high",
+                    issue="The timeline is not logistically possible.",
+                )
+            ],
+            assistant_summary=(
+                "I generated a complete Quick Plan, but I did not show it because "
+                "the private quality review flagged generic activities."
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_repair",
+        lambda **_: (_ for _ in ()).throw(
+            AssertionError("Completeness repair should not run for quality failure.")
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Build the activities-only Quick Plan.",
+            "trip_draft": {
+                "title": "Barcelona trip",
+                "configuration": {
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    }
+                },
+                "timeline": [
+                    {
+                        "id": "existing_activity",
+                        "type": "activity",
+                        "title": "Existing board activity",
+                        "day_label": "Day 1",
+                    }
+                ],
+                "module_outputs": {
+                    "activities": [
+                        {
+                            "id": "existing_activity",
+                            "title": "Existing board activity",
+                        }
+                    ]
+                },
+                "status": {},
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+    response = result["assistant_response"].lower()
+
+    assert result["trip_draft"]["timeline"][0]["title"] == "Existing board activity"
+    assert result["trip_draft"]["module_outputs"]["activities"][0]["id"] == "existing_activity"
+    assert "generic_generated_activity" not in str(result["trip_draft"])
+    assert "started a quick plan" not in response
+    assert "private quality review flagged generic activities" in response
+    assert observability["provider_activation"]["quick_plan_review"]["status"] == "complete"
+    assert observability["provider_activation"]["quick_plan_completeness_review"]["status"] == "complete"
+    assert observability["provider_activation"]["quick_plan_quality_review"]["status"] == "fail"
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempted"] is False
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempt_count"] == 0
+    assert observability["provider_activation"]["quick_plan_acceptance"]["accepted"] is False
+    assert observability["provider_activation"]["quick_plan_acceptance"]["quality_status"] == "fail"
+    assert (
+        result["trip_draft"]["conversation"]["quick_plan_finalization"][
+            "intelligence_summary"
+        ]
+        == {}
+    )
+
+
+def test_non_blocking_quality_failure_updates_board_as_editable_draft(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "review_trip_brief_intelligence",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_destination_discovery_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_profile_origin_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Barcelona",
+            start_date="2026-10-02",
+            end_date="2026-10-04",
+            adults=2,
+            selected_modules={
+                "flights": False,
+                "weather": False,
+                "activities": True,
+                "hotels": False,
+            },
+            confirmed_fields=[
+                "to_location",
+                "start_date",
+                "end_date",
+                "adults",
+                "selected_modules",
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="start_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="end_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="adults", confidence="high"),
+                TripFieldConfidenceUpdate(field="selected_modules", confidence="high"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="start_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="end_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="adults", source="user_explicit"),
+                TripFieldSourceUpdate(field="selected_modules", source="user_explicit"),
+            ],
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(
+                activities=[
+                    ActivityDetail(
+                        id="generated_activity",
+                        title="El Born food walk",
+                    )
+                ]
+            ),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=QuickPlanDraft(
+                board_summary="Editable first draft.",
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="El Born food walk",
+                        day_label="Day 1",
+                        start_at="2026-10-02T10:00:00Z",
+                        end_at="2026-10-02T12:00:00Z",
+                        timing_source="planner_estimate",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_generation",
+        lambda **_: QuickPlanReviewResult(
+            status="complete",
+            show_to_user=True,
+            assistant_summary="Completeness passed.",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_quality",
+        lambda **_: QuickPlanQualityReviewResult(
+            status="fail",
+            show_to_user=False,
+            scorecard=QuickPlanQualityScorecard(
+                geography=5,
+                pacing=7,
+                local_specificity=4,
+                user_fit=6,
+                logistics_realism=8,
+                fact_safety=8,
+            ),
+            issues=[
+                QuickPlanQualityIssue(
+                    dimension="local_specificity",
+                    severity="medium",
+                    issue="The plan should use more named local anchors.",
+                )
+            ],
+            assistant_summary="The draft is usable but needs stronger local detail.",
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Build the activities-only Quick Plan.",
+            "trip_draft": {
+                "title": "Barcelona trip",
+                "configuration": {
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    }
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+
+    assert result["trip_draft"]["timeline"][0]["title"] == "El Born food walk"
+    assert result["trip_draft"]["module_outputs"]["activities"][0]["id"] == "generated_activity"
+    assert observability["provider_activation"]["quick_plan_acceptance"]["accepted"] is True
+    assert observability["provider_activation"]["quick_plan_acceptance"]["quality_status"] == "fail"
+    assert (
+        observability["provider_activation"]["quick_plan_acceptance"][
+            "repair_metadata"
+        ]["quality_blocking"]
+        is False
+    )
+    assert (
+        result["trip_draft"]["conversation"]["quick_plan_finalization"]["accepted"]
+        is True
+    )
+    assert (
+        result["trip_draft"]["conversation"]["quick_plan_finalization"][
+            "brochure_eligible"
+        ]
+        is False
+    )
+
+
+def test_quality_failure_clamps_last_turn_summary_for_persistence(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "review_trip_brief_intelligence",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_destination_discovery_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_profile_origin_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Barcelona",
+            start_date="2026-10-02",
+            end_date="2026-10-04",
+            adults=2,
+            selected_modules={
+                "flights": False,
+                "weather": False,
+                "activities": True,
+                "hotels": False,
+            },
+            confirmed_fields=[
+                "to_location",
+                "start_date",
+                "end_date",
+                "adults",
+                "selected_modules",
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="start_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="end_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="adults", confidence="high"),
+                TripFieldConfidenceUpdate(field="selected_modules", confidence="high"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="start_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="end_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="adults", source="user_explicit"),
+                TripFieldSourceUpdate(field="selected_modules", source="user_explicit"),
+            ],
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="generated",
+            draft=QuickPlanDraft(
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="Private candidate",
+                        day_label="Day 1",
+                        start_at="2026-10-02T10:00:00Z",
+                        end_at="2026-10-02T12:00:00Z",
+                        timing_source="planner_estimate",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_generation",
+        lambda **_: QuickPlanReviewResult(status="complete", show_to_user=True),
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_quality",
+        lambda **_: QuickPlanQualityReviewResult(
+            status="fail",
+            show_to_user=False,
+            assistant_summary=" ".join(["Long private quality issue summary."] * 11),
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Build the activities-only Quick Plan.",
+            "trip_draft": {
+                "title": "Barcelona trip",
+                "configuration": {
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    }
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    summary = result["trip_draft"]["conversation"]["last_turn_summary"]
+
+    assert summary is not None
+    assert len(summary) <= 400
+
+
+def test_failed_quick_plan_retry_overrides_stale_accepted_finalization_metadata() -> None:
+    current_conversation = TripConversationState(
+        planning_mode="quick",
+        planning_mode_status="selected",
+        quick_plan_finalization={
+            "accepted": True,
+            "review_status": "complete",
+            "quality_status": "pass",
+            "brochure_eligible": True,
+            "accepted_modules": ["flights", "hotels", "activities", "weather"],
+            "review_result": {"status": "complete"},
+            "quality_result": {"status": "pass"},
+            "intelligence_summary": {"plan_rationale": "Old accepted plan."},
+        },
+    )
+
+    finalization = runner._evaluate_quick_plan_finalization(
+        current_conversation=current_conversation,
+        planning_mode="quick",
+        timeline=[],
+        module_outputs=TripModuleOutputs(),
+        provider_activation={
+            "quick_plan_acceptance": {
+                "accepted": False,
+                "review_status": "complete",
+                "completeness_status": "complete",
+                "quality_status": "fail",
+                "accepted_modules": [],
+            },
+            "quick_plan_completeness_review": {"status": "complete"},
+            "quick_plan_quality_review": {"status": "fail"},
+        },
+    )
+
+    assert finalization["accepted"] is False
+    assert finalization["quality_status"] == "fail"
+    assert finalization["brochure_eligible"] is False
+    assert finalization["intelligence_summary"] == {}
+
+
+def test_quality_specialist_observability_is_json_safe(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "review_trip_brief_intelligence",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_destination_discovery_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_profile_origin_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Barcelona",
+            start_date="2026-10-02",
+            end_date="2026-10-04",
+            adults=2,
+            selected_modules={
+                "flights": False,
+                "weather": False,
+                "activities": True,
+                "hotels": False,
+            },
+            confirmed_fields=[
+                "to_location",
+                "start_date",
+                "end_date",
+                "adults",
+                "selected_modules",
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="start_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="end_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="adults", confidence="high"),
+                TripFieldConfidenceUpdate(field="selected_modules", confidence="high"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="start_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="end_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="adults", source="user_explicit"),
+                TripFieldSourceUpdate(field="selected_modules", source="user_explicit"),
+            ],
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="generated",
+            draft=QuickPlanDraft(
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="Private candidate",
+                        day_label="Day 1",
+                        start_at="2026-10-02T10:00:00Z",
+                        end_at="2026-10-02T12:00:00Z",
+                        timing_source="planner_estimate",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_generation",
+        lambda **_: QuickPlanReviewResult(status="complete", show_to_user=True),
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_quality",
+        lambda **_: QuickPlanQualityReviewResult(
+            status="fail",
+            show_to_user=False,
+            specialist_results=[
+                QuickPlanSpecialistReviewSummary(
+                    specialist="local_quality",
+                    status="fail",
+                    show_to_user=False,
+                    review_notes=["Too generic."],
+                    issue_count=1,
+                )
+            ],
+            assistant_summary="Quality review failed.",
+        ),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Build the activities-only Quick Plan.",
+            "trip_draft": {
+                "title": "Barcelona trip",
+                "configuration": {
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    }
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    specialists = result["metadata"]["planner_observability"][
+        "provider_activation"
+    ]["quick_plan_quality_specialists"]
+
+    assert specialists == [
+        {
+            "specialist": "local_quality",
+            "status": "fail",
+            "show_to_user": False,
+            "review_notes": ["Too generic."],
+            "issue_count": 1,
+        }
+    ]
+    json.dumps(specialists)
+
+
+def test_quality_repairable_review_repairs_once_and_merges_repaired_candidate(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        runner,
+        "review_trip_brief_intelligence",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_destination_discovery_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_profile_origin_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Barcelona",
+            start_date="2026-10-02",
+            end_date="2026-10-04",
+            adults=2,
+            selected_modules={
+                "flights": False,
+                "weather": False,
+                "activities": True,
+                "hotels": False,
+            },
+            confirmed_fields=[
+                "to_location",
+                "start_date",
+                "end_date",
+                "adults",
+                "selected_modules",
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="start_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="end_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="adults", confidence="high"),
+                TripFieldConfidenceUpdate(field="selected_modules", confidence="high"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="start_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="end_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="adults", source="user_explicit"),
+                TripFieldSourceUpdate(field="selected_modules", source="user_explicit"),
+            ],
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=QuickPlanDraft(
+                board_summary="Generic first candidate should stay private.",
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="Generic first candidate",
+                        day_label="Day 1",
+                        start_at="2026-10-02T10:00:00Z",
+                        end_at="2026-10-02T12:00:00Z",
+                        timing_source="planner_estimate",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+
+    def _fake_repair(**kwargs):
+        repair_context = kwargs["repair_context"]
+        captured["repair_goal"] = repair_context.repair_goal
+        captured["repair_payload"] = repair_context.prompt_payload()
+        return QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(
+                activities=[
+                    ActivityDetail(
+                        id="quality_repair_activity",
+                        title="El Born tapas route with Picasso Museum timing",
+                    )
+                ]
+            ),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=QuickPlanDraft(
+                board_summary="Barcelona now has a sharper food and culture route.",
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="El Born tapas route with Picasso Museum timing",
+                        day_label="Day 1",
+                        start_at="2026-10-02T10:00:00Z",
+                        end_at="2026-10-02T14:00:00Z",
+                        timing_source="planner_estimate",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        )
+
+    monkeypatch.setattr(runner, "run_quick_plan_repair", _fake_repair)
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_generation",
+        lambda **_: QuickPlanReviewResult(status="complete", show_to_user=True),
+    )
+    quality_results = [
+        QuickPlanQualityReviewResult(
+            status="repairable",
+            show_to_user=False,
+            scorecard=QuickPlanQualityScorecard(
+                geography=8,
+                pacing=7,
+                local_specificity=4,
+                user_fit=6,
+                logistics_realism=8,
+                fact_safety=8,
+            ),
+            issues=[
+                QuickPlanQualityIssue(
+                    dimension="local_specificity",
+                    issue="The plan is too generic for Barcelona.",
+                    repair_instruction="Use named Barcelona food and culture anchors.",
+                )
+            ],
+            repair_instructions=["Rebuild around specific neighborhoods."],
+            assistant_summary="Quality review found the first draft too generic.",
+        ),
+        _passing_quick_plan_quality_review(),
+    ]
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_quality",
+        lambda **_: quality_results.pop(0),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Build the activities-only Quick Plan.",
+            "trip_draft": {
+                "title": "Barcelona trip",
+                "configuration": {
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    }
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+
+    assert captured["repair_goal"] == "quality"
+    assert captured["repair_payload"]["quality_scores"]["local_specificity"] == 4
+    assert captured["repair_payload"]["quality_issues"][0]["dimension"] == "local_specificity"
+    assert result["trip_draft"]["timeline"][0]["title"] == (
+        "El Born tapas route with Picasso Museum timing"
+    )
+    assert result["trip_draft"]["module_outputs"]["activities"][0]["id"] == (
+        "quality_repair_activity"
+    )
+    assert "started a quick plan" in result["assistant_response"].lower()
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempted"] is True
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempt_count"] == 1
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_goal"] == "quality"
+    assert observability["provider_activation"]["quick_plan_repair"]["first_quality_review"]["status"] == "repairable"
+    assert observability["provider_activation"]["quick_plan_repair"]["final_quality_review"]["status"] == "pass"
+    assert observability["provider_activation"]["quick_plan_repair"]["final_visible"] is True
+    assert observability["provider_activation"]["quick_plan_acceptance"]["accepted"] is True
+    assert observability["provider_activation"]["quick_plan_acceptance"]["quality_status"] == "pass"
+
+
+def test_incomplete_quick_plan_review_repairs_once_and_merges_complete_candidate(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "review_trip_brief_intelligence",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_destination_discovery_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_profile_origin_update",
+        lambda **kwargs: kwargs["llm_update"],
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(
+            to_location="Barcelona",
+            start_date="2026-10-02",
+            end_date="2026-10-04",
+            adults=2,
+            selected_modules={
+                "flights": False,
+                "weather": False,
+                "activities": True,
+                "hotels": False,
+            },
+            confirmed_fields=[
+                "to_location",
+                "start_date",
+                "end_date",
+                "adults",
+                "selected_modules",
+            ],
+            field_confidences=[
+                TripFieldConfidenceUpdate(field="to_location", confidence="high"),
+                TripFieldConfidenceUpdate(field="start_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="end_date", confidence="high"),
+                TripFieldConfidenceUpdate(field="adults", confidence="high"),
+                TripFieldConfidenceUpdate(field="selected_modules", confidence="high"),
+            ],
+            field_sources=[
+                TripFieldSourceUpdate(field="to_location", source="user_explicit"),
+                TripFieldSourceUpdate(field="start_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="end_date", source="user_explicit"),
+                TripFieldSourceUpdate(field="adults", source="user_explicit"),
+                TripFieldSourceUpdate(field="selected_modules", source="user_explicit"),
+            ],
+            confirmed_trip_brief=True,
+            requested_planning_mode="quick",
+            assistant_response="",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=QuickPlanDraft(
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="Incomplete first candidate",
+                        day_label="Day 1",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_repair",
+        lambda **kwargs: QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(
+                activities=[
+                    ActivityDetail(
+                        id="repair_activity",
+                        title="Repaired Barcelona day plan",
+                    )
+                ]
+            ),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=QuickPlanDraft(
+                board_summary="Repaired Barcelona quick plan is ready.",
+                timeline_preview=[
+                    ProposedTimelineItem(
+                        type="activity",
+                        title="Repaired Barcelona day plan",
+                        day_label="Day 1",
+                        start_at="2026-10-02T10:00:00Z",
+                        end_at="2026-10-02T14:00:00Z",
+                        timing_source="planner_estimate",
+                    )
+                ],
+            ),
+            assumptions=kwargs["dossier"].assumptions,
+        ),
+    )
+    review_results = [
+        QuickPlanReviewResult(
+            status="incomplete",
+            show_to_user=False,
+            missing_outputs=["timing"],
+            review_notes=["The candidate is missing usable timing."],
+        ),
+        QuickPlanReviewResult(
+            status="complete",
+            show_to_user=True,
+            assistant_summary="Repair passed review.",
+        ),
+    ]
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_generation",
+        lambda **_: review_results.pop(0),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "Build the activities-only Quick Plan.",
+            "trip_draft": {
+                "title": "Barcelona trip",
+                "configuration": {
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    }
+                },
+                "timeline": [],
+                "module_outputs": {},
+                "status": {},
+            },
+        }
+    )
+
+    observability = result["metadata"]["planner_observability"]
+
+    assert result["trip_draft"]["timeline"][0]["title"] == "Repaired Barcelona day plan"
+    assert result["trip_draft"]["module_outputs"]["activities"][0]["id"] == "repair_activity"
+    assert result["trip_draft"]["budget_estimate"]["categories"]
+    assert "started a quick plan" in result["assistant_response"].lower()
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempted"] is True
+    assert observability["provider_activation"]["quick_plan_repair"]["repair_attempt_count"] == 1
+    assert observability["provider_activation"]["quick_plan_repair"]["first_review_result"]["status"] == "incomplete"
+    assert observability["provider_activation"]["quick_plan_repair"]["final_review_result"]["status"] == "complete"
+    assert observability["provider_activation"]["quick_plan_repair"]["final_visible"] is True
+    assert observability["provider_activation"]["quick_plan_acceptance"]["accepted"] is True
 
 
 def test_planner_evaluation_case_set_is_well_formed() -> None:
@@ -777,7 +2489,15 @@ def test_destination_discovery_pivot_replaces_visible_shortlist(monkeypatch) -> 
                 },
                 "timeline": [],
                 "module_outputs": {},
-                "status": {},
+                "status": {
+                    "confirmed_fields": [
+                        "from_location",
+                        "to_location",
+                        "travel_window",
+                        "trip_length",
+                        "adults",
+                    ],
+                },
             },
         }
     )
@@ -1117,9 +2837,9 @@ def test_advanced_mode_enters_date_resolution_before_anchor_choice(
     )
 
     def _fail_quick_plan(**_kwargs):
-        raise AssertionError("Quick Plan draft should not run for advanced mode.")
+        raise AssertionError("Quick Plan generation should not run for advanced mode.")
 
-    monkeypatch.setattr(runner, "generate_quick_plan_draft", _fail_quick_plan)
+    monkeypatch.setattr(runner, "run_quick_plan_generation", _fail_quick_plan)
 
     result = bootstrap.process_trip_turn(
         {
@@ -3928,14 +5648,14 @@ def test_quick_plan_blocks_flights_until_traveller_count_is_reliable(monkeypatch
 
     assert observability["provider_activation"]["quick_plan_ready"] is False
     assert observability["provider_activation"]["blocked_modules"]["flights"] == [
-        "traveller count is not reliable enough yet"
+        "adult traveler count is required when flights or hotels are included"
     ]
     assert observability["provider_activation"]["blocked_modules"]["hotels"] == [
-        "traveller count is not reliable enough yet"
+        "adult traveler count is required when flights or hotels are included"
     ]
 
 
-def test_brief_confirmation_does_not_skip_planning_mode_choice_when_scope_is_implicit(
+def test_brief_confirmation_quick_request_defaults_implicit_scope_to_full_trip(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
@@ -3945,6 +5665,40 @@ def test_brief_confirmation_does_not_skip_planning_mode_choice_when_scope_is_imp
             confirmed_trip_brief=True,
             requested_planning_mode="quick",
             assistant_response="",
+        ),
+    )
+    def _fake_run_quick_plan_generation(**kwargs):
+        draft = QuickPlanDraft(
+            board_summary="Valencia now has a complete quick draft.",
+            timeline_preview=[
+                ProposedTimelineItem(
+                    type="activity",
+                    title="Arrival evening around Ciutat Vella",
+                    day_label="Day 1",
+                    summary="A light first evening after travel.",
+                )
+            ],
+        )
+        return QuickPlanGenerationAttempt(
+            status="generated",
+            module_outputs=TripModuleOutputs(),
+            timeline_module_outputs=TripModuleOutputs(),
+            draft=draft,
+            assumptions=kwargs["dossier"].assumptions,
+        )
+
+    monkeypatch.setattr(
+        runner,
+        "run_quick_plan_generation",
+        _fake_run_quick_plan_generation,
+    )
+    monkeypatch.setattr(
+        runner,
+        "review_quick_plan_generation",
+        lambda **_: QuickPlanReviewResult(
+            status="complete",
+            show_to_user=True,
+            assistant_summary="Quick Plan passed review.",
         ),
     )
 
@@ -3966,22 +5720,37 @@ def test_brief_confirmation_does_not_skip_planning_mode_choice_when_scope_is_imp
                 },
                 "timeline": [],
                 "module_outputs": {},
-                "status": {},
+                "status": {
+                    "confirmed_fields": [
+                        "from_location",
+                        "to_location",
+                        "travel_window",
+                        "trip_length",
+                        "adults",
+                    ],
+                },
             },
         }
     )
 
     conversation = result["trip_draft"]["conversation"]
+    observability = result["metadata"]["planner_observability"]
     assistant_response = result["assistant_response"].lower()
 
-    assert conversation["planning_mode"] is None
-    assert conversation["suggestion_board"]["mode"] == "planning_mode_choice"
-    assert "quick plan is selected" not in assistant_response
-    assert "here is the brief i am using" in assistant_response
-    assert "coventry to valencia, spain" in assistant_response
-    assert "business conference" in assistant_response
-    assert "quick plan" in assistant_response
-    assert "advanced planning" in assistant_response
+    assert conversation["planning_mode"] == "quick"
+    assert observability["provider_activation"]["quick_plan_ready"] is True
+    assert observability["provider_activation"]["quick_plan_readiness"]["module_scope_source"] == "default_full_trip"
+    assert observability["provider_activation"]["quick_plan_review"]["status"] == "complete"
+    assert observability["provider_activation"]["quick_plan_acceptance"]["accepted"] is True
+    assert observability["provider_activation"]["quick_plan_acceptance"]["quality_status"] == "pass"
+    assert observability["provider_activation"]["allowed_modules"] == [
+        "flights",
+        "hotels",
+        "activities",
+        "weather",
+    ]
+    assert "started a quick plan" in assistant_response
+    assert "valencia, spain" in assistant_response
 
 
 def test_zero_adults_does_not_count_as_reliable_traveller_signal(monkeypatch) -> None:
@@ -4040,10 +5809,10 @@ def test_zero_adults_does_not_count_as_reliable_traveller_signal(monkeypatch) ->
     assert observability["provider_activation"]["traveler_ready"] is False
     assert observability["provider_activation"]["field_readiness"]["travellers"]["has_value"] is False
     assert observability["provider_activation"]["blocked_modules"]["flights"] == [
-        "traveller count is not reliable enough yet"
+        "adult traveler count is required when flights or hotels are included"
     ]
     assert observability["provider_activation"]["blocked_modules"]["hotels"] == [
-        "traveller count is not reliable enough yet"
+        "adult traveler count is required when flights or hotels are included"
     ]
 
 
@@ -4714,6 +6483,270 @@ def test_finalize_advanced_plan_does_not_finalize_quick_plan(monkeypatch) -> Non
     assert result["trip_draft"]["status"]["confirmation_status"] == "unconfirmed"
 
 
+def test_finalize_quick_plan_blocks_loose_timeline_without_acceptance(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_finalize_loose_quick",
+                "type": "finalize_quick_plan",
+            },
+            "trip_draft": {
+                "title": "Lisbon planner",
+                "configuration": {
+                    "to_location": "Lisbon",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    },
+                },
+                "timeline": [
+                    {
+                        "id": "activity_1",
+                        "type": "activity",
+                        "title": "Alfama walk",
+                        "start_at": "2027-05-01T10:00:00Z",
+                        "end_at": "2027-05-01T12:00:00Z",
+                        "source_module": "activities",
+                    }
+                ],
+                "module_outputs": {},
+                "status": {},
+                "conversation": {
+                    "planning_mode": "quick",
+                    "planning_mode_status": "selected",
+                },
+            },
+        }
+    )
+
+    finalization = result["trip_draft"]["conversation"]["quick_plan_finalization"]
+    assert result["trip_draft"]["status"]["confirmation_status"] == "unconfirmed"
+    assert finalization["brochure_eligible"] is False
+    assert "reviewed and accepted" in finalization["blocked_reasons"][0]
+    assert "did not save a brochure snapshot" in result["assistant_response"]
+
+
+def test_finalize_quick_plan_blocks_full_trip_missing_required_logistics(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_finalize_missing_logistics",
+                "type": "finalize_quick_plan",
+            },
+            "trip_draft": {
+                "title": "Rome planner",
+                "configuration": {
+                    "to_location": "Rome",
+                    "selected_modules": {
+                        "flights": True,
+                        "weather": True,
+                        "activities": True,
+                        "hotels": True,
+                    },
+                },
+                "timeline": [
+                    {
+                        "id": "activity_1",
+                        "type": "activity",
+                        "title": "Forum morning",
+                        "start_at": "2027-06-02T10:00:00Z",
+                        "end_at": "2027-06-02T12:00:00Z",
+                        "source_module": "activities",
+                    }
+                ],
+                "module_outputs": {
+                    "activities": [
+                        {
+                            "id": "activity_1",
+                            "title": "Forum morning",
+                        }
+                    ]
+                },
+                "status": {},
+                "conversation": {
+                    "planning_mode": "quick",
+                    "planning_mode_status": "selected",
+                    "quick_plan_finalization": {
+                        "accepted": True,
+                        "review_status": "complete",
+                        "quality_status": "pass",
+                        "brochure_eligible": True,
+                        "accepted_modules": ["flights", "weather", "activities", "hotels"],
+                        "assumptions": [],
+                        "blocked_reasons": [],
+                        "review_result": {"status": "complete"},
+                        "quality_result": {"status": "pass"},
+                    },
+                },
+            },
+        }
+    )
+
+    finalization = result["trip_draft"]["conversation"]["quick_plan_finalization"]
+    assert result["trip_draft"]["status"]["confirmation_status"] == "unconfirmed"
+    assert finalization["brochure_eligible"] is False
+    assert any("flight" in reason for reason in finalization["blocked_reasons"])
+    assert any("stay" in reason for reason in finalization["blocked_reasons"])
+    assert finalization["quality_status"] == "pass"
+
+
+def test_finalize_quick_plan_blocks_without_quality_pass(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_finalize_quality_missing",
+                "type": "finalize_quick_plan",
+            },
+            "trip_draft": {
+                "title": "Porto planner",
+                "configuration": {
+                    "to_location": "Porto",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    },
+                },
+                "timeline": [
+                    {
+                        "id": "activity_1",
+                        "type": "activity",
+                        "title": "Ribeira food walk",
+                        "start_at": "2027-04-04T10:00:00Z",
+                        "end_at": "2027-04-04T12:00:00Z",
+                        "source_module": "activities",
+                    }
+                ],
+                "module_outputs": {
+                    "activities": [
+                        {
+                            "id": "activity_1",
+                            "title": "Ribeira food walk",
+                        }
+                    ]
+                },
+                "status": {},
+                "conversation": {
+                    "planning_mode": "quick",
+                    "planning_mode_status": "selected",
+                    "quick_plan_finalization": {
+                        "accepted": True,
+                        "review_status": "complete",
+                        "quality_status": "repairable",
+                        "brochure_eligible": True,
+                        "accepted_modules": ["activities"],
+                        "assumptions": [],
+                        "blocked_reasons": [],
+                        "review_result": {"status": "complete"},
+                        "quality_result": {"status": "repairable"},
+                    },
+                },
+            },
+        }
+    )
+
+    finalization = result["trip_draft"]["conversation"]["quick_plan_finalization"]
+    assert result["trip_draft"]["status"]["confirmation_status"] == "unconfirmed"
+    assert finalization["brochure_eligible"] is False
+    assert finalization["quality_status"] == "repairable"
+    assert any("quality review" in reason for reason in finalization["blocked_reasons"])
+
+
+def test_finalize_quick_plan_allows_accepted_activities_only_scope(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "generate_llm_trip_update",
+        lambda **_: TripTurnUpdate(assistant_response=""),
+    )
+
+    result = bootstrap.process_trip_turn(
+        {
+            "user_input": "",
+            "board_action": {
+                "action_id": "action_finalize_activities_only",
+                "type": "finalize_quick_plan",
+            },
+            "trip_draft": {
+                "title": "Porto planner",
+                "configuration": {
+                    "to_location": "Porto",
+                    "selected_modules": {
+                        "flights": False,
+                        "weather": False,
+                        "activities": True,
+                        "hotels": False,
+                    },
+                },
+                "timeline": [
+                    {
+                        "id": "activity_1",
+                        "type": "activity",
+                        "title": "Ribeira food walk",
+                        "start_at": "2027-04-04T10:00:00Z",
+                        "end_at": "2027-04-04T12:00:00Z",
+                        "source_module": "activities",
+                    }
+                ],
+                "module_outputs": {
+                    "activities": [
+                        {
+                            "id": "activity_1",
+                            "title": "Ribeira food walk",
+                        }
+                    ]
+                },
+                "status": {},
+                "conversation": {
+                    "planning_mode": "quick",
+                    "planning_mode_status": "selected",
+                    "quick_plan_finalization": {
+                        "accepted": True,
+                        "review_status": "complete",
+                        "quality_status": "pass",
+                        "brochure_eligible": True,
+                        "accepted_modules": ["activities"],
+                        "assumptions": [],
+                        "blocked_reasons": [],
+                        "review_result": {"status": "complete"},
+                        "quality_result": {"status": "pass"},
+                    },
+                },
+            },
+        }
+    )
+
+    finalization = result["trip_draft"]["conversation"]["quick_plan_finalization"]
+    assert result["trip_draft"]["status"]["confirmation_status"] == "finalized"
+    assert result["trip_draft"]["status"]["brochure_ready"] is True
+    assert finalization["brochure_eligible"] is True
+    assert finalization["quality_status"] == "pass"
+    assert finalization["accepted_modules"] == ["activities"]
+
+
 def test_chat_advanced_finalization_only_finalizes_from_review(monkeypatch) -> None:
     monkeypatch.setattr(
         runner,
@@ -4807,3 +6840,18 @@ def test_chat_advanced_finalization_only_finalizes_from_review(monkeypatch) -> N
 
     assert review_result["trip_draft"]["status"]["confirmation_status"] == "finalized"
     assert review_result["trip_draft"]["conversation"]["finalized_via"] == "chat"
+
+
+def _passing_quick_plan_quality_review() -> QuickPlanQualityReviewResult:
+    return QuickPlanQualityReviewResult(
+        status="pass",
+        show_to_user=True,
+        scorecard=QuickPlanQualityScorecard(
+            geography=8,
+            pacing=8,
+            local_specificity=8,
+            user_fit=8,
+            logistics_realism=8,
+            fact_safety=8,
+        ),
+    )

@@ -162,6 +162,241 @@ def test_quick_plan_brochure_payload_omits_advanced_sections() -> None:
     assert payload.planned_experience_summary is None
 
 
+def test_quick_plan_brochure_payload_includes_accepted_logistics_and_budget() -> None:
+    draft = TripDraft.model_validate(
+        {
+            "trip_id": "trip_paris",
+            "thread_id": "thread_paris",
+            "title": "Paris quick plan",
+            "configuration": {
+                "from_location": "London",
+                "to_location": "Paris",
+                "start_date": "2027-05-01",
+                "end_date": "2027-05-03",
+                "selected_modules": {
+                    "flights": True,
+                    "weather": True,
+                    "activities": True,
+                    "hotels": True,
+                },
+            },
+            "timeline": [
+                {
+                    "id": "flight_out",
+                    "type": "flight",
+                    "title": "Outbound flight",
+                    "start_at": "2027-05-01T08:00:00Z",
+                    "end_at": "2027-05-01T10:00:00Z",
+                    "source_module": "flights",
+                },
+                {
+                    "id": "stay_1",
+                    "type": "hotel",
+                    "title": "Left Bank Stay",
+                    "start_at": "2027-05-01T15:00:00Z",
+                    "end_at": "2027-05-03T10:00:00Z",
+                    "source_module": "hotels",
+                },
+                {
+                    "id": "activity_1",
+                    "type": "activity",
+                    "title": "Marais food walk",
+                    "start_at": "2027-05-02T11:00:00Z",
+                    "end_at": "2027-05-02T13:00:00Z",
+                    "source_module": "activities",
+                },
+                {
+                    "id": "flight_return",
+                    "type": "flight",
+                    "title": "Return flight",
+                    "start_at": "2027-05-03T18:00:00Z",
+                    "end_at": "2027-05-03T20:00:00Z",
+                    "source_module": "flights",
+                },
+            ],
+            "module_outputs": {
+                "flights": [
+                    {
+                        "id": "flight_out",
+                        "direction": "outbound",
+                        "carrier": "BA",
+                        "departure_airport": "LHR",
+                        "arrival_airport": "CDG",
+                        "departure_time": "2027-05-01T08:00:00Z",
+                        "arrival_time": "2027-05-01T10:00:00Z",
+                        "fare_amount": 120,
+                        "fare_currency": "GBP",
+                    },
+                    {
+                        "id": "flight_return",
+                        "direction": "return",
+                        "carrier": "BA",
+                        "departure_airport": "CDG",
+                        "arrival_airport": "LHR",
+                        "departure_time": "2027-05-03T18:00:00Z",
+                        "arrival_time": "2027-05-03T20:00:00Z",
+                        "fare_amount": 140,
+                        "fare_currency": "GBP",
+                    },
+                ],
+                "hotels": [
+                    {
+                        "id": "hotel_left_bank",
+                        "hotel_name": "Left Bank Stay",
+                        "area": "Saint-Germain",
+                        "nightly_rate_amount": 180,
+                        "nightly_rate_currency": "GBP",
+                        "check_in": "2027-05-01T15:00:00Z",
+                        "check_out": "2027-05-03T10:00:00Z",
+                    }
+                ],
+                "activities": [
+                    {
+                        "id": "activity_1",
+                        "title": "Marais food walk",
+                    }
+                ],
+            },
+            "budget_estimate": {
+                "total_low_amount": 700,
+                "total_high_amount": 920,
+                "currency": "GBP",
+                "categories": [
+                    {
+                        "category": "flights",
+                        "label": "Flights",
+                        "low_amount": 260,
+                        "high_amount": 260,
+                        "currency": "GBP",
+                        "source": "provider_price",
+                    }
+                ],
+                "caveat": "Directional estimate only.",
+            },
+            "conversation": {
+                "planning_mode": "quick",
+                "quick_plan_finalization": {
+                    "accepted": True,
+                    "review_status": "complete",
+                    "quality_status": "pass",
+                    "brochure_eligible": True,
+                    "accepted_modules": ["flights", "weather", "activities", "hotels"],
+                    "assumptions": [
+                        {"label": "Working dates", "value": "1-3 May 2027"}
+                    ],
+                    "blocked_reasons": [],
+                    "review_result": {"status": "complete"},
+                    "quality_result": {"status": "pass"},
+                    "intelligence_summary": {
+                        "plan_rationale": "Calm Paris food and culture route.",
+                        "excluded_modules": [],
+                        "provider_confidence_notes": [
+                            "Flight anchors are provider-backed.",
+                            "Stay anchor is provider-backed.",
+                        ],
+                    },
+                },
+            },
+        }
+    )
+
+    payload = build_brochure_snapshot_payload(
+        trip=SimpleNamespace(id="trip_paris"),
+        draft=draft,
+        version_number=1,
+    )
+
+    assert payload.planning_mode == "quick"
+    assert payload.quick_plan_module_scope == ["flights", "weather", "activities", "hotels"]
+    assert payload.quick_plan_review_status == "complete"
+    assert payload.quick_plan_quality_status == "pass"
+    assert payload.quick_plan_intelligence_summary["plan_rationale"] == (
+        "Calm Paris food and culture route."
+    )
+    assert "Flight anchors are provider-backed." in payload.quick_plan_provider_confidence_notes
+    assert len(payload.flights) == 2
+    assert payload.stays[0].hotel_name == "Left Bank Stay"
+    assert payload.budget_estimate is not None
+    assert payload.budget_summary.headline == "Estimated trip range"
+    assert not any("Flight timing is not fully locked" in warning.title for warning in payload.warnings)
+    assert not any("Hotel selection is still open" in warning.title for warning in payload.warnings)
+    assert any("Working dates" in note for note in payload.planning_notes)
+    assert any("planning snapshots" in note for note in payload.planning_notes)
+
+
+def test_activities_only_quick_plan_brochure_notes_excluded_modules() -> None:
+    draft = TripDraft.model_validate(
+        {
+            "trip_id": "trip_lisbon",
+            "thread_id": "thread_lisbon",
+            "title": "Lisbon activities quick plan",
+            "configuration": {
+                "to_location": "Lisbon",
+                "selected_modules": {
+                    "flights": False,
+                    "weather": False,
+                    "activities": True,
+                    "hotels": False,
+                },
+            },
+            "timeline": [
+                {
+                    "id": "activity_1",
+                    "type": "activity",
+                    "title": "Alfama walk",
+                    "start_at": "2027-04-01T10:00:00Z",
+                    "end_at": "2027-04-01T12:00:00Z",
+                    "source_module": "activities",
+                }
+            ],
+            "module_outputs": {
+                "activities": [
+                    {
+                        "id": "activity_1",
+                        "title": "Alfama walk",
+                    }
+                ]
+            },
+            "conversation": {
+                "planning_mode": "quick",
+                "quick_plan_finalization": {
+                    "accepted": True,
+                    "review_status": "complete",
+                    "quality_status": "pass",
+                    "brochure_eligible": True,
+                    "accepted_modules": ["activities"],
+                    "assumptions": [],
+                    "blocked_reasons": [],
+                    "review_result": {"status": "complete"},
+                    "quality_result": {"status": "pass"},
+                    "intelligence_summary": {
+                        "plan_rationale": "Lisbon activities were accepted as the requested scope.",
+                        "excluded_modules": [
+                            {"module": "flights", "reason": "Excluded by request"},
+                            {"module": "hotels", "reason": "Excluded by request"},
+                        ],
+                        "provider_confidence_notes": [
+                            "Activity ideas are grounded in accepted module outputs."
+                        ],
+                    },
+                },
+            },
+        }
+    )
+
+    payload = build_brochure_snapshot_payload(
+        trip=SimpleNamespace(id="trip_lisbon"),
+        draft=draft,
+        version_number=1,
+    )
+
+    assert any("Flights were excluded" in note for note in payload.planning_notes)
+    assert any("Stays were excluded" in note for note in payload.planning_notes)
+    assert payload.quick_plan_excluded_modules[0]["module"] == "flights"
+    assert not any(warning.id == "warning_flights_pending" for warning in payload.warnings)
+    assert not any(warning.id == "warning_hotel_pending" for warning in payload.warnings)
+
+
 def _advanced_draft(*, review_status: str, include_conflict: bool = False) -> TripDraft:
     review_notes = (
         ["The selected hotel is far from the strongest evening plan."]

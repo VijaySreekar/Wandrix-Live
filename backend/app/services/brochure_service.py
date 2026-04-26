@@ -50,6 +50,14 @@ def create_brochure_snapshot_for_trip(
     trip: TripModel,
     draft: TripDraft,
 ) -> BrochureSnapshot:
+    if (
+        draft.conversation.planning_mode == "quick"
+        and not draft.conversation.quick_plan_finalization.brochure_eligible
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quick Plan is not accepted and brochure-eligible yet.",
+        )
     version_number = get_next_brochure_version_number(db, trip.id)
     finalized_at = draft.status.finalized_at or datetime.now(UTC)
     payload = build_brochure_snapshot_payload(trip=trip, draft=draft, version_number=version_number)
@@ -189,6 +197,7 @@ def build_brochure_snapshot_payload(
     brochure_timeline = _build_brochure_timeline(draft)
     brochure_flights = _build_brochure_flights(draft)
     brochure_stays = _build_brochure_stays(draft)
+    quick_plan_intelligence_summary = _quick_plan_intelligence_summary(draft)
     hero_image = BrochureHeroImage(
         url=get_destination_hero_image(destination_label),
         alt_text=f"{destination_label or 'Destination'} hero image for brochure cover",
@@ -205,6 +214,24 @@ def build_brochure_snapshot_payload(
         budget_text=budget_text,
         style_tags=list(draft.configuration.activity_styles),
         module_tags=_build_module_tags(draft),
+        planning_mode=draft.conversation.planning_mode,
+        quick_plan_module_scope=_quick_plan_module_scope(draft),
+        quick_plan_assumptions=list(draft.conversation.quick_plan_finalization.assumptions)
+        if draft.conversation.planning_mode == "quick"
+        else [],
+        quick_plan_review_status=draft.conversation.quick_plan_finalization.review_status
+        if draft.conversation.planning_mode == "quick"
+        else None,
+        quick_plan_quality_status=draft.conversation.quick_plan_finalization.quality_status
+        if draft.conversation.planning_mode == "quick"
+        else None,
+        quick_plan_intelligence_summary=quick_plan_intelligence_summary,
+        quick_plan_excluded_modules=list(
+            quick_plan_intelligence_summary.get("excluded_modules") or []
+        ),
+        quick_plan_provider_confidence_notes=list(
+            quick_plan_intelligence_summary.get("provider_confidence_notes") or []
+        ),
         executive_summary=_build_executive_summary(draft, route_text),
         hero_image=hero_image,
         metrics=_build_metrics(draft),
@@ -236,6 +263,7 @@ def build_brochure_snapshot_payload(
         weather=list(draft.module_outputs.weather),
         highlights=list(draft.module_outputs.activities),
         planning_notes=_build_planning_notes(draft),
+        budget_estimate=draft.budget_estimate,
         budget_summary=_build_budget_summary(draft),
         travel_summary=_build_travel_summary(draft),
         resources=_build_resource_links(trip.id, version_number, destination_label),
@@ -1161,6 +1189,23 @@ def _build_module_tags(draft: TripDraft) -> list[str]:
     ]
 
 
+def _quick_plan_module_scope(draft: TripDraft) -> list[str]:
+    if draft.conversation.planning_mode != "quick":
+        return []
+    if draft.conversation.quick_plan_finalization.accepted_modules:
+        return list(draft.conversation.quick_plan_finalization.accepted_modules)
+    return _build_module_tags(draft)
+
+
+def _quick_plan_intelligence_summary(draft: TripDraft) -> dict:
+    if draft.conversation.planning_mode != "quick":
+        return {}
+    finalization = draft.conversation.quick_plan_finalization
+    if not finalization.accepted:
+        return {}
+    return dict(finalization.intelligence_summary or {})
+
+
 def _build_executive_summary(draft: TripDraft, route_text: str) -> str:
     if draft.conversation.last_turn_summary:
         return draft.conversation.last_turn_summary
@@ -1218,6 +1263,26 @@ def _build_metrics(draft: TripDraft) -> list[BrochureMetric]:
 
 def _build_planning_notes(draft: TripDraft) -> list[str]:
     notes = [f"Still refining: {field_name.replace('_', ' ')}." for field_name in draft.status.missing_fields]
+    quick_modules = set(_quick_plan_module_scope(draft))
+    if draft.conversation.planning_mode == "quick":
+        if "flights" not in quick_modules:
+            notes.append("Flights were excluded from this Quick Plan by request.")
+        if "hotels" not in quick_modules:
+            notes.append("Stays were excluded from this Quick Plan by request.")
+        if draft.module_outputs.flights:
+            notes.append(
+                "Accepted flight fares and timings are planning snapshots, not booked tickets."
+            )
+        if draft.module_outputs.hotels:
+            notes.append(
+                "Accepted stay rates and availability are planning snapshots, not reservations."
+            )
+        for assumption in draft.conversation.quick_plan_finalization.assumptions[:4]:
+            label = assumption.get("label") or assumption.get("field") or "Quick Plan assumption"
+            value = assumption.get("value") or assumption.get("description")
+            if value:
+                notes.append(f"{label}: {value}.")
+        return _dedupe_text(notes)[:8]
     if not draft.module_outputs.flights:
         notes.append("Exact flight inventory was not locked when this brochure snapshot was created.")
     if not draft.module_outputs.hotels:
@@ -1226,6 +1291,35 @@ def _build_planning_notes(draft: TripDraft) -> list[str]:
 
 
 def _build_budget_summary(draft: TripDraft) -> BrochureBudgetSummary:
+    if draft.budget_estimate:
+        estimate = draft.budget_estimate
+        if (
+            estimate.total_low_amount is not None
+            and estimate.total_high_amount is not None
+            and estimate.currency
+        ):
+            return BrochureBudgetSummary(
+                headline="Estimated trip range",
+                detail=(
+                    f"{format_currency_amount(estimate.total_low_amount, estimate.currency)} to "
+                    f"{format_currency_amount(estimate.total_high_amount, estimate.currency)}. "
+                    f"{estimate.caveat}"
+                )[:320],
+            )
+        category_labels = [
+            category.label
+            for category in estimate.categories
+            if category.source != "unavailable"
+        ]
+        if category_labels:
+            return BrochureBudgetSummary(
+                headline="Directional category estimates",
+                detail=(
+                    "The brochure includes category-level estimates for "
+                    f"{', '.join(category_labels[:5])}. {estimate.caveat}"
+                )[:320],
+            )
+
     headline = "Budget posture"
     if draft.configuration.budget_amount:
         detail = (
@@ -1278,8 +1372,16 @@ def _build_resource_links(trip_id: str, version_number: int, destination_label: 
 
 def _build_warnings(draft: TripDraft) -> list[BrochureWarning]:
     warnings: list[BrochureWarning] = []
+    quick_modules = set(_quick_plan_module_scope(draft))
+    quick_plan = draft.conversation.planning_mode == "quick"
 
-    if any(not flight.departure_time or not flight.arrival_time for flight in draft.module_outputs.flights) or not draft.module_outputs.flights:
+    if (
+        (not quick_plan or "flights" in quick_modules)
+        and (
+            any(not flight.departure_time or not flight.arrival_time for flight in draft.module_outputs.flights)
+            or not draft.module_outputs.flights
+        )
+    ):
         related_ids = [item.id for item in draft.timeline if item.type == "flight"]
         warnings.append(
             BrochureWarning(
@@ -1291,7 +1393,7 @@ def _build_warnings(draft: TripDraft) -> list[BrochureWarning]:
             )
         )
 
-    if not draft.module_outputs.hotels:
+    if (not quick_plan or "hotels" in quick_modules) and not draft.module_outputs.hotels:
         related_ids = [item.id for item in draft.timeline if item.type == "hotel"]
         warnings.append(
             BrochureWarning(

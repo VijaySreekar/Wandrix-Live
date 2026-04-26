@@ -5,9 +5,13 @@ from app.integrations.mapbox.client import create_mapbox_client
 Coordinates = tuple[float | None, float | None]
 
 
-def resolve_destination_coordinates(location_name: str) -> Coordinates:
+def resolve_destination_coordinates(
+    location_name: str,
+    *,
+    timeout: float | None = None,
+) -> Coordinates:
     settings = get_settings()
-    with create_mapbox_client() as client:
+    with create_mapbox_client(timeout=timeout) as client:
         response = client.get(
             "/search/geocode/v6/forward",
             params={

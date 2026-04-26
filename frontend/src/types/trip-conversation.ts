@@ -7,6 +7,7 @@ export type ChatPlannerPhase =
   | "finalized";
 export type PlannerConfirmationStatus = "unconfirmed" | "finalized";
 export type PlannerFinalizedVia = "chat" | "board";
+export type QuickPlanReviewStatus = "complete" | "incomplete" | "failed";
 export type PlannerPlanningMode = "quick" | "advanced";
 export type PlannerPlanningModeStatus =
   | "not_selected"
@@ -352,11 +353,15 @@ export type AdvancedFlightOptionCard = {
   arrival_time?: string | null;
   duration_text?: string | null;
   price_text?: string | null;
+  fare_amount?: number | null;
+  fare_currency?: string | null;
   stop_count?: number | null;
+  stop_details_available?: boolean | null;
   layover_summary?: string | null;
   legs?: AdvancedFlightLegCard[];
   timing_quality?: string | null;
   inventory_notice?: string | null;
+  inventory_source?: "live" | "cached" | "placeholder" | null;
   summary: string;
   tradeoffs: string[];
   source_kind: PlannerFlightOptionSource;
@@ -891,6 +896,7 @@ export type TripConversationState = {
   last_turn_summary?: string | null;
   active_goals: string[];
   planner_conflicts: PlannerConflictRecord[];
+  quick_plan_finalization?: QuickPlanFinalizationState;
   advanced_date_resolution?: AdvancedDateResolutionState;
   flight_planning?: AdvancedFlightPlanningState;
   weather_planning?: AdvancedWeatherPlanningState;
@@ -900,6 +906,51 @@ export type TripConversationState = {
   stay_planning?: AdvancedStayPlanningState;
   suggestion_board: TripSuggestionBoardState;
   memory: TripConversationMemory;
+};
+
+export type QuickPlanFinalizationState = {
+  accepted: boolean;
+  review_status?: QuickPlanReviewStatus | null;
+  quality_status?: string | null;
+  brochure_eligible: boolean;
+  accepted_modules: Array<"flights" | "weather" | "activities" | "hotels">;
+  assumptions: Record<string, unknown>[];
+  blocked_reasons: string[];
+  review_result?: Record<string, unknown>;
+  quality_result?: Record<string, unknown>;
+  intelligence_summary?: QuickPlanIntelligenceSummary;
+};
+
+export type QuickPlanIntelligenceSummary = {
+  plan_rationale?: string | null;
+  plan_fit?: {
+    user_intent?: string[];
+    pacing_rules?: string[];
+    quality_bar?: string[];
+  };
+  accepted_module_scope?: Array<"flights" | "weather" | "activities" | "hotels">;
+  excluded_modules?: Array<{
+    module: "flights" | "weather" | "activities" | "hotels";
+    reason: string;
+  }>;
+  day_architecture_highlights?: Array<{
+    day_label?: string | null;
+    theme?: string | null;
+    geography_focus?: string | null;
+    pacing_target?: string | null;
+  }>;
+  provider_confidence_notes?: string[];
+  timing_confidence?: {
+    sources?: string[];
+    provider_exact_count?: number;
+    planner_estimate_count?: number;
+  };
+  assumption_notes?: string[];
+  review_outcome?: {
+    completeness_status?: string | null;
+    quality_status?: string | null;
+    quality_scores?: Record<string, number>;
+  };
 };
 
 export type AdvancedFlightPlanningState = {

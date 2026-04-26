@@ -169,6 +169,7 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
   const advancedSections = payload.advanced_section_summaries ?? [];
   const flexibleItems = payload.flexible_items ?? [];
   const worthReviewingNotes = payload.worth_reviewing_notes ?? [];
+  const quickPlanReviewRows = buildQuickPlanReviewRows(payload);
   const proposalSummary =
     payload.advanced_review_summary ||
     payload.trip_character_summary ||
@@ -275,6 +276,30 @@ export function TripBrochure({ tripId, requestedVersion }: TripBrochureProps) {
 
       <div className="mt-10 grid min-w-0 gap-7 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] xl:items-start">
         <div className="min-w-0 space-y-7">
+          {payload.planning_mode === "quick" && quickPlanReviewRows.length > 0 ? (
+            <section className="rounded-[1.5rem] border border-[color:var(--planner-board-border)] bg-white px-6 py-6 shadow-[0_12px_40px_rgba(16,24,40,0.06)]">
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[color:var(--accent)]">
+                    Quick Plan review
+                  </p>
+                  <h2 className="mt-2 max-w-sm text-2xl font-semibold tracking-tight text-foreground">
+                    Why this plan was accepted
+                  </h2>
+                  <p className="mt-4 text-sm leading-7 text-foreground/62">
+                    {getQuickPlanRationale(payload) ||
+                      "This brochure was saved from an accepted Quick Plan that passed private completeness and quality checks."}
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {quickPlanReviewRows.map((row) => (
+                    <QuickPlanReviewCard key={row.title} title={row.title} body={row.body} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           {(payload.trip_character_summary || payload.planned_experience_summary || advancedSections.length > 0) && (
             <section className="rounded-[1.5rem] border border-[color:var(--planner-board-border)] bg-white px-6 py-6 shadow-[0_12px_40px_rgba(16,24,40,0.06)]">
               <div className="grid gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
@@ -618,6 +643,98 @@ function AdvancedProposalCard({ section }: { section: BrochureAdvancedSectionSum
   );
 }
 
+function QuickPlanReviewCard({ title, body }: { title: string; body: string }) {
+  return (
+    <article className="rounded-2xl border border-[color:var(--planner-board-border)] bg-[color:var(--planner-board-soft)] px-4 py-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--accent)]">
+        {title}
+      </p>
+      <p className="mt-2 text-xs leading-5 text-foreground/58">{body}</p>
+    </article>
+  );
+}
+
+function buildQuickPlanReviewRows(payload: BrochureSnapshotPayload) {
+  if (payload.planning_mode !== "quick") {
+    return [];
+  }
+  const providerNotes = payload.quick_plan_provider_confidence_notes ?? [];
+  const excludedModules = payload.quick_plan_excluded_modules ?? [];
+  const moduleScope = payload.quick_plan_module_scope ?? [];
+  const assumptions = payload.quick_plan_assumptions ?? [];
+  const rows = [
+    {
+      title: "Review outcome",
+      body: [
+        payload.quick_plan_review_status
+          ? `Completeness ${payload.quick_plan_review_status}`
+          : null,
+        payload.quick_plan_quality_status
+          ? `quality ${payload.quick_plan_quality_status}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(", "),
+    },
+    {
+      title: "Accepted scope",
+      body: moduleScope.length
+        ? moduleScope.map(formatModuleLabel).join(", ")
+        : "Accepted module scope was not stored on this snapshot.",
+    },
+    {
+      title: "Provider confidence",
+      body: providerNotes[0] || "Provider confidence notes were not stored on this snapshot.",
+    },
+    {
+      title: "Assumptions",
+      body:
+        assumptions
+          .slice(0, 2)
+          .map(formatAssumption)
+          .filter(Boolean)
+          .join(" · ") ||
+        excludedModules
+          .slice(0, 2)
+          .map((item) => `${formatModuleLabel(String(item.module ?? ""))}: ${item.reason ?? "Excluded by request"}`)
+          .join(" · ") ||
+        "No major assumptions were stored on this snapshot.",
+    },
+  ];
+  return rows.filter((row) => row.body);
+}
+
+function getQuickPlanRationale(payload: BrochureSnapshotPayload) {
+  const summary = payload.quick_plan_intelligence_summary ?? {};
+  const rationale = summary.plan_rationale;
+  return typeof rationale === "string" ? rationale : null;
+}
+
+function formatAssumption(value: Record<string, unknown>) {
+  const label = value.label ?? value.type ?? value.field;
+  const detail = value.value ?? value.description;
+  if (label && detail) {
+    return `${String(label)}: ${String(detail)}`;
+  }
+  if (detail) {
+    return String(detail);
+  }
+  if (label) {
+    return String(label).replace(/_/g, " ");
+  }
+  return "";
+}
+
+function formatModuleLabel(value: string) {
+  if (!value) {
+    return "Module";
+  }
+  if (value === "hotels") {
+    return "Stays";
+  }
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function ProposalNotePanel({
   title,
   notes,
@@ -768,7 +885,7 @@ function BrochureEventRow({ item, warnings }: { item: TimelineItem; warnings: Br
           </>
         ) : (
           <span className="flex items-center gap-1 text-[10px] text-foreground/30">
-            <Clock className="h-2.5 w-2.5" />TBD
+            <Clock className="h-2.5 w-2.5" />Needs timing
           </span>
         )}
       </div>
@@ -995,14 +1112,14 @@ function formatDate(value: string) {
 }
 
 function formatDateShort(value: string | null) {
-  if (!value) return "TBD";
+  if (!value) return "Timing open";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(parsed);
 }
 
 function formatDateTime(value: string | null) {
-  if (!value) return "TBD";
+  if (!value) return "Timing open";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(parsed);
@@ -1010,6 +1127,6 @@ function formatDateTime(value: string | null) {
 
 function formatTime(value: string) {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value || "TBD";
+  if (Number.isNaN(parsed.getTime())) return value || "Needs timing";
   return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(parsed);
 }

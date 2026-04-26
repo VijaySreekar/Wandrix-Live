@@ -45,6 +45,7 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
       weather: [],
       activities: [],
     },
+    budget_estimate: null,
     status: {
       phase: "opening",
       confirmation_status: "unconfirmed",
@@ -70,6 +71,15 @@ export function buildStarterTripDraft(trip: TripCreateResponse): TripDraft {
       last_turn_summary: null,
       active_goals: [],
       planner_conflicts: [],
+      quick_plan_finalization: {
+        accepted: false,
+        review_status: null,
+        brochure_eligible: false,
+        accepted_modules: [],
+        assumptions: [],
+        blocked_reasons: [],
+        review_result: {},
+      },
       advanced_date_resolution: {
         source_timing_text: null,
         source_trip_length_text: null,

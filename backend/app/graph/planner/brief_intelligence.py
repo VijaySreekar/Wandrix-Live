@@ -43,6 +43,7 @@ def review_trip_brief_intelligence(
     if not _should_review_brief(
         user_input=user_input,
         configuration=configuration,
+        conversation=conversation,
         board_action=board_action,
         raw_messages=raw_messages,
         llm_update=llm_update,
@@ -130,11 +131,17 @@ def _should_review_brief(
     *,
     user_input: str,
     configuration: TripConfiguration,
+    conversation: TripConversationState,
     board_action: dict,
     raw_messages: list[dict],
     llm_update: TripTurnUpdate,
 ) -> bool:
     if board_action or not user_input.strip():
+        return False
+    if conversation.suggestion_board.mode in {
+        "planning_mode_choice",
+        "quick_plan_review",
+    }:
         return False
     if len(raw_messages) < 2:
         return False

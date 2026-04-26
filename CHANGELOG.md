@@ -9,6 +9,765 @@ Each entry should include:
 - Plain-English Summary
 - Files / Areas Touched
 
+## 2026-04-26 - Quick Plan Ordering And Acceptance Guard
+
+Technical Summary:
+- Fixed live-board itinerary grouping so day labels such as `Day 1 · Thu 7 May` sort by their numeric day instead of falling behind plain labels like `Day 4`.
+- Tightened Quick Plan generation normalization to add separate outbound and return flight anchors when flights are in scope.
+- Changed day-coverage normalization and review so note/weather-only interior days do not satisfy activity-day coverage.
+- Used the private Quick Plan day architecture when adding missing activity-day anchors, so fallback rows inherit route geography and pacing logic instead of generic placeholder text.
+- Tightened Quick Plan quality blocking so high-severity geography, pacing, local-specificity, or user-fit failures cannot become accepted board drafts.
+- Cleared stale Quick Plan finalization acceptance metadata when a later retry fails review, so the board cannot present an old accepted decision as the current attempt outcome.
+- Added targeted backend coverage for missing return flights and sparse note-only activity days.
+
+Plain-English Summary:
+- Quick Plan should no longer show Day 4 before Day 1, and it should not accept a thin itinerary that only has generic placeholders for later days or one-way flight logistics.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/quick_plan_review.py`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_quick_plan_review.py`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Editable Draft Visibility Gate
+
+Technical Summary:
+- Changed Quick Plan acceptance so complete candidates with timeline rows are only blocked by hard quality failures in fact safety or logistics realism.
+- Preserved private blocking for high-risk provider-fact or impossible-logistics outputs while allowing non-safety geography/local-specificity quality notes to attach as metadata on an editable board draft.
+- Treated unset hard-quality scores as blocking only when the review has no issue details or explicitly points to fact-safety/logistics problems, preventing geography-only feedback from hiding accepted drafts.
+- Updated repair-loop visibility metadata to use the same quality-blocking rule after repair attempts are exhausted.
+- Refreshed the selected trip workspace from FastAPI after initially rendering cached session data so the live board cannot stay stuck on stale “No itinerary yet” state after a successful backend draft update.
+- Added focused acceptance and runtime tests for blocking versus non-blocking quality review outcomes.
+
+Plain-English Summary:
+- Quick Plan no longer leaves the board empty just because a private reviewer wants stronger local detail. If the plan is structurally complete and safe, users now see an editable first draft while the quality feedback remains available internally.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/quick_plan_repair_orchestrator.py`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_quick_plan_repair_orchestrator.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Structured Output Schema Fix
+
+Technical Summary:
+- Replaced free-form Quick Plan strategy, provider-brief, and quality-review dictionary fields with typed Pydantic list/object contracts compatible with strict structured-output validation.
+- Preserved normalized provider anchor data while exposing flight and stay selections through typed internal models.
+- Updated quality specialist rollup metadata to use typed summaries instead of arbitrary nested maps.
+- Capped repaired Quick Plan scheduler timelines to the draft contract limit while preserving expected day coverage where possible.
+- Added deterministic post-scheduler Quick Plan anchors for missing required flights, stay, activities, and day coverage before the private review gate.
+- Tightened Quick Plan timeline capping so both flight anchors, the stay anchor, and activity/day coverage survive when a candidate has too many rows.
+- Added honest weather anchors for weather-scoped Quick Plans and made deterministic structural completeness authoritative unless the LLM review flags timing or provider-fact safety.
+- Ran independent Quick Plan quality specialists concurrently to reduce end-to-end chat latency without removing review checks.
+- Clamped quality-review assistant summaries to the schema limit so long reviewer issue lists cannot crash the conversation endpoint.
+- Clamped Quick Plan summaries before copying them into persisted conversation state so the stricter `last_turn_summary` limit cannot crash draft persistence.
+- Added service-level conversation sanitization so already-persisted overlong `last_turn_summary` values are repaired when a trip draft is loaded, passed into the graph, or returned to the client.
+- Stored Quick Plan quality specialist observability as plain JSON dictionaries instead of Pydantic objects so LangGraph checkpoints do not deserialize unregistered classes.
+- Added/updated focused Quick Plan tests for the new typed contracts.
+
+Plain-English Summary:
+- Quick Plan was failing before itinerary generation because one private AI response schema was invalid, then a later scheduler pass could overfill or under-cover the board timeline. The private planning steps now use stricter typed outputs, keep scheduled rows inside the board contract, add honest structural anchors before review, and run private quality checks faster.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_strategy.py`
+- `backend/app/graph/planner/quick_plan_provider_brief.py`
+- `backend/app/graph/planner/quick_plan_quality_models.py`
+- `backend/app/graph/planner/quick_plan_quality_review.py`
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/quick_plan_scheduler.py`
+- `backend/app/services/conversation_service.py`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_quick_plan_quality_review.py`
+- `backend/tests/test_quick_plan_scheduler.py`
+- `backend/tests/test_conversation_service.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Visible Brief Confirmation Fix
+
+Technical Summary:
+- Treated Quick Plan selection from a complete visible brief as confirmation of that brief, allowing existing route, timing, traveller, and module fields to pass Quick Plan readiness.
+- Preserved provider-safety blocking for profile/default-derived origins that still need trip-specific confirmation.
+- Updated origin blocker wording so an existing but untrusted origin asks for confirmation instead of saying the origin is missing.
+- Added runtime regression coverage for complete visible-brief Quick Plan selection and profile-origin confirmation.
+
+Plain-English Summary:
+- Quick Plan no longer asks “Where should I search flights from?” when the user already accepted a complete London-to-Kyoto brief, but it still asks for confirmation when London only came from profile memory.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/quick_plan_dossier.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Scenario Evaluation Harness
+
+Technical Summary:
+- Added a deterministic internal Quick Plan evaluation module with case, result, and finding models.
+- Added checks for accepted state, required module anchors, day coverage, visible row timing, duplicated day themes, module-scope leakage, explicit assumptions/exclusions, and budget-estimate presence when provider prices exist.
+- Added a compact JSON report builder for per-case pass/fail output, accepted modules, review status, quality status, repair count, and findings.
+- Added representative Quick Plan evaluation fixtures covering full-trip, narrowed-scope, weather, long-haul, family, and rough-date scenarios.
+- Added focused backend tests for fixture validation, passing full-trip and activities-only cases, and actionable failures for missing flights, missing stay, missing day coverage, and untimed rows.
+
+Plain-English Summary:
+- Quick Plan now has a repeatable internal scorecard so future model or prompt changes can be checked against stable trip-quality expectations instead of relying only on manual browser testing.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_evaluator.py`
+- `backend/tests/fixtures/quick_plan_evaluation_cases.json`
+- `backend/tests/test_quick_plan_evaluation.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Intelligence-Aware Brochure Handoff
+
+Technical Summary:
+- Hardened brochure snapshot creation so finalized Quick Plans must still be accepted and brochure-eligible before snapshot creation.
+- Extended `BrochureSnapshotPayload` with Quick Plan review status, quality status, intelligence summary, excluded modules, and provider confidence notes.
+- Populated Quick Plan brochure fields from accepted finalization state, structured timeline/module outputs, assumptions, budget estimate, and intelligence summary without regeneration.
+- Added Quick Plan brochure planning notes for accepted provider-backed fare/rate snapshots and requested module exclusions.
+- Added a brochure “Quick Plan review” section that explains why the accepted Quick Plan was saved.
+- Added tests for Quick Plan brochure intelligence fields, excluded module notes, provider-backed warning suppression, and snapshot guard behavior.
+
+Plain-English Summary:
+- Finalized Quick Plans now save brochure snapshots that explain the accepted plan, carry review/quality status, and avoid misleading warnings when logistics were already accepted.
+
+Files / Areas Touched:
+- `backend/app/schemas/brochure.py`
+- `backend/app/services/brochure_service.py`
+- `backend/app/services/conversation_service.py`
+- `frontend/src/types/brochure.ts`
+- `frontend/src/components/brochure/trip-brochure.tsx`
+- `backend/tests/test_brochure_service.py`
+- `backend/tests/test_conversation_service.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Accepted-Plan Explainability
+
+Technical Summary:
+- Added accepted Quick Plan `intelligence_summary` metadata to finalization state, built deterministically from accepted strategy, provider brief, day architecture, assumptions, module outputs, and final review results.
+- Kept intelligence summaries private for unaccepted, incomplete, failed, or quality-blocked Quick Plan candidates.
+- Added frontend types for Quick Plan intelligence summaries.
+- Added a live-board “Why this plan works” panel for accepted Quick Plans, showing rationale, module scope, logistics confidence, timing confidence, assumptions, excluded modules, and review outcome.
+- Enhanced timeline day headers to use accepted day-architecture themes when available without changing timeline ordering or row data.
+- Added backend tests for accepted summary exposure and unaccepted summary privacy.
+
+Plain-English Summary:
+- Accepted Quick Plans now explain why they are trustworthy on the live board, while hidden or failed drafts still reveal no private review details.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/runner.py`
+- `backend/app/schemas/trip_conversation.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Final Accepted-Plan Contract
+
+Technical Summary:
+- Extended `AcceptedQuickPlan` with final completeness review, final quality review, repair metadata, and intelligence metadata.
+- Tightened accepted-plan creation so only candidates with complete/showable completeness review, pass/showable quality review, and non-empty reviewed timeline preview can become board-visible.
+- Updated runner acceptance observability with completeness status, quality status, final review payloads, repair metadata, assumptions, accepted modules, and intelligence metadata presence.
+- Updated Quick Plan finalization metadata to store quality status/result and require quality pass for brochure eligibility.
+- Updated response copy so quality-blocked candidates explain that the draft did not meet the trip quality bar instead of falling through to generic empty-generation copy.
+- Updated backend and frontend conversation metadata types for optional Quick Plan quality finalization fields.
+
+Plain-English Summary:
+- Quick Plan now has a clear final contract: only a reviewed-complete and quality-passing plan can update the live board or become brochure-eligible.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/trip_conversation.py`
+- `frontend/src/types/trip-conversation.ts`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_brochure_service.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Second-Pass Quality Escalation
+
+Technical Summary:
+- Added `quick_plan_repair_orchestrator.py` to own Quick Plan repair loop policy, attempt counting, review sequencing, and accepted/not-accepted decision inputs.
+- Extended private repair policy to allow up to two total repair attempts, with the second attempt only available for complete candidates whose quality review remains repairable.
+- Added richer repair metadata including attempt count, per-attempt records, repair goals, first/final completeness and quality reviews, final visibility, and stopped reason.
+- Extended repair context payloads with original attempt, prior repair attempts, unresolved quality dimensions, attempt index, max attempts, and final-repair-chance markers.
+- Simplified `runner.py` so it calls the orchestrator and only merges accepted Quick Plans into board state.
+- Added tests for first-pass acceptance, second quality repair acceptance, failed second repair preservation, and quality-fail stop behavior.
+
+Plain-English Summary:
+- Quick Plan now gets one final private chance to fix a still-repairable quality problem. If the second repair still is not good enough, nothing reaches the board and the existing plan stays intact.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_repair_orchestrator.py`
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_quick_plan_repair_orchestrator.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Quality-Guided Repair
+
+Technical Summary:
+- Extended `QuickPlanRepairContext` to carry failed completeness review, failed quality review, quality issues, scorecards, repair instructions, repair goal, and previous strategy/provider/day architecture.
+- Added completeness and quality repair context builders while keeping the existing repair-context wrapper compatible.
+- Updated Quick Plan strategy, provider brief, day architecture, and draft prompts to regenerate a full fresh candidate from quality feedback without inventing provider facts.
+- Updated runner orchestration so a single private repair attempt can be spent on completeness failure or repairable quality failure, then reruns completeness and quality before acceptance.
+- Expanded repair and acceptance observability with first/final completeness reviews, first/final quality reviews, repair goal, final visibility, and accepted state.
+- Added tests for quality repair payloads, repaired quality acceptance, and non-repairable quality failures staying private.
+
+Plain-English Summary:
+- If Quick Plan creates a complete but weak draft, it now gets one private chance to rebuild the whole plan using the quality reviewers’ feedback. Only the repaired plan is shown if it passes both safety and quality checks.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/quick_plan_strategy.py`
+- `backend/app/graph/planner/quick_plan_provider_brief.py`
+- `backend/app/graph/planner/quick_plan_day_architecture.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Specialist Quality Review Gate
+
+Technical Summary:
+- Added shared Quick Plan quality review models with pass/repairable/fail status, specialist issues, repair instructions, and numeric dimension scorecards.
+- Added separate private specialist reviewers for geography, pacing, local specificity/user fit, and logistics/fact safety.
+- Added a quality review orchestrator that combines specialist outputs and blocks acceptance unless every quality dimension passes threshold.
+- Updated Quick Plan runner orchestration so quality review runs only after completeness passes, and accepted board merges require both completeness and quality approval.
+- Added provider activation observability for completeness review, quality review, specialist outputs, and quality-blocked acceptance decisions.
+- Added tests for quality pass/block behavior, acceptance gating, model routing, and board-state preservation on quality failure.
+
+Plain-English Summary:
+- Quick Plan now has a second private checkpoint that asks whether a complete draft is actually good enough to show. Generic, unrealistic, badly paced, or unsafe plans stay hidden and leave the existing board unchanged.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_quality_models.py`
+- `backend/app/graph/planner/quick_plan_geography_review.py`
+- `backend/app/graph/planner/quick_plan_pacing_review.py`
+- `backend/app/graph/planner/quick_plan_local_quality_review.py`
+- `backend/app/graph/planner/quick_plan_logistics_quality_review.py`
+- `backend/app/graph/planner/quick_plan_quality_review.py`
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_quick_plan_quality_review.py`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_llm_model_routing.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Pre-Draft Intelligence Layer
+
+Technical Summary:
+- Added private Quick Plan strategy, provider brief, and day architecture modules with structured Pydantic contracts.
+- Updated Quick Plan generation orchestration to run module enrichment, provider prioritization, strategy, provider interpretation, day architecture, draft generation, and scheduling in sequence.
+- Stored strategy, provider brief, and day architecture on `QuickPlanGenerationAttempt` for repair context, debugging, and observability.
+- Updated the draft prompt to consume the private strategy/provider/day architecture objects so itinerary rows are written from an explicit plan instead of inventing structure from scratch.
+- Added provider activation observability for `quick_plan_strategy`, `quick_plan_provider_brief`, and `quick_plan_day_architecture`.
+- Added tests for strategy context use, provider anchor interpretation, day coverage architecture, generation integration, failure behavior, model routing, and observability.
+
+Plain-English Summary:
+- Quick Plan now thinks through the trip strategy, provider facts, and every day’s structure before writing the itinerary, making generation more deliberate and less dependent on one oversized prompt.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_strategy.py`
+- `backend/app/graph/planner/quick_plan_provider_brief.py`
+- `backend/app/graph/planner/quick_plan_day_architecture.py`
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_llm_model_routing.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Clear Backend Fetch Failure Copy
+
+Technical Summary:
+- Updated the shared frontend API client to convert raw browser `TypeError` fetch failures into a clear Wandrix backend connectivity message.
+- Preserved explicit timeout handling so real client-side timeouts still report `API request timed out.`
+
+Plain-English Summary:
+- If the browser loses connection to the backend, chat now explains that the FastAPI server could not be reached instead of showing the confusing raw text `Failed to fetch`.
+
+Files / Areas Touched:
+- `frontend/src/lib/api/client.ts`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Day Coverage Repair
+
+Technical Summary:
+- Added deterministic scheduler-side day coverage repair for Quick Plan drafts so every requested trip day receives at least one safe, timed planner-estimated anchor before private review.
+- Added arrival, middle-day, and final-day fallback anchors that avoid claiming live provider facts while preserving a complete board-visible itinerary rhythm.
+- Updated scheduler tests so timed repair and timeout fallback paths now verify full trip-day coverage instead of allowing partial day spans through to review.
+
+Plain-English Summary:
+- Quick Plan was generating a private draft but hiding it because the completeness review found a missing trip day. The scheduler now fills safe editable anchors for any missing days before review, so otherwise usable drafts can reach the live board.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_scheduler.py`
+- `backend/tests/test_quick_plan_scheduler.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Fifteen Minute Request Timeout
+
+Technical Summary:
+- Added a shared Quick Plan LLM timeout constant set to 15 minutes.
+- Updated Quick Plan draft generation, scheduling, and review model calls to use the 15-minute timeout.
+- Increased the frontend trip conversation request timeout to 15 minutes so long-running Quick Plan turns are not aborted by the browser.
+- Added model-routing test coverage that verifies Quick Plan intelligence calls use the expanded timeout.
+
+Plain-English Summary:
+- Quick Plan now has enough time to finish longer generation/review runs instead of the browser or model call timing out after roughly a minute.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_timeouts.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/quick_plan_scheduler.py`
+- `backend/app/graph/planner/quick_plan_review.py`
+- `backend/tests/test_llm_model_routing.py`
+- `frontend/src/lib/api/conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Confirmed Brief Readiness
+
+Technical Summary:
+- Removed the LLM call from Quick Plan rough-date selection and now derive editable working dates deterministically from existing advanced date options.
+- Added future-window rollover for expired rough timing such as “this month for weekend,” preserving weekend intent and trip length when selecting the nearest viable future window.
+- Updated Quick Plan readiness so present fields in a confirmed structured brief can satisfy provider readiness when no lower-trust field provenance is recorded.
+- Preserved the existing provider-confidence blocker for profile-default origins and other explicitly provisional sources.
+
+Plain-English Summary:
+- Quick Plan no longer times out while choosing working dates, and it will not ask again for “London” when the confirmed trip brief already says the route is London to Kyoto.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_dates.py`
+- `backend/app/graph/planner/quick_plan_dossier.py`
+- `backend/tests/test_quick_plan_quality.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Rough Date Explanation
+
+Technical Summary:
+- Added Quick Plan working-date metadata to provider activation so successful and blocked/failed Quick Plan turns can explain assistant-derived rough-window dates.
+- Updated Quick Plan assistant responses to include the editable working date window and rationale when rough timing was converted into exact working dates.
+- Tightened Quick Plan date-selection instructions to stay inside rough windows when feasible and explain tradeoffs when rough timing and trip length conflict.
+
+Plain-English Summary:
+- When a traveller gives timing like “this month” or “a weekend,” Quick Plan now explains the working dates it chose and why, while still generating around those editable dates.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/graph/planner/quick_plan_dates.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan GPT-5.5 Medium Routing
+
+Technical Summary:
+- Changed the Quick Plan model defaults and local environment to `QUICK_PLAN_MODEL=gpt-5.5` and `QUICK_PLAN_REASONING_EFFORT=medium`.
+- Increased Quick Plan-only draft, scheduling, and review LLM timeouts and enabled one retry for those stronger-model calls.
+- Compacted Quick Plan generation/scheduling prompt payloads to pass only planning-critical configuration, dossier, provider, and draft fields to the Quick Plan model.
+- Preserved normal chat/model routing and left Quick Plan date selection on the default lightweight model.
+
+Plain-English Summary:
+- Quick Plan now uses the stronger GPT-5.5 model at medium reasoning for the heavy plan-building path, while normal chat stays on the lightweight model.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/quick_plan_context.py`
+- `backend/app/graph/planner/quick_plan_scheduler.py`
+- `backend/app/graph/planner/quick_plan_review.py`
+- `backend/app/core/config.py`
+- `backend/app/integrations/llm/client.py`
+- `backend/tests/test_llm_model_routing.py`
+- `.env`
+- `README.md`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Final Brochure Handoff
+
+Technical Summary:
+- Added persisted Quick Plan finalization metadata so the board and backend can distinguish reviewed-and-accepted Quick Plans from loose timeline rows.
+- Added a Quick Plan finalization guard that only allows `finalize_quick_plan` to finalize brochure-ready state when the accepted plan passed review and still contains required flight, stay, activity, and timing anchors for its module scope.
+- Persisted structured Quick Plan budget estimates on trip drafts so saved brochure snapshots receive the same accepted-board budget estimate.
+- Made brochure payloads Quick Plan aware by carrying accepted module scope, assumptions, structured budget estimates, and exclusion notes while suppressing misleading missing-flight/stay warnings for explicitly excluded modules.
+- Updated the live board confirmation affordance to appear only when a Quick Plan is accepted and brochure-eligible.
+
+Plain-English Summary:
+- Quick Plan can now be saved to the brochure view only after the accepted board plan is complete enough to trust; incomplete or unreviewed drafts stay editable and are not turned into final snapshots.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/schemas/brochure.py`
+- `backend/app/models/trip_draft.py`
+- `backend/app/repositories/trip_draft_repository.py`
+- `backend/app/services/conversation_service.py`
+- `backend/app/services/trip_service.py`
+- `backend/app/services/brochure_service.py`
+- `backend/alembic/versions/4d2f6a1b9c8e_add_budget_estimate_to_trip_drafts.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_brochure_service.py`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/types/brochure.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Model Routing Upgrade
+
+Technical Summary:
+- Added `quick_plan_model` and `quick_plan_reasoning_effort` backend settings, now defaulting to `gpt-5.5` and `medium`.
+- Added `create_quick_plan_chat_model` so Quick Plan draft generation, scheduling, review, and repair/regeneration use the stronger configured model path while normal planner calls continue using `OPENAI_MODEL`.
+- Updated local environment/documentation expectations for `OPENAI_MODEL=gpt-5.4-mini`, `QUICK_PLAN_MODEL=gpt-5.5`, and `QUICK_PLAN_REASONING_EFFORT=medium`.
+- Added routing coverage for settings defaults, default chat model preservation, Quick Plan factory parameters, Quick Plan draft/scheduler/review paths, and normal understanding staying on the default factory.
+
+Plain-English Summary:
+- Quick Plan now has its own stronger model route for the expensive plan-building and review work, without making everyday chat turns more expensive.
+
+Files / Areas Touched:
+- `backend/app/core/config.py`
+- `backend/app/integrations/llm/client.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/quick_plan_scheduler.py`
+- `backend/app/graph/planner/quick_plan_review.py`
+- `backend/tests/test_llm_model_routing.py`
+- `backend/tests/test_quick_plan_quality.py`
+- `backend/tests/test_quick_plan_scheduler.py`
+- `backend/tests/test_quick_plan_review.py`
+- `.env`
+- `README.md`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Estimated Budget Summary
+
+Technical Summary:
+- Added nullable structured trip-level budget estimate data with low/high totals, per-category estimates, currency, source labels, and caveat text.
+- Added a Quick Plan budget estimator that runs only after a reviewed-complete Quick Plan candidate is accepted, using accepted flight fares, accepted stay nightly rates, parseable activity price text, and posture-based planner bands for food and local movement.
+- Preserved user-entered budget fields separately from the generated spend estimate and avoided combined totals when priced categories use mixed currencies.
+- Added a compact live-board budget panel for Quick Plan estimates and backend coverage for provider prices, unavailable prices, mixed currencies, activity parsing, and budget immutability.
+
+Plain-English Summary:
+- Accepted Quick Plans now show a directional spend range on the live board without pretending prices are final or changing the user’s own budget target.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_draft.py`
+- `backend/app/graph/planner/quick_plan_budget.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_quick_plan_budget.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `backend/tests/test_trip_draft_schema.py`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/lib/trip-draft-starter.ts`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Visible Logistics Anchors
+
+Technical Summary:
+- Added a Quick Plan-specific timeline merge path that keeps accepted scheduled previews authoritative while selectively surfacing provider-backed flight and stay anchors.
+- Added planner-estimated check-in/check-out fallback timing for stay anchors when provider stay windows are unavailable, so reviewed-complete Quick Plans do not render logistics as missing timing.
+- Updated the live board timeline filter to show provider flight and hotel rows only for Quick Plan conversations, preserving Advanced Planning flight visibility gating.
+- Added backend coverage for accepted Quick Plan logistics anchors and updated stay-anchor timing expectations.
+
+Plain-English Summary:
+- Reviewed Quick Plans now look like complete trips on the live board: accepted flights and the stay appear directly in the itinerary instead of only in sidebar summaries.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_provider_enrichment.py`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Accepted Board Merge Boundary
+
+Technical Summary:
+- Added `AcceptedQuickPlan` as the final internal visibility boundary for reviewed Quick Plan candidates.
+- Centralized Quick Plan board merge inputs so only an accepted plan can provide persisted module outputs, timeline preview, assumptions, and review metadata.
+- Updated runner orchestration so `quick_plan_started`, board summary application, timeline replacement, and Quick Plan module output replacement only happen through an accepted complete review result.
+- Added provider activation observability for the final accepted/not-accepted decision.
+- Added backend coverage for accepted merge payloads, rejected incomplete payloads, complete first-pass acceptance, repaired acceptance, empty/failed non-acceptance, and incomplete-after-repair board preservation.
+
+Plain-English Summary:
+- Quick Plan now has a single honest visibility boundary: if the reviewed plan is accepted, the board updates atomically; if not, the existing board remains untouched and no success message is shown.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Review-Guided Private Regeneration
+
+Technical Summary:
+- Added a one-shot private Quick Plan repair path that regenerates a full fresh candidate when the first review is incomplete, or when an empty first attempt has enough ready dossier scope to retry.
+- Added `QuickPlanRepairContext`, `build_quick_plan_repair_context`, and `run_quick_plan_repair` so repair generation receives the original dossier, previous attempt, missing outputs, and reviewer notes.
+- Threaded repair feedback into the Quick Plan draft and scheduler prompts so the regenerated candidate explicitly addresses missing flights, stay, day coverage, timing, or module gaps.
+- Updated runner orchestration to review the repaired candidate again, merge only if the final review is complete, and keep hidden failed candidates out of user-visible board state.
+- Added repair observability with repair attempt status, first review, final review, and final visible decision.
+- Added backend coverage for skipped repair, repair prompt feedback, repaired-complete merge, repaired-incomplete board preservation, empty-attempt repair, and success-copy gating.
+
+Plain-English Summary:
+- Quick Plan now gets one private chance to fix an incomplete draft before deciding what to show. Users still never see partial plans: either the repaired plan passes review and appears, or the existing board stays unchanged with an honest explanation.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/quick_plan_scheduler.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Completeness Review Gate
+
+Technical Summary:
+- Added a private `QuickPlanReviewResult` gate that reviews generated Quick Plan candidates before any board merge.
+- Added structural completeness checks for scoped flights, stay/hotel anchors, activities, expected day coverage, and usable timing, with a structured LLM review for final completeness and provider-fact safety.
+- Changed the runner flow to `generation attempt -> review candidate -> board merge only when complete`, keeping existing timeline and module outputs intact when review is incomplete or failed.
+- Added review observability under provider activation and updated waiting copy so incomplete private candidates explain why no Quick Plan was shown without triggering success messaging.
+- Added backend coverage for complete, empty, missing flights, missing stay, missing activities, missing day coverage, untimed rows, activities-only pass behavior, and board preservation after incomplete review.
+
+Plain-English Summary:
+- Quick Plan now privately checks a generated draft before showing it. If the draft is missing required flights, stay details, activities, days, or timings, Wandrix keeps the current board unchanged instead of showing a partial plan.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_review.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_quick_plan_review.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Dossier-Driven Generation Attempt
+
+Technical Summary:
+- Added `QuickPlanGenerationAttempt` and `run_quick_plan_generation` as the single internal Quick Plan generation stage after readiness and dossier creation.
+- Moved Quick Plan provider enrichment, provider prioritization, timeline module selection, draft generation, and scheduling out of `runner.py` into the new helper.
+- Kept `runner.py` responsible for readiness, dossier creation, calling the generation stage, applying generated previews only when the attempt status is `generated`, and preserving existing empty-draft behavior.
+- Added focused backend coverage for allowed-module propagation, dossier forwarding into draft/scheduler calls, generated versus empty attempt status, and assumption preservation.
+
+Plain-English Summary:
+- Quick Plan generation now runs through one coherent backend step built from the dossier. This makes the raw generation result easier to inspect now and prepares the codebase for a later review step that can classify whether the generated plan is complete, partial, or blocked.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_generation.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_quick_plan_generation.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Dossier Readiness Gate
+
+Technical Summary:
+- Added an internal `QuickPlanDossier` and `QuickPlanReadiness` contract that centralizes Quick Plan generation inputs, module scope, recent raw chat, compact memory, decision history, goals, option memory, field readiness, and working-date assumptions.
+- Changed Quick Plan readiness so implicit scope defaults to the full-trip module set, while explicit user scope such as activities-only only requires fields needed by those selected modules.
+- Moved Quick Plan generation gating onto the new readiness result: destination and exact or assistant-derived working dates are required, flights require origin, and flights or hotels require adult traveler count.
+- Threaded the dossier into Quick Plan drafting and scheduling prompts, and exposed the structured readiness payload under provider activation observability for debugging and tests.
+- Updated backend coverage for implicit full-trip defaults, logistics blockers, activities-only readiness, assistant-derived working dates, dossier context, and runtime behavior.
+
+Plain-English Summary:
+- Quick Plan now has one clear preflight check before it generates. It can confidently start a complete first draft when the essentials are present, ask for origin or traveler count when logistics need them, and still support narrower requests like “activities only” without unnecessary blockers.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_dossier.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/quick_plan_scheduler.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_quick_plan_quality.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Board Timing Polish
+
+Technical Summary:
+- Strengthened Quick Plan schedule validation so planner-estimated rows that come back without model-provided clock values are repaired into real start/end times instead of being dropped or shown as needing timing.
+- Compacted Quick Plan LLM context for working-date selection, itinerary drafting, and scheduling so large conversation state no longer causes easy timeouts or empty drafts.
+- Added scheduler-timeout fallback repair: if the scheduling model times out after the itinerary draft is created, the validator now clocks the draft rows instead of returning an unscheduled plan.
+- Added Quick Plan success gating so the assistant no longer claims a draft itinerary was built unless usable itinerary rows are actually produced.
+- Prevented the save/confirm panel from appearing when the only persisted timeline rows are non-itinerary anchors such as a hotel card.
+- Added working-date length validation so an LLM-chosen window like “5 days” is repaired to the matching number of nights before providers and scheduling use it.
+- Surfaced rough trip timing from derived Quick Plan dates, travel windows, and trip length in the hero and stay cards instead of falling back to `Timing open`.
+- Updated the live itinerary display to render estimated clock labels for existing estimated rows, while keeping the estimated source label visible.
+- Restyled the Quick Plan confirmation panel to use the travel-board theme and accent tokens instead of a mismatched generic confirmation block.
+- Made chat message persistence flush pending local cache writes before navigation/unmount so recent messages survive reloads and route changes more reliably.
+- Switched the Quick Plan loader to a one-way progress flow to avoid looping through completed and active states at the same time.
+
+Plain-English Summary:
+- The Quick Plan board now feels more coherent and honest: itinerary rows show usable times, rough timing is turned into editable working dates, failed draft runs no longer pretend they succeeded, the save prompt only appears when there is a real itinerary, recent chat does not vanish as easily after navigation, and the loading sequence is calmer.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_context.py`
+- `backend/app/graph/planner/quick_plan_scheduler.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/quick_plan_dates.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/tests/test_quick_plan_scheduler.py`
+- `backend/tests/test_quick_plan_quality.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `frontend/src/components/package/quick-plan-loader.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+
+## 2026-04-25 - Clocked Quick Plan Scheduling
+
+Technical Summary:
+- Added a dedicated LLM-first Quick Plan scheduler that runs after provider enrichment and draft generation, then validates and repairs chronology before the timeline merge.
+- Extended timeline contracts with `timing_source` and `timing_note` so provider-exact and planner-estimated times can be displayed honestly.
+- Made Quick Plan previews authoritative during timeline merge to avoid unscheduled derived activity/weather rows leaking back into a clocked plan.
+- Stopped standalone weather provider outputs from becoming itinerary rows; weather remains a sidebar/context signal unless the scheduler places it into a real activity decision.
+- Updated the live board and brochure timeline rendering to show clock times with subtle estimated labels, and to mark legacy unscheduled rows as needing timing instead of rendering `Flex` or `TBD`.
+- Added focused scheduler tests for conference rhythm, arrival bounds, return-flight bounds, and missing end-time repair.
+
+Plain-English Summary:
+- Quick Plans now have a proper day-by-day clock instead of vague flexible rows. The planner can place meals, transfers, conference blocks, evenings, and back-to-hotel movement around flights and stay anchors, while clearly showing which times are estimated.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_scheduler.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/app/schemas/trip_planning.py`
+- `backend/tests/test_quick_plan_scheduler.py`
+- `backend/tests/test_provider_enrichment.py`
+- `backend/tests/test_quick_plan_quality.py`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/lib/trip-timing.ts`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `frontend/src/components/brochure/trip-brochure.tsx`
+
+## 2026-04-25 - Cleaned Live Trip Board Logistics
+
+Technical Summary:
+- Added structured flight fare/source fields so cached and live flight data no longer depends on provider-flavoured display strings.
+- Normalized Travelpayouts cached flight copy to clean traveller-facing fare and stop summaries, with partial schedule metadata kept separate.
+- Anchored derived return flight timeline items to the configured final trip day and sorted timeline sections by trip day before time.
+- Filtered provider/source notes out of hotel and timeline details, and stopped hotel checkout times from rendering as same-day itinerary end times.
+- Split the live-board flight card into a dedicated frontend component with cleaner candidate/selected modes, clearer depart/arrive layout, stop text that does not truncate, and sanitized legacy fare labels.
+- Hid unselected provider flight anchors from the itinerary, converted unbacked Quick Plan flight blocks into travel notes, expanded weather display beyond three fixed placeholders, replaced `TBD` timing chips with type-aware labels, and added a timeline-based highlights fallback.
+- Strengthened the Quick Plan drafting prompt and schema allowance so first drafts can include meal rhythm, conference lunches, route movement, and return-to-stay details instead of sparse activity-only days.
+
+Plain-English Summary:
+- The trip board now reads more like a useful travel plan and less like provider output. Flights show price, route, and stops without noisy cached-inventory wording; hotel/provider links no longer leak into the itinerary; return travel stays on the final trip day; weather and untimed rows read more naturally; and new Quick Plans should include meals, movement, and back-to-hotel rhythm.
+
+Files / Areas Touched:
+- `backend/app/schemas/trip_planning.py`
+- `backend/app/schemas/trip_conversation.py`
+- `backend/app/services/providers/flights.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/conversation_state.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/turn_models.py`
+- `backend/tests/test_flights_provider.py`
+- `backend/tests/test_provider_enrichment.py`
+- `backend/tests/test_planner_merge_semantics.py`
+- `backend/tests/test_quick_plan_quality.py`
+- `frontend/src/types/trip-draft.ts`
+- `frontend/src/types/trip-conversation.ts`
+- `frontend/src/components/package/trip-board-flight-card.tsx`
+- `frontend/src/components/package/trip-board-cards.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/flights/flight-preview-pages.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Bounded Quick Plan Generation
+
+Technical Summary:
+- Added a Quick Plan-specific provider enrichment profile with bounded request timeouts, parallel provider fetches, smaller hotel/activity search breadth, no hotel rate sweep, and no separate hotel LLM fallback.
+- Added timeout controls to provider clients and Quick Plan LLM calls so slow providers or model calls fall back instead of holding the whole chat request indefinitely.
+- Skipped the trip brief intelligence review once the board is already at the Quick Plan versus Advanced Planning choice, avoiding a redundant LLM call during Quick Plan selection.
+- Sent only the compact Quick Plan shortlist into the itinerary drafting prompt instead of the full provider payload.
+- Extended the frontend conversation API timeout only for explicit Quick Plan board actions while leaving normal chat turns unchanged.
+- Added regression coverage for the bounded Quick Plan enrichment profile and the brief-review skip.
+
+Plain-English Summary:
+- Quick Plan should no longer time out because it was trying to do deep hotel and provider research inside a single chat request. It now gathers a lighter first draft quickly and keeps deeper refinement for later.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_enrichment.py`
+- `backend/app/graph/planner/brief_intelligence.py`
+- `backend/app/graph/planner/provider_enrichment.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/quick_plan_dates.py`
+- `backend/app/integrations/llm/client.py`
+- `backend/app/integrations/amadeus/client.py`
+- `backend/app/integrations/geoapify/client.py`
+- `backend/app/integrations/mapbox/client.py`
+- `backend/app/integrations/open_meteo/client.py`
+- `backend/app/integrations/rapidapi/client.py`
+- `backend/app/integrations/travelpayouts/client.py`
+- `backend/app/services/providers/activities.py`
+- `backend/app/services/providers/flights.py`
+- `backend/app/services/providers/hotels.py`
+- `backend/app/services/providers/location_lookup.py`
+- `backend/app/services/providers/weather.py`
+- `backend/tests/test_provider_enrichment.py`
+- `backend/tests/test_trip_brief_intelligence.py`
+- `backend/tests/test_planner_runtime_quality.py`
+- `frontend/src/lib/api/conversation.ts`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Made Quick Plan Loader Honest
+
+Technical Summary:
+- Switched the Quick Plan board loader to the existing activity-loop mode instead of the default linear progress mode.
+- Reworded loading states so they describe active planning work without implying backend milestones have completed.
+- Slowed the loop cadence slightly so the loader feels deliberate while the Quick Plan request is still pending.
+
+Plain-English Summary:
+- The Quick Plan loading screen no longer pretends that several planning steps have finished and then gets stuck on review. It now shows that Wandrix is actively working until the real plan response arrives.
+
+Files / Areas Touched:
+- `frontend/src/components/package/quick-plan-loader.tsx`
+- `CHANGELOG.md`
+
+## 2026-04-25 - Quick Plan Auto Dates And Finalized Chat Lock
+
+Technical Summary:
+- Added a Quick Plan working-date selector that can automatically choose exact editable dates from vague timing before provider enrichment.
+- Added Quick Plan provider ranking so the generated itinerary uses the strongest flight and hotel anchors instead of flooding the timeline with every provider option.
+- Updated Quick Plan generation and assistant copy to explain working dates, selected logistics, editability, and final confirmation.
+- Added a board-side multi-step generation loader for Quick Plan creation.
+- Locked the chat composer when a trip is finalized, added a chat-only reopen control, and redirected newly finalized trips to the saved brochure review view.
+
+Plain-English Summary:
+- Quick Plan now behaves more like a decisive travel agent: it picks sensible working dates, builds around the best available flights and stays, shows progress while thinking, then locks the trip only after the user confirms it. Any later changes must be reopened from the chat history, not Saved Trips.
+
+Files / Areas Touched:
+- `backend/app/graph/planner/quick_plan_dates.py`
+- `backend/app/graph/planner/quick_plan_selection.py`
+- `backend/app/graph/planner/quick_plan.py`
+- `backend/app/graph/planner/runner.py`
+- `backend/app/graph/planner/response_builder.py`
+- `backend/tests/test_quick_plan_quality.py`
+- `frontend/src/components/ui/multi-step-loader.tsx`
+- `frontend/src/components/package/quick-plan-loader.tsx`
+- `frontend/src/components/package/trip-board-preview.tsx`
+- `frontend/src/components/package/travel-package-workspace.tsx`
+- `frontend/src/components/package/trip-live-board.tsx`
+- `frontend/src/components/assistant/travel-planner-assistant.tsx`
+- `CHANGELOG.md`
+
 ## 2026-04-25 - Fixed Brief Confirmation And Planning Mode Handoff
 
 Technical Summary:

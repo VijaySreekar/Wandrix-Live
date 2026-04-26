@@ -19,6 +19,16 @@ export type ActivityStyle =
   | "outdoors";
 
 export type BudgetPosture = "budget" | "mid_range" | "premium";
+export type BudgetEstimateCategoryKey =
+  | "flights"
+  | "stay"
+  | "activities"
+  | "food"
+  | "local_transport";
+export type BudgetEstimateSource =
+  | "provider_price"
+  | "planner_estimate"
+  | "unavailable";
 
 export type PlanningModuleKey = "flights" | "weather" | "activities" | "hotels";
 export type TimelineItemType =
@@ -32,6 +42,10 @@ export type TimelineItemType =
   | "note";
 
 export type TimelineItemStatus = "draft" | "confirmed";
+export type TimelineTimingSource =
+  | "provider_exact"
+  | "planner_estimate"
+  | "user_confirmed";
 
 export type TripPlanningPhase = ChatPlannerPhase;
 
@@ -88,11 +102,15 @@ export type FlightDetail = {
   arrival_time: string | null;
   duration_text: string | null;
   price_text?: string | null;
+  fare_amount?: number | null;
+  fare_currency?: string | null;
   stop_count?: number | null;
+  stop_details_available?: boolean | null;
   layover_summary?: string | null;
   legs?: FlightLegDetail[];
   timing_quality?: string | null;
   inventory_notice?: string | null;
+  inventory_source?: "live" | "cached" | "placeholder" | null;
   notes: string[];
 };
 
@@ -157,6 +175,24 @@ export type TripModuleOutputs = {
   activities: ActivityDetail[];
 };
 
+export type TripBudgetEstimateCategory = {
+  category: BudgetEstimateCategoryKey;
+  label: string;
+  low_amount: number | null;
+  high_amount: number | null;
+  currency: string | null;
+  source: BudgetEstimateSource;
+  notes: string[];
+};
+
+export type TripBudgetEstimate = {
+  total_low_amount: number | null;
+  total_high_amount: number | null;
+  currency: string | null;
+  categories: TripBudgetEstimateCategory[];
+  caveat: string;
+};
+
 export type TimelineItem = {
   id: string;
   type: TimelineItemType;
@@ -164,6 +200,8 @@ export type TimelineItem = {
   day_label: string | null;
   start_at: string | null;
   end_at: string | null;
+  timing_source?: TimelineTimingSource | null;
+  timing_note?: string | null;
   venue_name?: string | null;
   location_label: string | null;
   summary: string | null;
@@ -197,6 +235,7 @@ export type TripDraft = {
   configuration: TripConfiguration;
   timeline: TimelineItem[];
   module_outputs: TripModuleOutputs;
+  budget_estimate?: TripBudgetEstimate | null;
   status: TripDraftStatus;
   conversation: TripConversationState;
 };

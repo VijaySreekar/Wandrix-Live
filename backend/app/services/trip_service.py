@@ -69,6 +69,7 @@ def create_trip(
         configuration={},
         timeline=[],
         module_outputs={},
+        budget_estimate=None,
         status=TripDraftStatus().model_dump(mode="json"),
         conversation=TripConversationState().model_dump(mode="json"),
     )
@@ -186,6 +187,9 @@ def save_trip_draft(
         configuration=payload.configuration.model_dump(mode="json"),
         timeline=[item.model_dump(mode="json") for item in payload.timeline],
         module_outputs=payload.module_outputs.model_dump(mode="json"),
+        budget_estimate=payload.budget_estimate.model_dump(mode="json")
+        if payload.budget_estimate
+        else None,
         status=payload.status.model_dump(mode="json"),
         conversation=payload.conversation.model_dump(mode="json"),
     )
@@ -226,6 +230,7 @@ def _build_trip_draft_response(trip_id: str, draft) -> TripDraft:
             "configuration": draft.configuration,
             "timeline": draft.timeline,
             "module_outputs": draft.module_outputs,
+            "budget_estimate": draft.budget_estimate,
             "status": draft.status,
             "conversation": draft.conversation,
         }

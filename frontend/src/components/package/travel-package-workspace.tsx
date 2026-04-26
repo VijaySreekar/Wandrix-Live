@@ -224,10 +224,6 @@ export function TravelPackageWorkspace({
         setWorkspaceError(null);
         setPendingTripId((current) => (current === selectedTripId ? null : current));
         setIsBootstrapping(false);
-
-        if (hasRecentTrips) {
-          return;
-        }
       }
 
       const rememberedTripId =
@@ -297,6 +293,20 @@ export function TravelPackageWorkspace({
 
         if (displayedRequestedWorkspace) {
           setWorkspaceError(null);
+
+          if (selectedTripId) {
+            const refreshedWorkspace = await loadWorkspaceForTrip(
+              selectedTripId,
+              nextAuthSnapshot.accessToken,
+            );
+
+            if (!cancelled && workspaceTripIdRef.current === selectedTripId) {
+              setWorkspace(refreshedWorkspace);
+              setRecentTrips((currentTrips) =>
+                mergeRecentTripsWithWorkspace(currentTrips, refreshedWorkspace),
+              );
+            }
+          }
 
           if (
             shouldRefreshRecentTrips(
@@ -974,6 +984,9 @@ export function TravelPackageWorkspace({
             )
           }
           onDraftUpdated={handleDraftUpdated}
+          onTripFinalized={(tripId) => {
+            router.push(`/brochure/${tripId}`);
+          }}
         />
       </div>
 
@@ -984,6 +997,7 @@ export function TravelPackageWorkspace({
           isBootstrapping={isBootstrapping && !isSwitchingTrips}
           isSwitchingTrips={isSwitchingTrips}
           requestedTripId={requestedTripId}
+          pendingBoardAction={pendingBoardAction}
           onAction={setPendingBoardAction}
         />
       </div>

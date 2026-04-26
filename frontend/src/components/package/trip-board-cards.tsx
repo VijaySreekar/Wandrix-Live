@@ -1,136 +1,12 @@
 "use client";
 
-import {
-  CloudSun,
-  Plane,
-} from "lucide-react";
+import { CloudSun } from "lucide-react";
 
 import type {
   ActivityDetail,
-  FlightDetail,
   HotelStayDetail,
   WeatherDetail,
 } from "@/types/trip-draft";
-import { cn } from "@/lib/utils";
-
-export function FlightCard({
-  flight,
-  returnFlight,
-}: {
-  flight: FlightDetail | null | undefined;
-  returnFlight?: FlightDetail | null;
-}) {
-  return (
-    <section className="rounded-xl bg-[color:var(--accent)] px-5 py-5 text-white">
-      <p className="font-label text-[10px] uppercase tracking-[0.16em] text-white/68">
-        Working flights
-      </p>
-      {flight ? (
-        <>
-          <FlightRouteRow flight={flight} label="Outbound" />
-          {returnFlight ? (
-            <div className="mt-4 border-t border-white/18 pt-4">
-              <FlightRouteRow flight={returnFlight} label="Return" compact />
-            </div>
-          ) : null}
-          <FlightFactPanel flight={flight} returnFlight={returnFlight} />
-        </>
-      ) : (
-        <p className="mt-4 text-sm leading-7 text-white/78">
-          Flight details will appear here once the planner has enough route and
-          date context.
-        </p>
-      )}
-    </section>
-  );
-}
-
-function FlightRouteRow({
-  flight,
-  label,
-  compact = false,
-}: {
-  flight: FlightDetail;
-  label: string;
-  compact?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/60">
-        {label}
-      </p>
-      <div className={cn("mt-3 flex items-end justify-between gap-4", compact && "mt-2")}>
-        <AirportCode
-          code={flight.departure_airport}
-          time={formatFlightTime(flight.departure_time)}
-        />
-        <div className="flex flex-1 flex-col items-center px-3">
-          <Plane className="h-4 w-4 text-white/74" />
-          <div className="mt-2 h-px w-full border-t border-dashed border-white/34" />
-          <p className="mt-2 text-[10px] uppercase tracking-[0.16em] text-white/66">
-            {flight.duration_text || "Flight time"}
-          </p>
-        </div>
-        <AirportCode
-          code={flight.arrival_airport}
-          align="right"
-          time={formatFlightTime(flight.arrival_time)}
-        />
-      </div>
-    </div>
-  );
-}
-
-function FlightFactPanel({
-  flight,
-  returnFlight,
-}: {
-  flight: FlightDetail;
-  returnFlight?: FlightDetail | null;
-}) {
-  const facts = [
-    flight.carrier,
-    flight.flight_number,
-    formatFlightStopLabel(flight.stop_count),
-    flight.price_text,
-    flight.timing_quality,
-  ].filter(Boolean);
-  const returnFacts = returnFlight
-    ? [
-        formatFlightStopLabel(returnFlight.stop_count),
-        returnFlight.price_text,
-        returnFlight.timing_quality,
-      ].filter(Boolean)
-    : [];
-
-  return (
-    <div className="mt-5 rounded-lg bg-white/12 px-4 py-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        {facts.map((fact) => (
-          <span
-            key={fact}
-            className="rounded-md bg-white/12 px-2.5 py-1 text-xs font-semibold text-white/84"
-          >
-            {fact}
-          </span>
-        ))}
-      </div>
-      {flight.layover_summary ? (
-        <p className="mt-2 text-xs leading-5 text-white/72">{flight.layover_summary}</p>
-      ) : null}
-      {returnFacts.length ? (
-        <p className="mt-2 text-xs leading-5 text-white/72">
-          Return: {returnFacts.join(" · ")}
-        </p>
-      ) : null}
-      {flight.inventory_notice ? (
-        <p className="mt-2 text-xs leading-5 text-white/64">
-          {flight.inventory_notice}
-        </p>
-      ) : null}
-    </div>
-  );
-}
 
 export function WeatherCard({
   forecasts,
@@ -143,35 +19,13 @@ export function WeatherCard({
   summary?: string | null;
   influenceNotes?: string[];
 }) {
-  const displayForecasts =
-    forecasts.length > 0
-      ? forecasts
-      : [
-          {
-            id: "weather-placeholder-1",
-            day_label: "Wed",
-            summary: "",
-            high_c: null,
-            low_c: null,
-            notes: [],
-          },
-          {
-            id: "weather-placeholder-2",
-            day_label: "Thu",
-            summary: "",
-            high_c: null,
-            low_c: null,
-            notes: [],
-          },
-          {
-            id: "weather-placeholder-3",
-            day_label: "Fri",
-            summary: "",
-            high_c: null,
-            low_c: null,
-            notes: [],
-          },
-        ];
+  const hasForecasts = forecasts.length > 0;
+  const weatherCopy =
+    forecasts[0]?.summary ||
+    summary ||
+    (status === "unavailable"
+      ? "Live forecast opens closer to travel. Keep the plan flexible around the stated weather preference for now."
+      : "Weather guidance will appear once the trip has dates or a live forecast window.");
 
   return (
     <section className="rounded-xl border border-shell-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent)_10%,white),color-mix(in_srgb,var(--accent2)_10%,white))] px-5 py-5">
@@ -189,34 +43,32 @@ export function WeatherCard({
           <p className="font-display text-4xl leading-none text-[color:var(--accent)]">
             {forecasts[0] ? formatPrimaryTemperature(forecasts[0]) : "—"}
           </p>
-          <p className="mt-1 text-sm text-foreground/60">
-            {forecasts[0]?.summary ||
-              summary ||
-              "Weather will appear when dates are locked."}
-          </p>
+          <p className="mt-1 text-sm text-foreground/60">{weatherCopy}</p>
         </div>
       </div>
-      {summary && forecasts.length > 0 ? (
+      {summary && hasForecasts ? (
         <p className="mt-4 text-xs leading-5 text-foreground/58">{summary}</p>
       ) : null}
-      <div className="mt-5 grid grid-cols-3 gap-3 rounded-lg bg-white/55 px-4 py-3">
-        {displayForecasts.map((forecast) => (
-          <div key={forecast.id} className="text-center">
-            <p className="text-[10px] uppercase tracking-[0.16em] text-foreground/50">
-              {forecast.day_label}
-            </p>
-            <CloudSun className="mx-auto mt-2 h-4 w-4 text-[color:var(--accent)]" />
-            <p className="mt-2 text-xs font-semibold text-foreground">
-              {formatTemperatureBand(forecast.high_c, forecast.low_c)}
-            </p>
-            {forecast.temperature_band ? (
-              <p className="mt-1 text-[10px] capitalize text-foreground/45">
-                {forecast.temperature_band}
+      {hasForecasts ? (
+        <div className="mt-5 grid grid-cols-2 gap-3 rounded-lg bg-white/55 px-4 py-3 sm:grid-cols-3">
+          {forecasts.map((forecast) => (
+            <div key={forecast.id} className="text-center">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-foreground/50">
+                {forecast.day_label}
               </p>
-            ) : null}
-          </div>
-        ))}
-      </div>
+              <CloudSun className="mx-auto mt-2 h-4 w-4 text-[color:var(--accent)]" />
+              <p className="mt-2 text-xs font-semibold text-foreground">
+                {formatTemperatureBand(forecast.high_c, forecast.low_c)}
+              </p>
+              {forecast.temperature_band ? (
+                <p className="mt-1 text-[10px] capitalize text-foreground/45">
+                  {forecast.temperature_band}
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {influenceNotes?.length ? (
         <div className="mt-4 space-y-2">
           {influenceNotes.slice(0, 2).map((note) => (
@@ -233,9 +85,11 @@ export function WeatherCard({
 export function HotelSummary({
   hotel,
   destination,
+  fallbackStayWindow,
 }: {
   hotel: HotelStayDetail;
   destination: string | null;
+  fallbackStayWindow?: string | null;
 }) {
   const details = splitHotelNotes(hotel.notes);
   const heroImage = hotel.image_url;
@@ -285,9 +139,9 @@ export function HotelSummary({
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
                 Stay window
               </p>
-              <p className="mt-2 text-sm leading-7 text-foreground/66">
-                {formatDateRange(hotel.check_in, hotel.check_out)}
-              </p>
+	              <p className="mt-2 text-sm leading-7 text-foreground/66">
+	                {formatDateRange(hotel.check_in, hotel.check_out, fallbackStayWindow)}
+	              </p>
             </div>
             <div className="text-right">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/44">
@@ -406,27 +260,6 @@ export function getLiveDestinationImage(destination: string | null) {
   return "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=80";
 }
 
-function AirportCode({
-  code,
-  align = "left",
-  time,
-}: {
-  code: string;
-  align?: "left" | "right";
-  time?: string | null;
-}) {
-  return (
-    <div className={cn("min-w-[4rem]", align === "right" && "text-right")}>
-      <p className="font-display text-4xl leading-none">{code}</p>
-      {time ? (
-        <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/72">
-          {time}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 function buildActivityVisualStyle(
   destination: string | null,
   activity: ActivityDetail,
@@ -442,13 +275,20 @@ function buildActivityVisualStyle(
   } as const;
 }
 
-function formatDateRange(startDate: string | null, endDate: string | null) {
+function formatDateRange(
+  startDate: string | null,
+  endDate: string | null,
+  fallbackLabel?: string | null,
+) {
+  if (!startDate && !endDate && fallbackLabel) {
+    return fallbackLabel;
+  }
   return `${formatDateShort(startDate)} through ${formatDateShort(endDate)}`;
 }
 
 function formatDateShort(value: string | null) {
   if (!value) {
-    return "TBD";
+    return "Timing open";
   }
 
   const parsed = new Date(value);
@@ -464,7 +304,7 @@ function formatDateShort(value: string | null) {
 
 function formatTemperatureBand(high: number | null, low: number | null) {
   if (high == null && low == null) {
-    return "TBD";
+    return "Forecast pending";
   }
 
   if (high != null && low != null) {
@@ -482,7 +322,7 @@ function formatWeatherStatus(
     return "Live";
   }
   if (status === "unavailable") {
-    return "Pending";
+    return "Too early";
   }
   if (status === "not_requested") {
     return "Off";
@@ -504,6 +344,10 @@ function splitHotelNotes(notes: string[]) {
   const highlights: string[] = [];
 
   for (const note of notes) {
+    if (isProviderSourceNote(note)) {
+      continue;
+    }
+
     if (note.startsWith("TripAdvisor: ")) {
       tripadvisorUrl = note.replace("TripAdvisor: ", "").trim();
       continue;
@@ -536,31 +380,12 @@ function looksLikeAddress(value: string) {
   return /[0-9]/.test(value) || value.includes("Street") || value.includes("Avenue") || value.includes("Rua") || value.includes("Carrer") || value.includes("Pla");
 }
 
-function formatFlightTime(value: string | Date | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  const parsed = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(parsed);
-}
-
-function formatFlightStopLabel(value: number | null | undefined) {
-  if (value == null) {
-    return null;
-  }
-  if (value === 0) {
-    return "Direct";
-  }
-  if (value === 1) {
-    return "1 stop";
-  }
-  return `${value} stops`;
+function isProviderSourceNote(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.startsWith("tripadvisor:")
+    || normalized.startsWith("source:")
+    || normalized.includes("rapidapi")
+    || normalized.includes("cached hotel search result")
+  );
 }

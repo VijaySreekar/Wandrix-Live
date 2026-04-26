@@ -108,9 +108,13 @@ def test_amadeus_mapping_preserves_segments_layovers_and_fare_detail() -> None:
     outbound = result[0]
     assert outbound.stop_count == 1
     assert outbound.duration_text == "15h 20m"
-    assert outbound.price_text == "Live fare snapshot: GBP 682.40"
+    assert outbound.price_text == "GBP 682.40"
+    assert outbound.fare_amount == 682.40
+    assert outbound.fare_currency == "GBP"
     assert outbound.layover_summary == "Layover: 2h 15m in DOH"
-    assert outbound.inventory_notice == "Live inventory snapshot; availability and fares can change."
+    assert outbound.inventory_notice == "Schedule and fare can change before booking."
+    assert outbound.inventory_source == "live"
+    assert outbound.stop_details_available is True
     assert [leg.departure_airport for leg in outbound.legs] == ["LHR", "DOH"]
     assert [leg.arrival_airport for leg in outbound.legs] == ["DOH", "KIX"]
     assert outbound.legs[1].carrier == "Japan Airlines"
@@ -137,13 +141,16 @@ def test_travelpayouts_mapping_exposes_cached_inventory_detail_without_raw_provi
 
     assert [flight.direction for flight in result] == ["outbound", "return"]
     outbound, returning = result
-    assert outbound.price_text == "Cached fare snapshot: GBP 514"
+    assert outbound.price_text == "GBP 514"
+    assert outbound.fare_amount == 514
+    assert outbound.fare_currency == "GBP"
     assert outbound.stop_count == 1
     assert outbound.duration_text == "14h 20m"
-    assert outbound.layover_summary == "1 stop shown in cached inventory; layover timing is not provided."
-    assert outbound.inventory_notice == (
-        "Cached inventory snapshot with partial leg detail; verify schedules before relying on exact timings."
-    )
+    assert outbound.layover_summary == "1 stop; connection airport is not supplied yet."
+    assert outbound.inventory_notice == "Partial schedule detail; verify exact times before booking."
+    assert outbound.inventory_source == "cached"
+    assert outbound.stop_details_available is False
+    assert outbound.timing_quality is None
     assert outbound.legs[0].departure_airport == "LHR"
     assert returning.stop_count == 0
     assert returning.duration_text == "15h"

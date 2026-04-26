@@ -3027,7 +3027,7 @@ def test_advanced_flight_strategy_ranks_richer_inventory_details() -> None:
                 departure_time=datetime(2027, 3, 23, 8, 0, tzinfo=timezone.utc),
                 arrival_time=datetime(2027, 3, 23, 16, 0, tzinfo=timezone.utc),
                 duration_text="12h",
-                price_text="Live fare snapshot: GBP 900",
+                price_text="GBP 900",
                 stop_count=0,
             ),
             FlightDetail(
@@ -3039,7 +3039,7 @@ def test_advanced_flight_strategy_ranks_richer_inventory_details() -> None:
                 departure_time=datetime(2027, 3, 23, 7, 0, tzinfo=timezone.utc),
                 arrival_time=datetime(2027, 3, 23, 22, 0, tzinfo=timezone.utc),
                 duration_text="16h",
-                price_text="Cached fare snapshot: GBP 520",
+                price_text="GBP 520",
                 stop_count=1,
             ),
             FlightDetail(
@@ -3050,7 +3050,7 @@ def test_advanced_flight_strategy_ranks_richer_inventory_details() -> None:
                 arrival_airport="LHR",
                 departure_time=datetime(2027, 3, 29, 14, 0, tzinfo=timezone.utc),
                 duration_text="13h",
-                price_text="Live fare snapshot: GBP 900",
+                price_text="GBP 900",
                 stop_count=0,
             ),
             FlightDetail(
@@ -3061,7 +3061,7 @@ def test_advanced_flight_strategy_ranks_richer_inventory_details() -> None:
                 arrival_airport="LHR",
                 departure_time=datetime(2027, 3, 29, 7, 0, tzinfo=timezone.utc),
                 duration_text="17h",
-                price_text="Cached fare snapshot: GBP 520",
+                price_text="GBP 520",
                 stop_count=1,
             ),
         ]
@@ -3112,9 +3112,7 @@ def test_advanced_flight_strategy_ranks_richer_inventory_details() -> None:
     assert smooth.flight_planning.selected_return_flight_id == "return_direct"
     assert value.flight_planning.selected_outbound_flight_id == "outbound_value"
     assert value.flight_planning.selected_return_flight_id == "return_value"
-    assert value.flight_planning.selected_outbound_flight.price_text == (
-        "Cached fare snapshot: GBP 520"
-    )
+    assert value.flight_planning.selected_outbound_flight.price_text == "GBP 520"
 
 
 def test_advanced_flight_workspace_blocks_missing_route_details() -> None:

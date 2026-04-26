@@ -16,6 +16,14 @@ ActivityStyle = Literal[
     "outdoors",
 ]
 BudgetPosture = Literal["budget", "mid_range", "premium"]
+BudgetEstimateCategoryKey = Literal[
+    "flights",
+    "stay",
+    "activities",
+    "food",
+    "local_transport",
+]
+BudgetEstimateSource = Literal["provider_price", "planner_estimate", "unavailable"]
 
 PlanningModuleKey = Literal["flights", "weather", "activities", "hotels"]
 TimelineItemType = Literal[
@@ -29,6 +37,7 @@ TimelineItemType = Literal[
     "note",
 ]
 TimelineItemStatus = Literal["draft", "confirmed"]
+TimelineTimingSource = Literal["provider_exact", "planner_estimate", "user_confirmed"]
 
 
 class PlannerTravelerDetails(BaseModel):
@@ -109,11 +118,15 @@ class FlightDetail(BaseModel):
     arrival_time: datetime | None = None
     duration_text: str | None = None
     price_text: str | None = Field(default=None, max_length=80)
+    fare_amount: float | None = Field(default=None, ge=0)
+    fare_currency: str | None = Field(default=None, min_length=3, max_length=3)
     stop_count: int | None = Field(default=None, ge=0, le=8)
+    stop_details_available: bool | None = None
     layover_summary: str | None = Field(default=None, max_length=200)
     legs: list[FlightLegDetail] = Field(default_factory=list, max_length=8)
     timing_quality: str | None = Field(default=None, max_length=120)
     inventory_notice: str | None = Field(default=None, max_length=200)
+    inventory_source: Literal["live", "cached", "placeholder"] | None = None
     notes: list[str] = Field(default_factory=list)
 
 
@@ -178,6 +191,26 @@ class TripModuleOutputs(BaseModel):
     activities: list[ActivityDetail] = Field(default_factory=list)
 
 
+class TripBudgetEstimateCategory(BaseModel):
+    category: BudgetEstimateCategoryKey
+    label: str
+    low_amount: float | None = Field(default=None, ge=0)
+    high_amount: float | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    source: BudgetEstimateSource = "unavailable"
+    notes: list[str] = Field(default_factory=list, max_length=4)
+
+
+class TripBudgetEstimate(BaseModel):
+    total_low_amount: float | None = Field(default=None, ge=0)
+    total_high_amount: float | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    categories: list[TripBudgetEstimateCategory] = Field(default_factory=list)
+    caveat: str = (
+        "Directional estimate only; prices are not booking-confirmed and may change."
+    )
+
+
 class TimelineItem(BaseModel):
     id: str
     type: TimelineItemType
@@ -185,6 +218,8 @@ class TimelineItem(BaseModel):
     day_label: str | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
+    timing_source: TimelineTimingSource | None = None
+    timing_note: str | None = Field(default=None, max_length=160)
     venue_name: str | None = Field(default=None, max_length=160)
     location_label: str | None = None
     summary: str | None = None

@@ -24,23 +24,38 @@ class LlmHotelSuggestionResponse(BaseModel):
     suggestions: list[LlmHotelSuggestionItem] = Field(default_factory=list, max_length=12)
 
 
-def enrich_hotels(configuration: TripConfiguration) -> list[HotelStayDetail]:
+def enrich_hotels(
+    configuration: TripConfiguration,
+    *,
+    timeout: float | None = None,
+    result_limit: int = HOTEL_SEARCH_RESULT_LIMIT,
+    rate_lookup_limit: int | None = None,
+    include_llm_fallback: bool = True,
+) -> list[HotelStayDetail]:
     if not _can_search_hotels(configuration):
         return []
 
     try:
-        rapidapi_hotels = enrich_hotels_from_xotelo(configuration)
+        rapidapi_hotels = enrich_hotels_from_xotelo(
+            configuration,
+            timeout=timeout,
+            result_limit=result_limit,
+            rate_lookup_limit=rate_lookup_limit,
+        )
     except Exception:
         rapidapi_hotels = []
 
     if rapidapi_hotels:
-        if len(rapidapi_hotels) >= 4:
+        if len(rapidapi_hotels) >= 4 or not include_llm_fallback:
             return rapidapi_hotels
         try:
             llm_hotels = enrich_hotels_from_llm(configuration)
         except Exception:
             llm_hotels = []
         return _merge_hotel_recommendations(rapidapi_hotels, llm_hotels)
+
+    if not include_llm_fallback:
+        return []
 
     try:
         return enrich_hotels_from_llm(configuration)
@@ -50,6 +65,10 @@ def enrich_hotels(configuration: TripConfiguration) -> list[HotelStayDetail]:
 
 def enrich_hotels_from_xotelo(
     configuration: TripConfiguration,
+    *,
+    timeout: float | None = None,
+    result_limit: int = HOTEL_SEARCH_RESULT_LIMIT,
+    rate_lookup_limit: int | None = None,
 ) -> list[HotelStayDetail]:
     settings = get_settings()
     if not settings.rapidapi_key or not configuration.to_location:
@@ -62,6 +81,7 @@ def enrich_hotels_from_xotelo(
     with create_rapidapi_client(
         base_url=settings.rapidapi_xotelo_base_url,
         host=XOTELO_PROVIDER_HOST,
+        timeout=timeout,
     ) as client:
         response = client.get(
             "/api/search",
@@ -86,9 +106,17 @@ def enrich_hotels_from_xotelo(
             return []
 
         return [
-            _map_xotelo_hotel(client, candidate, configuration, index)
+            _map_xotelo_hotel(
+                client,
+                candidate,
+                configuration,
+                index,
+                fetch_rate=(
+                    rate_lookup_limit is None or index <= max(rate_lookup_limit, 0)
+                ),
+            )
             for index, candidate in enumerate(
-                hotel_candidates[:HOTEL_SEARCH_RESULT_LIMIT],
+                hotel_candidates[: max(result_limit, 0)],
                 start=1,
             )
         ]
@@ -149,6 +177,8 @@ def _map_xotelo_hotel(
     candidate: dict,
     configuration: TripConfiguration,
     index: int,
+    *,
+    fetch_rate: bool = True,
 ) -> HotelStayDetail:
     notes = [
         "Cached hotel search result from Xotelo via RapidAPI.",
@@ -166,10 +196,19 @@ def _map_xotelo_hotel(
     if isinstance(short_place_name, str) and short_place_name.strip():
         notes.append(f"Area fit: {short_place_name.strip()}")
 
-    rate_snapshot = _fetch_xotelo_rate_snapshot(
-        client=client,
-        hotel_key=_coerce_text(candidate.get("hotel_key")),
-        configuration=configuration,
+    rate_snapshot = (
+        _fetch_xotelo_rate_snapshot(
+            client=client,
+            hotel_key=_coerce_text(candidate.get("hotel_key")),
+            configuration=configuration,
+        )
+        if fetch_rate
+        else {
+            "rate": None,
+            "currency": None,
+            "tax": None,
+            "provider": None,
+        }
     )
 
     return HotelStayDetail(

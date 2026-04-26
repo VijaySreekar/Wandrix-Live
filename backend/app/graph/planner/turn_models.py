@@ -30,6 +30,7 @@ from app.schemas.trip_planning import (
     BudgetPosture,
     PlanningModuleKey,
     TimelineItemType,
+    TimelineTimingSource,
 )
 
 
@@ -46,6 +47,8 @@ class ProposedTimelineItem(BaseModel):
     day_label: str | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
+    timing_source: TimelineTimingSource | None = None
+    timing_note: str | None = Field(default=None, max_length=160)
     location_label: str | None = None
     summary: str | None = None
     details: list[str] = Field(default_factory=list)
@@ -56,7 +59,7 @@ class QuickPlanDraft(BaseModel):
     board_summary: str | None = Field(default=None, max_length=400)
     timeline_preview: list[ProposedTimelineItem] = Field(
         default_factory=list,
-        max_length=12,
+        max_length=16,
     )
 
 

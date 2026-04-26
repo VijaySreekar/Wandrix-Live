@@ -117,3 +117,37 @@ def test_brief_intelligence_prompt_bans_deterministic_extraction(monkeypatch) ->
     prompt = captured["messages"][1][1]
     assert "Do not use regex, keyword matching, or deterministic extraction." in prompt
     assert "set budget_currency to that 3-letter code without inventing budget_amount" in prompt
+
+
+def test_brief_intelligence_skips_planning_mode_choice(monkeypatch) -> None:
+    def _fail_create_chat_model(**_kwargs):
+        raise AssertionError("Brief intelligence should not run during planning mode choice.")
+
+    monkeypatch.setattr(
+        brief_intelligence,
+        "create_chat_model",
+        _fail_create_chat_model,
+    )
+
+    base_update = TripTurnUpdate(requested_planning_mode="quick")
+    conversation = TripConversationState(
+        suggestion_board={"mode": "planning_mode_choice"}
+    )
+
+    result = review_trip_brief_intelligence(
+        user_input="Use Quick Plan.",
+        title="Valencia trip",
+        configuration=TripConfiguration(to_location="Valencia"),
+        status=TripDraftStatus(),
+        conversation=conversation,
+        profile_context={},
+        current_location_context={},
+        board_action={},
+        raw_messages=[
+            {"role": "user", "content": "Plan Valencia."},
+            {"role": "assistant", "content": "The brief is ready."},
+        ],
+        llm_update=base_update,
+    )
+
+    assert result is base_update

@@ -104,6 +104,9 @@ TIME_EDITORIAL_LABELS = {
 def enrich_activities_from_geoapify(
     configuration: TripConfiguration,
     coordinates: Coordinates | None = None,
+    *,
+    timeout: float | None = None,
+    category_limit: int | None = None,
 ) -> list[ActivityDetail]:
     if not _can_search_activities(configuration):
         return []
@@ -116,7 +119,14 @@ def enrich_activities_from_geoapify(
 
     features: list[dict] = []
     category_values = _derive_categories(configuration)
-    with create_geoapify_client() as client:
+    if category_limit is not None:
+        category_values = category_values[: max(category_limit, 0)]
+    if timeout is None:
+        client_context = create_geoapify_client()
+    else:
+        client_context = create_geoapify_client(timeout=timeout)
+
+    with client_context as client:
         for category_value in category_values:
             response = client.get(
                 "/places",

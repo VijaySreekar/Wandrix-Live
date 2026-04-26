@@ -142,6 +142,7 @@ export function TripBoardSandbox() {
             isBootstrapping={false}
             isSwitchingTrips={false}
             requestedTripId={workspace.trip.trip_id}
+            pendingBoardAction={null}
             onAction={() => undefined}
           />
         </section>

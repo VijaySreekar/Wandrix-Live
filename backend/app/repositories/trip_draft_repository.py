@@ -14,6 +14,7 @@ def create_trip_draft(
     module_outputs: dict,
     status: dict,
     conversation: dict,
+    budget_estimate: dict | None = None,
 ) -> TripDraftModel:
     draft = TripDraftModel(
         trip_id=trip_id,
@@ -22,6 +23,7 @@ def create_trip_draft(
         configuration=configuration,
         timeline=timeline,
         module_outputs=module_outputs,
+        budget_estimate=budget_estimate,
         status=status,
         conversation=conversation,
     )
@@ -46,6 +48,7 @@ def upsert_trip_draft(
     module_outputs: dict,
     status: dict,
     conversation: dict,
+    budget_estimate: dict | None = None,
 ) -> TripDraftModel:
     draft = get_trip_draft(db, trip_id)
 
@@ -58,6 +61,7 @@ def upsert_trip_draft(
             configuration=configuration,
             timeline=timeline,
             module_outputs=module_outputs,
+            budget_estimate=budget_estimate,
             status=status,
             conversation=conversation,
         )
@@ -67,6 +71,7 @@ def upsert_trip_draft(
     draft.configuration = configuration
     draft.timeline = timeline
     draft.module_outputs = module_outputs
+    draft.budget_estimate = budget_estimate
     draft.status = status
     draft.conversation = conversation
 

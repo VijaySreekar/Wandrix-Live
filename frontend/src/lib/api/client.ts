@@ -107,6 +107,12 @@ async function requestJsonFromBaseUrl<TResponse>(
       throw new Error("API request timed out.");
     }
 
+    if (error instanceof TypeError) {
+      throw new Error(
+        "Wandrix could not reach the backend. Check that the FastAPI server is still running, then retry the message.",
+      );
+    }
+
     throw error;
   } finally {
     window.clearTimeout(timeout);

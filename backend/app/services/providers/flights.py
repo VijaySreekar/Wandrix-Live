@@ -6,25 +6,47 @@ from app.schemas.trip_planning import FlightDetail, FlightLegDetail, TripConfigu
 from app.services.providers.iata_lookup import resolve_location_iata
 
 
-def enrich_flights(configuration: TripConfiguration) -> list[FlightDetail]:
+def enrich_flights(
+    configuration: TripConfiguration,
+    *,
+    timeout: float | None = None,
+    allow_live_fallback: bool = True,
+    parameter_sets_limit: int | None = None,
+) -> list[FlightDetail]:
     if not _can_search_flights(configuration):
         return []
 
     try:
-        cached_flights = enrich_flights_from_travelpayouts(configuration)
+        if timeout is None and parameter_sets_limit is None:
+            cached_flights = enrich_flights_from_travelpayouts(configuration)
+        else:
+            cached_flights = enrich_flights_from_travelpayouts(
+                configuration,
+                timeout=timeout,
+                parameter_sets_limit=parameter_sets_limit,
+            )
     except Exception:
         cached_flights = []
 
     if cached_flights:
         return cached_flights
 
+    if not allow_live_fallback:
+        return []
+
     try:
-        return enrich_flights_from_amadeus(configuration)
+        if timeout is None:
+            return enrich_flights_from_amadeus(configuration)
+        return enrich_flights_from_amadeus(configuration, timeout=timeout)
     except Exception:
         return []
 
 
-def enrich_flights_from_amadeus(configuration: TripConfiguration) -> list[FlightDetail]:
+def enrich_flights_from_amadeus(
+    configuration: TripConfiguration,
+    *,
+    timeout: float | None = None,
+) -> list[FlightDetail]:
     if not _can_search_flights(configuration):
         return []
 
@@ -37,7 +59,7 @@ def enrich_flights_from_amadeus(configuration: TripConfiguration) -> list[Flight
     adults = max(configuration.travelers.adults or 1, 1)
     children = max(configuration.travelers.children or 0, 0)
 
-    with create_amadeus_client() as client:
+    with create_amadeus_client(timeout=timeout) as client:
         params = {
             "originLocationCode": origin_code,
             "destinationLocationCode": destination_code,
@@ -77,6 +99,9 @@ def enrich_flights_from_amadeus(configuration: TripConfiguration) -> list[Flight
 
 def enrich_flights_from_travelpayouts(
     configuration: TripConfiguration,
+    *,
+    timeout: float | None = None,
+    parameter_sets_limit: int | None = None,
 ) -> list[FlightDetail]:
     if not _can_search_flights(configuration):
         return []
@@ -91,6 +116,8 @@ def enrich_flights_from_travelpayouts(
         origin_code=origin_code,
         destination_code=destination_code,
         configuration=configuration,
+        timeout=timeout,
+        parameter_sets_limit=parameter_sets_limit,
     )
     if not offers:
         return []
@@ -122,17 +149,19 @@ def _map_offer_to_flights(
         carrier_code = first_segment.get("carrierCode") or ""
         carrier_name = carriers.get(carrier_code, carrier_code or "Carrier unavailable")
         stop_count = max(len(segments) - 1, 0)
-        price_text = _format_price_text(price=price, currency=currency, inventory_label="Live fare snapshot")
+        fare_amount = _coerce_price_amount(price)
+        fare_currency = str(currency).upper() if currency else None
+        price_text = _format_price_text(price=price, currency=currency)
         legs = _build_amadeus_legs(segments=segments, carriers=carriers)
         layover_summary = _build_layover_summary(legs)
         notes = []
 
         if price_text:
-            notes.append(price_text)
+            notes.append(f"Estimated fare: {price_text}.")
         if stop_count == 0:
-            notes.append("Direct routing in current live inventory.")
+            notes.append("Direct route.")
         else:
-            notes.append(f"{stop_count} stop(s) in current live inventory.")
+            notes.append(f"{stop_count} stop(s) with connection detail available.")
         if layover_summary:
             notes.append(layover_summary)
 
@@ -152,7 +181,10 @@ def _map_offer_to_flights(
                 ),
                 duration_text=_format_duration(itinerary.get("duration")),
                 price_text=price_text,
+                fare_amount=fare_amount,
+                fare_currency=fare_currency,
                 stop_count=stop_count,
+                stop_details_available=True,
                 layover_summary=layover_summary,
                 legs=legs,
                 timing_quality=_build_timing_quality(
@@ -164,7 +196,8 @@ def _map_offer_to_flights(
                         (last_segment.get("arrival") or {}).get("at")
                     ),
                 ),
-                inventory_notice="Live inventory snapshot; availability and fares can change.",
+                inventory_notice="Schedule and fare can change before booking.",
+                inventory_source="live",
                 notes=notes,
             )
         )
@@ -175,30 +208,27 @@ def _map_offer_to_flights(
 def _map_travelpayouts_offer_to_flights(offer: dict, *, offer_index: int = 0) -> list[FlightDetail]:
     notes = []
     price = offer.get("price")
-    price_text = _format_price_text(
-        price=price,
-        currency="GBP",
-        inventory_label="Cached fare snapshot",
-    )
+    price_text = _format_price_text(price=price, currency="GBP")
+    fare_amount = _coerce_price_amount(price)
     if price_text is not None:
-        notes.append(price_text)
+        notes.append(f"Estimated fare: {price_text}.")
 
     transfers = offer.get("transfers")
     return_transfers = offer.get("return_transfers")
     if isinstance(transfers, int):
         notes.append(
-            "Direct outbound option from cached inventory."
+            "Direct outbound route."
             if transfers == 0
-            else f"{transfers} stop(s) outbound in cached inventory."
+            else f"{transfers} stop(s) outbound; stop airports are not supplied yet."
         )
     if isinstance(return_transfers, int) and offer.get("return_at"):
         notes.append(
-            "Direct return option from cached inventory."
+            "Direct return route."
             if return_transfers == 0
-            else f"{return_transfers} stop(s) returning in cached inventory."
+            else f"{return_transfers} stop(s) returning; stop airports are not supplied yet."
         )
 
-    inventory_notice = "Cached inventory snapshot with partial leg detail; verify schedules before relying on exact timings."
+    inventory_notice = "Partial schedule detail; verify exact times before booking."
 
     outbound_departure = _parse_amadeus_datetime(offer.get("departure_at"))
     outbound_duration = _format_duration_minutes(offer.get("duration_to") or offer.get("duration"))
@@ -223,15 +253,15 @@ def _map_travelpayouts_offer_to_flights(offer: dict, *, offer_index: int = 0) ->
             arrival_time=None,
             duration_text=outbound_duration,
             price_text=price_text,
+            fare_amount=fare_amount,
+            fare_currency="GBP",
             stop_count=outbound_stop_count,
+            stop_details_available=False,
             layover_summary=_build_cached_transfer_summary(outbound_stop_count),
             legs=outbound_legs,
-            timing_quality=_build_timing_quality(
-                direction="outbound",
-                departure_time=outbound_departure,
-                arrival_time=None,
-            ),
+            timing_quality=None,
             inventory_notice=inventory_notice,
+            inventory_source="cached",
             notes=notes,
         )
     ]
@@ -252,7 +282,10 @@ def _map_travelpayouts_offer_to_flights(offer: dict, *, offer_index: int = 0) ->
                 arrival_time=None,
                 duration_text=return_duration,
                 price_text=price_text,
+                fare_amount=fare_amount,
+                fare_currency="GBP",
                 stop_count=return_stop_count,
+                stop_details_available=False,
                 layover_summary=_build_cached_transfer_summary(return_stop_count),
                 legs=_build_travelpayouts_legs(
                     offer=offer,
@@ -260,12 +293,9 @@ def _map_travelpayouts_offer_to_flights(offer: dict, *, offer_index: int = 0) ->
                     departure_time=return_at,
                     duration_text=return_duration,
                 ),
-                timing_quality=_build_timing_quality(
-                    direction="return",
-                    departure_time=return_at,
-                    arrival_time=None,
-                ),
+                timing_quality=None,
                 inventory_notice=inventory_notice,
+                inventory_source="cached",
                 notes=notes,
             )
         )
@@ -278,6 +308,8 @@ def _search_travelpayouts_offers(
     origin_code: str,
     destination_code: str,
     configuration: TripConfiguration,
+    timeout: float | None = None,
+    parameter_sets_limit: int | None = None,
 ) -> list[dict]:
     parameter_sets = [
         {
@@ -308,7 +340,10 @@ def _search_travelpayouts_offers(
         },
     ]
 
-    with create_travelpayouts_client() as client:
+    if parameter_sets_limit is not None:
+        parameter_sets = parameter_sets[: max(parameter_sets_limit, 0)]
+
+    with create_travelpayouts_client(timeout=timeout) as client:
         for params in parameter_sets:
             response = client.get(
                 "/aviasales/v3/prices_for_dates",
@@ -395,21 +430,29 @@ def _build_cached_transfer_summary(stop_count: int | None) -> str | None:
     if stop_count is None:
         return None
     if stop_count == 0:
-        return "No stops shown in cached inventory."
+        return "Direct route."
     if stop_count == 1:
-        return "1 stop shown in cached inventory; layover timing is not provided."
-    return f"{stop_count} stops shown in cached inventory; layover timing is not provided."
+        return "1 stop; connection airport is not supplied yet."
+    return f"{stop_count} stops; connection airports are not supplied yet."
 
 
 def _format_price_text(
     *,
     price: object | None,
     currency: object | None,
-    inventory_label: str,
 ) -> str | None:
     if price in (None, "") or currency in (None, ""):
         return None
-    return f"{inventory_label}: {str(currency).upper()} {price}"
+    return f"{str(currency).upper()} {price}"
+
+
+def _coerce_price_amount(price: object | None) -> float | None:
+    if price in (None, ""):
+        return None
+    try:
+        return float(str(price).replace(",", ""))
+    except ValueError:
+        return None
 
 
 def _build_timing_quality(
