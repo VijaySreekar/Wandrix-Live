@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: wandrix-live-api
+    runtime: docker
+    repo: https://github.com/VijaySreekar/Wandrix-Live
+    branch: main
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: CODEX_LB_BASE_URL
+        sync: false
+      - key: CODEX_LB_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.4-mini
+      - key: QUICK_PLAN_MODEL
+        value: gpt-5.5
+      - key: QUICK_PLAN_REASONING_EFFORT
+        value: medium
+      - key: QUICK_PLAN_STAGE_ONE_ONLY
+        value: "true"
+      - key: LANGSMITH_TRACING
+        value: "false"
+      - key: LANGSMITH_PROJECT
+        value: wandrix-live

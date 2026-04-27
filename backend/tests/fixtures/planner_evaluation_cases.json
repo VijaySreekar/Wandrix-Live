@@ -1,0 +1,101 @@
+[
+  {
+    "id": "broad_warm_europe",
+    "category": "broad_ask",
+    "description": "Broad seasonal ask should stay broad and ask for destination shape before exact dates.",
+    "turns": [
+      "Somewhere warm in Europe this autumn."
+    ],
+    "expected": {
+      "must_not_hard_set_destination": true,
+      "should_prioritize": ["to_location", "travel_window"]
+    }
+  },
+  {
+    "id": "rough_dates_and_soft_origin",
+    "category": "rough_dates",
+    "description": "Soft timing and tentative origin should stay provisional.",
+    "turns": [
+      "Maybe early October for five-ish days, probably from London though Manchester could work too."
+    ],
+    "expected": {
+      "working_fields": ["travel_window", "trip_length"],
+      "mentioned_options": ["Manchester"],
+      "provisional_fields": ["from_location"]
+    }
+  },
+  {
+    "id": "destination_correction",
+    "category": "correction",
+    "description": "A confirmed destination correction should replace the old one and require reconfirmation.",
+    "turns": [
+      "Definitely Lisbon.",
+      "Actually make it Porto."
+    ],
+    "expected": {
+      "corrected_field": "to_location",
+      "requires_reconfirmation": true
+    }
+  },
+  {
+    "id": "rejected_destination_memory",
+    "category": "rejection",
+    "description": "Rejected destinations should not keep resurfacing as fresh suggestions.",
+    "turns": [
+      "Not Prague. Give me somewhere sunnier."
+    ],
+    "expected": {
+      "rejected_options": ["Prague"],
+      "should_filter_future_suggestions": true
+    }
+  },
+  {
+    "id": "soft_approval_not_mode_selection",
+    "category": "soft_approval",
+    "description": "Generic approval should not auto-select Quick Plan.",
+    "turns": [
+      "Yes, go ahead."
+    ],
+    "expected": {
+      "must_not_set_planning_mode": true
+    }
+  },
+  {
+    "id": "explicit_quick_plan_after_confirmation",
+    "category": "explicit_confirmation",
+    "description": "A clear quick-plan request after confirmation should select quick mode.",
+    "turns": [
+      "Yes, that works. Build the quick draft."
+    ],
+    "expected": {
+      "planning_mode": "quick",
+      "planning_mode_status": "selected"
+    }
+  },
+  {
+    "id": "profile_context_stays_soft",
+    "category": "profile_context",
+    "description": "Saved home-base context should stay optional rather than becoming a trip fact automatically.",
+    "turns": [
+      "Yes, Lisbon in late September for 4 nights sounds right."
+    ],
+    "expected": {
+      "must_not_auto_fill": ["from_location"],
+      "should_reference_profile_as_optional": true
+    }
+  },
+  {
+    "id": "module_scope_narrowing",
+    "category": "module_scope",
+    "description": "Booked items and narrow scope should stay reflected in selected modules.",
+    "turns": [
+      "I already booked flights. Just help me with what to do in Kyoto."
+    ],
+    "expected": {
+      "selected_modules": {
+        "flights": false,
+        "activities": true
+      }
+    }
+  }
+]
