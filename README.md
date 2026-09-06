@@ -4,6 +4,39 @@ Wandrix is a conversation-first AI travel planner. The product centers on a
 chat workspace for planning trips, a live structured trip board, and a polished
 brochure-style output that can be saved or exported.
 
+[Visit Wandrix](https://www.wandrix.app/) · [Architecture](#architecture) · [Run locally](#local-setup)
+
+![Wandrix conversation and destination board](frontend/public/images/homepage/chat-suggestion-board-live.png)
+
+*Earlier development capture already included in this repository. The live interface continues to evolve.*
+
+## What the application does
+
+- Keeps a travel conversation beside a structured, editable trip board.
+- Saves trip drafts so planning can continue across sessions.
+- Stores brochure snapshots as versions of a trip and exposes a PDF export route.
+- Connects the planning runtime to configurable travel and AI providers.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    UI[Next.js interface] --> API[FastAPI routes]
+    UI --> Auth[Supabase Auth]
+    API --> Planner[LangGraph planning runtime]
+    API --> DB[(PostgreSQL)]
+    Planner --> Providers[AI and travel providers]
+    API --> Brochure[Brochure snapshots and PDF rendering]
+```
+
+The conversation, structured draft, and brochure versions share a trip identity. This lets the planner update a working draft while keeping saved brochure snapshots separately. SQLAlchemy handles application persistence; Alembic versions the schema.
+
+The repository separates API routes, services, repositories, and schemas in the backend. The frontend keeps typed API clients under `src/lib/api/`, alongside trip, draft, and brochure types.
+
+## Current status
+
+Wandrix is an evolving application. The public website is available; saved planning work requires authentication. Running the complete workflow locally also requires database and provider configuration. Provider coverage and results depend on the credentials enabled for that environment.
+
 ## Stack
 
 - Next.js frontend
