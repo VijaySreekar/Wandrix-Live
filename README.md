@@ -1,8 +1,6 @@
 # Wandrix
 
-Wandrix is a conversation-first AI travel planner. The product centers on a
-chat workspace for planning trips, a live structured trip board, and a polished
-brochure-style output that can be saved or exported.
+Wandrix is an AI travel planner with a chat workspace, an editable trip board, and saved trip brochures. Plan a trip in conversation, adjust the details on the board, and export a brochure as a PDF.
 
 [Visit Wandrix](https://www.wandrix.app/) · [Architecture](#architecture) · [Run locally](#local-setup)
 
@@ -35,7 +33,7 @@ The repository separates API routes, services, repositories, and schemas in the 
 
 ## Current status
 
-Wandrix is an evolving application. The public website is available; saved planning work requires authentication. Running the complete workflow locally also requires database and provider configuration. Provider coverage and results depend on the credentials enabled for that environment.
+Wandrix is in development. The website is live, and saving trips requires signing in. To run it locally, configure the database and the AI and travel providers you want to use.
 
 ## Stack
 
@@ -128,8 +126,7 @@ The frontend runs at `http://localhost:3000`.
 
 ## Docker Setup
 
-Docker is optional, but it gives reviewers a single-command way to run the app
-once `.env` is configured.
+You can also run the frontend and backend with Docker after configuring `.env`.
 
 ```bash
 cp .env.example .env
